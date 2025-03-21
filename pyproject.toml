@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[project]
+name = "seqjax"
+version = "0.0.1"
+authors = [
+  { name="Tennessee Hickling", email="tennessee.hickling@bayesianshift.co.uk" },
+]
+description = "A jax package for expressing sequential models."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
