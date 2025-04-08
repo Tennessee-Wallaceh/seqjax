@@ -6,7 +6,9 @@ from seqjax.target.base import (
     Observation,
     Condition,
     Parameters,
+    HyperParameters,
     Transition,
+    ParameterPrior,
     Prior,
     Emission,
 )
@@ -29,6 +31,25 @@ class ARParameters(Parameters):
 
 class NoisyObservation(Observation):
     y: Scalar
+
+
+class HalfCauchyStds(ParameterPrior[ARParameters, HyperParameters]):
+    @staticmethod
+    def sample(key, hyperparameters):
+        ar_key, o_std_key, t_std_key = jrandom.split(key, 3)
+        return ARParameters(
+            ar=jrandom.uniform(ar_key, minval=-1, maxval=1),
+            observation_std=jnp.abs(jrandom.cauchy(o_std_key)),
+            transition_std=jnp.abs(jrandom.cauchy(t_std_key)),
+        )
+
+    @staticmethod
+    def log_p(parameteters, hyperparameters):
+        log_p_theta = jstats.uniform.logpdf(parameteters.ar, loc=-1.0, scale=2.0)
+        log_2 = jnp.log(jnp.array(2.0))
+        log_p_theta += jstats.cauchy.logpdf(parameteters.observation_std) + log_2
+        log_p_theta += jstats.cauchy.logpdf(parameteters.transition_std) + log_2
+        return log_p_theta
 
 
 class InitialValue(Prior[LatentValue, ARParameters]):

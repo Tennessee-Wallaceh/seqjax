@@ -33,26 +33,26 @@ class Condition(struct.PyTreeNode): ...
 class Parameters(struct.PyTreeNode): ...
 
 
+class HyperParameters(struct.PyTreeNode): ...
+
+
 ParticleType = TypeVar("ParticleType", bound=Particle)
 ObservationType = TypeVar("ObservationType", bound=Observation)
 ConditionType = TypeVar("ConditionType", bound=Condition)
 ParametersType = TypeVar("ParametersType", bound=Parameters)
+HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters)
 
 
-def vectorize_type(base_type: Type[Any], **dims) -> Type[Any]:
-    # Create a new type with modified field annotations
-    annotations = get_type_hints(base_type)
-    new_annotations = {
-        field: Float[Array, *dims.get(field, (...,))]  # Add dimensions dynamically
-        for field, t in annotations.items()
-    }
+class ParameterPrior(Protocol, Generic[ParametersType, HyperParametersType]):
+    @staticmethod
+    def sample(
+        key: PRNGKeyArray, hyperparameters: ParametersType
+    ) -> ParametersType: ...
 
-    # Use `type` to dynamically create a new class type
-    return type(
-        f"Vectorized{base_type.__name__}",
-        (base_type,),
-        {"__annotations__": new_annotations},
-    )
+    @staticmethod
+    def log_p(
+        parameters: ParametersType, hyperparameters: HyperParametersType
+    ) -> Scalar: ...
 
 
 class Prior(Protocol, Generic[ParticleType, ParametersType]):
