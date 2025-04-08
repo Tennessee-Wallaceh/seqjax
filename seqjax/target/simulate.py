@@ -1,21 +1,26 @@
-from typing import NamedTuple, TypeVar, Protocol, Generic, Optional
-from jaxtyping import Array, Float, PRNGKeyArray
-import jax.random as jrandom
-from seqjax.target.base import Target, Particle, Observation, Condition, Hyperparameters
-
 import jax
 import jax.numpy as jnp
+import jax.random as jrandom
+from jaxtyping import PRNGKeyArray, PyTree
+
+from seqjax.target.base import (
+    Target,
+    ParticleType,
+    ObservationType,
+    ConditionType,
+    HyperparametersType,
+)
 
 
 def simulate(
     key: PRNGKeyArray,
-    target: Target[Particle, Observation, Condition, Hyperparameters],
-    condition: Condition,
-    hyperparameters: Hyperparameters,
+    target: Target[ParticleType, ConditionType, ObservationType, HyperparametersType],
+    condition: PyTree[ConditionType, "num_steps"],
+    hyperparameters: HyperparametersType,
     num_steps: int,
 ):
     init_key, *step_keys = jrandom.split(key, num_steps + 1)
-    x_0 = target.sample_prior(init_key, hyperparameters)
+    x_0 = target.prior.sample(init_key, hyperparameters)
     reference_emission = target.reference_emission(hyperparameters)
 
     def step(state, inputs):
@@ -28,10 +33,10 @@ def simulate(
 
         transition_key, emission_key = jrandom.split(step_key)
 
-        next_particle = target.sample_transition(
+        next_particle = target.transition.sample(
             transition_key, particle, condition, hyperparameters
         )
-        emission = target.sample_emission(
+        emission = target.emission.sample(
             emission_key, next_particle, condition, hyperparameters
         )
         return (next_particle, emission), (next_particle, emission, condition)
