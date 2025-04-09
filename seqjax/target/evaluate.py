@@ -18,7 +18,7 @@ def log_p_x(
     condition: PyTree[ConditionType, "num_steps"],
     parameters: ParametersType,
 ) -> Scalar:
-    num_steps = pytree_shape(x_path)
+    num_steps = pytree_shape(x_path)[0]
     particle = slice_pytree(x_path, 0, num_steps - 1)
     next_particle = slice_pytree(x_path, 1, num_steps)
     transition_condition = slice_pytree(condition, 1, num_steps)

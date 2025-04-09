@@ -1,5 +1,7 @@
 from typing import TypeVar, Protocol, Generic, Optional
 
+import jax
+import jax.numpy as jnp
 from flax import struct
 from jaxtyping import PRNGKeyArray, Scalar, Float, Array
 from typing import Type, Any, get_type_hints
@@ -21,20 +23,32 @@ from typing import Type, Any, get_type_hints
 # So the abstraction is not perfect, but ok for now.
 
 
-class Particle(struct.PyTreeNode): ...
+class Particle(struct.PyTreeNode):
+    def as_array(self):
+        return jnp.dstack([jnp.expand_dims(l, -1) for l in jax.tree_leaves(self)])
+
+    @classmethod
+    def from_array(cls, x):
+        x_dims = (jnp.squeeze(x_dim) for x_dim in jnp.split(x, x.shape[-1], axis=-1))
+        return cls(*x_dims)
+    
+class Observation(struct.PyTreeNode):
+    def as_array(self):
+        return jnp.dstack([jnp.expand_dims(l, -1) for l in jax.tree_leaves(self)])
 
 
-class Observation(struct.PyTreeNode): ...
+class Condition(struct.PyTreeNode):
+    def as_array(self):
+        return jnp.dstack([jnp.expand_dims(l, -1) for l in jax.tree_leaves(self)])
 
 
-class Condition(struct.PyTreeNode): ...
-
-
-class Parameters(struct.PyTreeNode): ...
+class Parameters(struct.PyTreeNode):
+    def as_array(self):
+        return jnp.dstack([jnp.expand_dims(l, -1) for l in jax.tree_leaves(self)])
 
 
 class HyperParameters(struct.PyTreeNode): ...
-
+    
 
 ParticleType = TypeVar("ParticleType", bound=Particle)
 ObservationType = TypeVar("ObservationType", bound=Observation)
@@ -108,6 +122,7 @@ class Emission(
 class Target(
     Protocol, Generic[ParticleType, ConditionType, ObservationType, ParametersType]
 ):
+    particle_type: Type[ParticleType]
     prior: Prior[ParticleType, ParametersType]
     transition: Transition[ParticleType, ConditionType, ParametersType]
     emission: Emission[ParticleType, ConditionType, ObservationType, ParametersType]

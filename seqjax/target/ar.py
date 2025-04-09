@@ -95,3 +95,10 @@ class AREmission(Emission[LatentValue, Condition, NoisyObservation, ARParameters
             loc=particle.x,
             scale=parameters.observation_std,
         )
+    
+
+class AR1Target(Target[LatentValue, Condition, NoisyObservation, ARParameters]):
+    particle_type = LatentValue
+    prior = InitialValue
+    transition= ARRandomWalk
+    emission=AREmission
