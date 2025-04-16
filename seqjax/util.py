@@ -25,4 +25,5 @@ def slice_pytree(tree, *slice):
 
 def pytree_shape(tree):
     # assumes tree is matched and all leaves are arrays
-    return jax.tree_leaves(jax.tree_map(lambda t: t.shape, tree))[0]
+    leaf_shapes = jax.tree_leaves(jax.tree_map(lambda t: t.shape, tree))
+    return leaf_shapes[0], len(leaf_shapes)

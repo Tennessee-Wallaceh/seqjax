@@ -10,7 +10,7 @@ from seqjax.target.base import (
     Particle,
     Observation,
     Condition,
-    Hyperparameters,
+    Parameters,
     Transition,
     Prior,
     Emission,
@@ -28,7 +28,7 @@ class LatentVol(Particle):
 
 
 # hyper parameters
-class LogVolRW(Hyperparameters):
+class LogVolRW(Parameters):
     std_log_vol: Scalar
 
     # initial values
@@ -37,7 +37,7 @@ class LogVolRW(Hyperparameters):
     initial_max_vol: Scalar
 
 
-class LogVolWithSkew(Hyperparameters):
+class LogVolWithSkew(Parameters):
     std_log_vol: Scalar
     mean_reversion: Scalar
     long_term_log_vol: Scalar
@@ -66,23 +66,21 @@ class LastUnderlying(Condition):
 
 class UniformStart(Prior[LatentVol, LogVolRandomWalks]):
     @staticmethod
-    def sample(key: PRNGKeyArray, hyperparameters: LogVolRandomWalks) -> LatentVol:
+    def sample(key: PRNGKeyArray, parameters: LogVolRandomWalks) -> LatentVol:
         vol = jrandom.uniform(
             key,
-            minval=hyperparameters.initial_min_vol,
-            maxval=hyperparameters.initial_max_vol,
+            minval=parameters.initial_min_vol,
+            maxval=parameters.initial_max_vol,
         )
         return LatentVol(last_log_vol=jnp.log(vol), current_log_vol=jnp.log(vol))
 
     @staticmethod
-    def log_p(particle: LatentVol, hyperparameters: LogVolRandomWalks) -> Scalar:
+    def log_p(particle: LatentVol, parameters: LogVolRandomWalks) -> Scalar:
         # re-parameterization
-        uniform_width = (
-            hyperparameters.initial_max_vol - hyperparameters.initial_min_vol
-        )
+        uniform_width = parameters.initial_max_vol - parameters.initial_min_vol
         base_log_p = jstats.uniform.logpdf(
             jnp.exp(particle.last_log_vol),
-            loc=hyperparameters.initial_min_vol,
+            loc=parameters.initial_min_vol,
             scale=uniform_width,
         )
         log_jac_term = particle.last_log_vol
@@ -95,10 +93,10 @@ class RandomWalk(Transition[LatentVol, LastUnderlying, LogVolRW]):
         key: PRNGKeyArray,
         particle: LatentVol,
         condition: LastUnderlying,
-        hyperparameters: LogVolRW,
+        parameters: LogVolRW,
     ) -> LatentVol:
-        move_scale = jnp.sqrt(condition.dt) * hyperparameters.std_log_vol
-        adjustment = -0.5 * condition.dt * hyperparameters.std_log_vol**2
+        move_scale = jnp.sqrt(condition.dt) * parameters.std_log_vol
+        adjustment = -0.5 * condition.dt * parameters.std_log_vol**2
         next_log_vol = (
             particle.current_log_vol + adjustment + jrandom.normal(key) * move_scale
         )
@@ -111,10 +109,10 @@ class RandomWalk(Transition[LatentVol, LastUnderlying, LogVolRW]):
         particle: LatentVol,
         next_particle: LatentVol,
         condition: LastUnderlying,
-        hyperparameters: LogVolRW,
+        parameters: LogVolRW,
     ) -> Scalar:
-        move_scale = jnp.sqrt(condition.dt) * hyperparameters.std_log_vol
-        adjustment = -0.5 * condition.dt * hyperparameters.std_log_vol**2
+        move_scale = jnp.sqrt(condition.dt) * parameters.std_log_vol
+        adjustment = -0.5 * condition.dt * parameters.std_log_vol**2
         return jstats.norm.logpdf(
             next_particle.current_log_vol + adjustment,
             loc=particle.current_log_vol,
@@ -132,17 +130,17 @@ class SkewRandomWalk(Transition[LatentVol, LastUnderlying, LogVolWithSkew]):
         key: PRNGKeyArray,
         particle: LatentVol,
         condition: LastUnderlying,
-        hyperparameters: LogVolWithSkew,
+        parameters: LogVolWithSkew,
     ) -> LatentVol:
         dt = condition.dt
         eps_log_vol = jrandom.normal(key)
 
         log_vol_mean = particle.current_log_vol + dt * (
-            hyperparameters.mean_reversion
-            * (hyperparameters.long_term_log_vol - particle.current_log_vol)
+            parameters.mean_reversion
+            * (parameters.long_term_log_vol - particle.current_log_vol)
         )
 
-        noise = hyperparameters.std_log_vol * jnp.sqrt(dt) * eps_log_vol
+        noise = parameters.std_log_vol * jnp.sqrt(dt) * eps_log_vol
         next_log_vol = log_vol_mean + noise
 
         return LatentVol(
@@ -155,20 +153,20 @@ class SkewRandomWalk(Transition[LatentVol, LastUnderlying, LogVolWithSkew]):
         particle: LatentVol,
         next_particle: LatentVol,
         condition: LastUnderlying,
-        hyperparameters: LogVolWithSkew,
+        parameters: LogVolWithSkew,
     ) -> Scalar:
         dt = condition.dt
 
         log_vol_mean = particle.current_log_vol + dt * (
-            hyperparameters.mean_reversion
-            * (hyperparameters.long_term_log_vol - particle.current_log_vol)
+            parameters.mean_reversion
+            * (parameters.long_term_log_vol - particle.current_log_vol)
         )
 
         # next_particle.last_log_vol == particle.current_log_vol
         return jstats.norm.logpdf(
             next_particle.current_log_vol,
             loc=log_vol_mean,
-            scale=hyperparameters.std_log_vol * jnp.sqrt(dt),
+            scale=parameters.std_log_vol * jnp.sqrt(dt),
         )
 
 
@@ -178,7 +176,7 @@ class LogReturn(Emission[LatentVol, LastUnderlying, Underlying, LogVolWithSkew])
         key: PRNGKeyArray,
         particle: LatentVol,
         condition: LastUnderlying,
-        hyperparameters: LogVolRW,
+        parameters: LogVolRW,
     ) -> Underlying:
         return_scale = jnp.sqrt(condition.dt) * jnp.exp(particle.last_log_vol)
         log_return = jrandom.normal(key) * return_scale
@@ -189,7 +187,7 @@ class LogReturn(Emission[LatentVol, LastUnderlying, Underlying, LogVolWithSkew])
         particle: LatentVol,
         observation: Underlying,
         condition: LastUnderlying,
-        hyperparameters: LogVolRW,
+        parameters: LogVolRW,
     ):
         return_scale = jnp.sqrt(condition.dt) * jnp.exp(particle.last_log_vol)
         log_return = jnp.log(observation.underlying) - jnp.log(
@@ -203,7 +201,7 @@ class SkewLogReturn(Emission[LatentVol, LastUnderlying, Underlying, LogVolWithSk
     def return_mean_and_scale(
         particle: LatentVol,
         condition: LastUnderlying,
-        hyperparameters: LogVolWithSkew,
+        parameters: LogVolWithSkew,
     ) -> tuple[Scalar, Scalar]:
         dt = condition.dt
 
@@ -211,18 +209,18 @@ class SkewLogReturn(Emission[LatentVol, LastUnderlying, Underlying, LogVolWithSk
         last_var = jnp.exp(2 * particle.last_log_vol)
 
         log_vol_mean = particle.last_log_vol + dt * (
-            hyperparameters.mean_reversion
-            * (hyperparameters.long_term_log_vol - particle.last_log_vol)
+            parameters.mean_reversion
+            * (parameters.long_term_log_vol - particle.last_log_vol)
         )
 
         return_mean = -0.5 * dt * last_var
         return_mean -= (
-            hyperparameters.skew
-            * (last_vol / hyperparameters.std_log_vol)
+            parameters.skew
+            * (last_vol / parameters.std_log_vol)
             * (particle.current_log_vol - log_vol_mean)
         )
 
-        return_scale = jnp.sqrt(condition.dt) * last_vol * (1 - hyperparameters.skew**2)
+        return_scale = jnp.sqrt(condition.dt) * last_vol * (1 - parameters.skew**2)
 
         return return_mean, return_scale
 
@@ -231,11 +229,11 @@ class SkewLogReturn(Emission[LatentVol, LastUnderlying, Underlying, LogVolWithSk
         key: PRNGKeyArray,
         particle: LatentVol,
         condition: LastUnderlying,
-        hyperparameters: LogVolWithSkew,
+        parameters: LogVolWithSkew,
     ) -> Underlying:
 
         return_mean, return_scale = SkewLogReturn.return_mean_and_scale(
-            particle, condition, hyperparameters
+            particle, condition, parameters
         )
 
         log_return = jrandom.normal(key) * return_scale + return_mean
@@ -247,10 +245,10 @@ class SkewLogReturn(Emission[LatentVol, LastUnderlying, Underlying, LogVolWithSk
         particle: LatentVol,
         observation: Underlying,
         condition: LastUnderlying,
-        hyperparameters: LogVolWithSkew,
+        parameters: LogVolWithSkew,
     ) -> Scalar:
         return_mean, return_scale = SkewLogReturn.return_mean_and_scale(
-            particle, condition, hyperparameters
+            particle, condition, parameters
         )
 
         log_return = jnp.log(observation.underlying) - jnp.log(
@@ -269,7 +267,7 @@ class SimpleStochasticVol(Target[LatentVol, LastUnderlying, Underlying, LogVolRW
     def emission_to_condition(
         observation: Underlying,
         condition: LastUnderlying,
-        hyperparameters: LogVolRW,
+        parameters: LogVolRW,
     ):
         return LastUnderlying(
             dt=condition.dt,
@@ -277,8 +275,8 @@ class SimpleStochasticVol(Target[LatentVol, LastUnderlying, Underlying, LogVolRW
         )
 
     @staticmethod
-    def reference_emission(hyperparameters: LogVolRW):
-        return Underlying(underlying=hyperparameters.initial_underlying)
+    def reference_emission(parameters: LogVolRW):
+        return Underlying(underlying=parameters.initial_underlying)
 
 
 class SkewStochasticVol(Target[LatentVol, LastUnderlying, Underlying, LogVolWithSkew]):
@@ -290,7 +288,7 @@ class SkewStochasticVol(Target[LatentVol, LastUnderlying, Underlying, LogVolWith
     def emission_to_condition(
         observation: Underlying,
         condition: LastUnderlying,
-        hyperparameters: LogVolRW,
+        parameters: LogVolRW,
     ):
         return LastUnderlying(
             dt=condition.dt,
@@ -298,5 +296,5 @@ class SkewStochasticVol(Target[LatentVol, LastUnderlying, Underlying, LogVolWith
         )
 
     @staticmethod
-    def reference_emission(hyperparameters: LogVolWithSkew):
-        return Underlying(underlying=hyperparameters.initial_underlying)
+    def reference_emission(parameters: LogVolWithSkew):
+        return Underlying(underlying=parameters.initial_underlying)
