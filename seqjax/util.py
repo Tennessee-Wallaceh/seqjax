@@ -1,6 +1,6 @@
 import jax
 from functools import partial
-
+import jax.numpy as jnp
 
 def index_pytree(tree, index):
     if isinstance(index, int):
@@ -13,6 +13,15 @@ def index_pytree(tree, index):
 
     return jax.tree_util.tree_map(take_index, tree)
 
+def index_pytree_in_dim(tree, index, dim):
+
+    def take_index(tree):
+        return jax.lax.index_in_dim(
+            tree, index, axis=dim, keepdims=False
+        )
+    
+    return jax.tree_util.tree_map(take_index, tree)
+
 
 def slice_pytree(tree, *slice):
     start_index, limit_index = slice
@@ -22,8 +31,46 @@ def slice_pytree(tree, *slice):
         tree,
     )
 
+def promote_scalar_to_vector(x):
+    if isinstance(x, jnp.ndarray) and x.ndim == 0:
+        return jnp.expand_dims(x, axis=0)
+    return x
+
+def concat_pytree(*trees, axis=0):
+    promoted_trees = [
+        jax.tree_util.tree_map(promote_scalar_to_vector, tree)
+        for tree in trees
+    ]
+    
+    return jax.tree_util.tree_map(
+        lambda *leaves: jax.lax.concatenate(leaves, dimension=axis),
+        *promoted_trees
+    )
 
 def pytree_shape(tree):
     # assumes tree is matched and all leaves are arrays
     leaf_shapes = jax.tree_leaves(jax.tree_map(lambda t: t.shape, tree))
     return leaf_shapes[0], len(leaf_shapes)
+
+def broadcast_pytree(tree, target_shape):
+    def _broadcast(x):
+        x = jnp.asarray(x)
+        if x.shape == target_shape:
+            return x
+        elif x.shape == ():  # scalar
+            return jnp.broadcast_to(x, target_shape)
+        else:
+            raise ValueError(f"Expected shape {target_shape} or (), got {x.shape}")
+    
+    return jax.tree_util.tree_map(_broadcast, tree)
+
+def infer_pytree_shape(pytree):
+    leaves, _ = jax.tree_flatten(pytree)
+
+    shape = ()
+    for x in leaves:
+        if jnp.shape(x) != ():
+            shape = jnp.shape(x)
+            break
+        
+    return shape
