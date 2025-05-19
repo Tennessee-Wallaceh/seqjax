@@ -12,7 +12,6 @@ from seqjax.model.base import (
 
 
 # TODO: is this use of PyTree correct?
-# annotation is wrong here, since x_path can be longer than sequence length
 def log_p_x(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
     x_path: PyTree[ParticleType, "sequence_length"],
@@ -29,14 +28,19 @@ def log_p_x(
     sequence_start = target.prior.order - 1
     sequence_length = pytree_shape(x_path)[0] - sequence_start
 
+    # compute prior
     prior_particles = tuple(
         index_pytree(x_path, i)
         for i in range(target.prior.order)
     )
-    prior_conditions = tuple(index_pytree(condition, ix) for ix in range(target.prior.order))
+    prior_conditions = tuple(
+        index_pytree(condition, i) 
+        for i in range(target.prior.order)
+    )
 
     log_p_x_0 = target.prior.log_p(prior_particles, prior_conditions, parameters)
 
+    # rest of sequence
     particle_history = tuple(
         slice_pytree(
             x_path, 
@@ -45,13 +49,21 @@ def log_p_x(
         )
         for i in range(-target.transition.order, 0)
     )
-
-    target_particle = slice_pytree(x_path, sequence_start + 1, sequence_start + sequence_length)
+    target_particle = slice_pytree(
+        x_path, 
+        sequence_start + 1, 
+        sequence_start + sequence_length
+    )
+    transition_condition = slice_pytree(condition, sequence_start, sequence_length)
 
     transition_log_p_x = jax.vmap(target.transition.log_p, in_axes=[0, 0, 0, None])(
-        particle_history, target_particle, slice_pytree(condition, sequence_start, sequence_length), parameters
-    )
-    return (log_p_x_0 + transition_log_p_x.sum()).sum()
+        particle_history, 
+        target_particle, 
+        transition_condition, 
+        parameters
+    ).sum()
+
+    return (log_p_x_0 + transition_log_p_x).sum()
 
 
 def log_p_x_noncentered(

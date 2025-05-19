@@ -22,6 +22,15 @@ def index_pytree_in_dim(tree, index, dim):
     
     return jax.tree_util.tree_map(take_index, tree)
 
+def dynamic_index_pytree_in_dim(tree, index, dim):
+
+    def take_index(tree):
+        return jax.lax.dynamic_index_in_dim(
+            tree, index, axis=dim, keepdims=False
+        )
+    
+    return jax.tree_util.tree_map(take_index, tree)
+
 
 def slice_pytree(tree, *slice):
     start_index, limit_index = slice
