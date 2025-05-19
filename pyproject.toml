@@ -21,7 +21,7 @@ license-files = ["LICEN[CS]E*"]
 
 dependencies = [
     "jax>=0.5.2",
-    "flax>=0.10.4",
+    "equinox>=0.12.1",
     "jaxtyping>=0.2.38",
 ]
 
