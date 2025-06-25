@@ -1,22 +1,13 @@
-from typing import Generic, Callable, Any
+from typing import Generic
 from abc import abstractmethod
-
-import jax
-import jax.numpy as jnp
 import equinox as eqx
 from jaxtyping import PRNGKeyArray, Scalar
-from typing import Tuple
-from .typing import (
+from seqjax.model.typing import (
     EnforceInterface,
-    Parameters,
     ParametersType,
-    Particle,
     ParticleType,
-    Observation,
     ObservationType,
-    Condition,
     ConditionType,
-    HyperParameters,
     HyperParametersType,
 )
 
@@ -74,15 +65,15 @@ class Prior(
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: Tuple[ConditionType, ...],
+        conditions: tuple[ConditionType, ...],
         parameters: ParametersType,
-    ) -> Tuple[ParticleType, ...]: ...
+    ) -> tuple[ParticleType, ...]: ...
 
     @staticmethod
     @abstractmethod
     def log_p(
-        particle: Tuple[ParticleType, ...],
-        conditions: Tuple[ConditionType, ...],
+        particle: tuple[ParticleType, ...],
+        conditions: tuple[ConditionType, ...],
         parameters: ParametersType,
     ) -> Scalar: ...
 
@@ -96,7 +87,7 @@ class Transition(
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        particle_history: Tuple[ParticleType, ...],
+        particle_history: tuple[ParticleType, ...],
         condition: ConditionType,
         parameters: ParametersType,
     ) -> ParticleType: ...
@@ -104,7 +95,7 @@ class Transition(
     @staticmethod
     @abstractmethod
     def log_p(
-        particle_history: Tuple[ParticleType, ...],
+        particle_history: tuple[ParticleType, ...],
         particle: ParticleType,
         condition: ConditionType,
         parameters: ParametersType,
@@ -123,8 +114,8 @@ class Emission(
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        particle: Tuple[ParticleType, ...],
-        observation_history: Tuple[ObservationType, ...],
+        particle: tuple[ParticleType, ...],
+        observation_history: tuple[ObservationType, ...],
         condition: ConditionType,
         parameters: ParametersType,
     ) -> ObservationType: ...
@@ -132,8 +123,8 @@ class Emission(
     @staticmethod
     @abstractmethod
     def log_p(
-        particle: Tuple[ParticleType, ...],
-        observation_history: Tuple[ObservationType, ...],
+        particle: tuple[ParticleType, ...],
+        observation_history: tuple[ObservationType, ...],
         observation: ObservationType,
         condition: ConditionType,
         parameters: ParametersType,
