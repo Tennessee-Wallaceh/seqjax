@@ -32,11 +32,15 @@ def dynamic_index_pytree_in_dim(tree, index, dim):
     return jax.tree_util.tree_map(take_index, tree)
 
 
-def slice_pytree(tree, *slice):
-    start_index, limit_index = slice
-
+def slice_pytree(tree, start_index, limit_index, dim=0):
     return jax.tree_util.tree_map(
-        partial(jax.lax.slice_in_dim, start_index=start_index, limit_index=limit_index),
+        partial(jax.lax.slice_in_dim, start_index=start_index, limit_index=limit_index, axis=dim),
+        tree,
+    )
+
+def dynamic_slice_pytree(tree, start_index, limit_index, dim=0):
+    return jax.tree_util.tree_map(
+        partial(jax.lax.dynamic_slice_in_dim, start_index=start_index, limit_index=limit_index, axis=dim),
         tree,
     )
 
@@ -58,7 +62,7 @@ def concat_pytree(*trees, axis=0):
 
 def pytree_shape(tree):
     # assumes tree is matched and all leaves are arrays
-    leaf_shapes = jax.tree_leaves(jax.tree_map(lambda t: t.shape, tree))
+    leaf_shapes = jax.tree.leaves(jax.tree_util.tree_map(lambda t: t.shape, tree))
     return leaf_shapes[0], len(leaf_shapes)
 
 def broadcast_pytree(tree, target_shape):
@@ -74,7 +78,7 @@ def broadcast_pytree(tree, target_shape):
     return jax.tree_util.tree_map(_broadcast, tree)
 
 def infer_pytree_shape(pytree):
-    leaves, _ = jax.tree_flatten(pytree)
+    leaves, _ = jax.tree_util.tree_flatten(pytree)
 
     shape = ()
     for x in leaves:
