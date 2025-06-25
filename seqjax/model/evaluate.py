@@ -10,12 +10,10 @@ from seqjax.model.base import (
     ParametersType,
 )
 
-
-# TODO: is this use of PyTree correct?
 def log_p_x(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
-    x_path: PyTree[ParticleType, "sequence_length"],
-    condition: PyTree[ConditionType, "sequence_length"],
+    x_path: ParticleType,
+    condition: ConditionType,
     parameters: ParametersType,
 ) -> Scalar:
     """
