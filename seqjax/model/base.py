@@ -8,11 +8,16 @@ from jaxtyping import PRNGKeyArray, Scalar
 from typing import Tuple
 from .typing import (
     EnforceInterface,
-    Parameters, ParametersType,
-    Particle, ParticleType,
-    Observation, ObservationType,
-    Condition, ConditionType,
-    HyperParameters, HyperParametersType,
+    Parameters,
+    ParametersType,
+    Particle,
+    ParticleType,
+    Observation,
+    ObservationType,
+    Condition,
+    ConditionType,
+    HyperParameters,
+    HyperParametersType,
 )
 
 """
@@ -30,10 +35,12 @@ Notes:
 # Particle, Emission etc.
 # Prior, Transition, Emission give additional levels of grouping, since in practice these will always be paired.
 
+
 class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
     """
     Parameter prior specified as utility for specifying Bayesian models.
     """
+
     # @staticmethod
     # @abstractmethod
     # def sample(
@@ -47,7 +54,9 @@ class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
     ) -> Scalar: ...
 
 
-class Prior(eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface):
+class Prior(
+    eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface
+):
     """
     Prior must define density + sampling up to the start state t=0.
     As such it receives conditions up to t=0, length corresponding to order.
@@ -58,18 +67,29 @@ class Prior(eqx.Module, Generic[ParticleType, ConditionType, ParametersType], En
     Even if the transition is (x_t1,) -> x_t2, if emission is (x_t1, x_t2) -> y_t2 then
     the prior must specify p(x_t-1, x_t0), so that p(y_t0 | x_t-1, x_t0) can be evaluated.
     """
-    order: eqx.AbstractClassVar[int] # 1 + max(Transition.order - 1, Emission.order)
+
+    order: eqx.AbstractClassVar[int]  # 1 + max(Transition.order - 1, Emission.order)
 
     @staticmethod
     @abstractmethod
-    def sample(key: PRNGKeyArray, conditions: Tuple[ConditionType, ...], parameters: ParametersType) -> Tuple[ParticleType, ...]: ...
+    def sample(
+        key: PRNGKeyArray,
+        conditions: Tuple[ConditionType, ...],
+        parameters: ParametersType,
+    ) -> Tuple[ParticleType, ...]: ...
 
     @staticmethod
     @abstractmethod
-    def log_p(particle: Tuple[ParticleType, ...], conditions: Tuple[ConditionType, ...], parameters: ParametersType) -> Scalar: ...
+    def log_p(
+        particle: Tuple[ParticleType, ...],
+        conditions: Tuple[ConditionType, ...],
+        parameters: ParametersType,
+    ) -> Scalar: ...
 
-    
-class Transition(eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface):
+
+class Transition(
+    eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface
+):
     order: eqx.AbstractClassVar[int]
 
     @staticmethod
@@ -92,7 +112,9 @@ class Transition(eqx.Module, Generic[ParticleType, ConditionType, ParametersType
 
 
 class Emission(
-    eqx.Module, Generic[ParticleType, ObservationType, ConditionType, ParametersType], EnforceInterface
+    eqx.Module,
+    Generic[ParticleType, ObservationType, ConditionType, ParametersType],
+    EnforceInterface,
 ):
     order: eqx.AbstractClassVar[int]
     observation_dependency: eqx.AbstractClassVar[int]
@@ -118,16 +140,14 @@ class Emission(
     ) -> Scalar: ...
 
 
-class Target(
-    Generic[ParticleType, ObservationType, ConditionType, ParametersType]
-):
+class Target(Generic[ParticleType, ObservationType, ConditionType, ParametersType]):
     prior: Prior[ParticleType, ConditionType, ParametersType]
     transition: Transition[ParticleType, ConditionType, ParametersType]
     emission: Emission[ParticleType, ObservationType, ConditionType, ParametersType]
 
     def additional_length(self, sequence_length):
         return self.prior.order - 1 + sequence_length
-    
+
     def __post__init__(self):
-        #TODO: check order compatability + raise informative errors
+        # TODO: check order compatability + raise informative errors
         pass

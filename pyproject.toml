@@ -33,3 +33,6 @@ dev = [
     "pre-commit",
     "matplotlib",
 ]
+
+[tool.ruff.lint]
+select = ["ALL"]
