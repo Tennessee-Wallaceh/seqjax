@@ -1,13 +1,10 @@
-import typing
-import inspect
-import jax.numpy as jnp
-import equinox as eqx
-import jax
-
 """
-Suprisingly, Python ABCs ensure that an abstract method is implemented, 
+Builds out typing infrastructure for the package.
+The key idea is to define a data containers as eqx.Modules, then keep track of the batch dimensions via haliax.
+
+Python ABCs ensure that an abstract method is implemented,
 but they don't enforce matching type signature.
-To get around this we can use runtime checks to ensure that concrete classes have the 
+To get around this we can use runtime checks to ensure that concrete classes have the
 correct signatures.
 We can do this by making the base classes metaclasses, using __init__subclass__ to run checks and ensure:
 - all methods are staticmethods (~pure)
@@ -15,33 +12,44 @@ We can do this by making the base classes metaclasses, using __init__subclass__ 
 - that the implementation signatures match order rules
 """
 
-
-class Particle(eqx.Module):
-    def as_array(self):
-        return jnp.dstack(
-            [jnp.expand_dims(l, -1) for l in jax.tree_util.tree_leaves(self)]
-        )
-
-    @classmethod
-    def from_array(cls, x):
-        x_dims = (
-            jnp.squeeze(x_dim, -1) for x_dim in jnp.split(x, x.shape[-1], axis=-1)
-        )
-        return cls(*x_dims)
+import typing
+import inspect
+import jax.numpy as jnp
+import equinox as eqx
+import jax
+from dataclasses import dataclass, replace, fields
+from typing import Generic, Union
+import haliax as hax
 
 
-class Observation(eqx.Module):
-    def as_array(self):
-        return jnp.dstack(
-            [jnp.expand_dims(l, -1) for l in jax.tree_util.tree_leaves(self)]
-        )
+class _Struct(eqx.Module):
+    def __init_subclass__(cls):
+        for field_name, _ in cls.__annotations__.items():
+            if not field_name.startswith("_") and not hasattr(
+                cls, f"_spec_{field_name}"
+            ):
+                raise TypeError(
+                    f"Particle subclass '{cls.__name__}' is missing axis spec: _spec_{field_name}"
+                )
+
+    @property
+    def attributes(self) -> tuple[str, ...]:
+        return tuple(name for name in self.__annotations__ if not name.startswith("_"))
+
+    def get_spec(self, attribute) -> hax.Axis:
+        return getattr(self, f"_spec_{attribute}")
 
 
-class Condition(eqx.Module):
-    def as_array(self):
-        return jnp.dstack(
-            [jnp.expand_dims(l, -1) for l in jax.tree_util.tree_leaves(self)]
-        )
+class Particle(_Struct):
+    pass
+
+
+class Observation(_Struct):
+    pass
+
+
+class Condition(_Struct):
+    pass
 
 
 class Parameters(eqx.Module):
@@ -61,6 +69,60 @@ ObservationType = typing.TypeVar("ObservationType", bound=Observation)
 ConditionType = typing.TypeVar("ConditionType", bound=Condition)
 ParametersType = typing.TypeVar("ParametersType", bound=Parameters, contravariant=True)
 HyperParametersType = typing.TypeVar("HyperParametersType", bound=HyperParameters)
+BatchAxes = typing.TypeVar("BatchAxes", bound=tuple[hax.Axis, ...])
+Batchable = typing.TypeVar("Batchable", bound=Union[Condition, Particle, Observation])
+
+PathAxis = typing.TypeVar("PathAxis", bound=hax.Axis)
+
+
+def infer_batch_axes(obj: _Struct) -> BatchAxes:
+    axes = None
+    for field in fields(obj):
+        if field.name.startswith("_"):
+            continue
+        val = getattr(obj, field.name)
+        if not isinstance(val, hax.NamedArray):
+            continue
+        spec = getattr(obj, f"_spec_{field.name}", ())
+        if not isinstance(spec, tuple):
+            spec = (spec,)
+        batch_axes = val.axes[: len(val.axes) - len(spec)]
+        if axes is None:
+            axes = batch_axes
+        elif axes != batch_axes:
+            raise ValueError(f"Inconsistent batch axes: {axes} vs {batch_axes}")
+    if axes is None:
+        raise ValueError("No NamedArray fields found")
+    return axes
+
+
+@dataclass
+class Batched(Generic[Batchable, BatchAxes]):
+    """A wrapper that adds shared leading axes to a structured particle.
+
+    `Batched` represents a particle type whose fields are individually structured
+    with named axes (defined by `_spec_<field>` attributes), and which also share
+    a common set of leading axes such as 'batch' or 'time'.
+
+    The total axes for each field are the concatenation of:
+        - `axes`: shared leading axes (e.g., batch, sequence),
+        - `_spec_<field>`: field-specific axes defined on the `Batchable` class.
+
+    This allows clear separation between model-internal structure and batching layout,
+    enabling named-axis operations (e.g., summing, indexing, mapping) to be applied
+    safely and consistently.
+
+    Attributes:
+        value: A structured particle instance (e.g., a dataclass of NamedArrays).
+        axes: A tuple of Haliax axes shared by all fields in `value`.
+
+    """
+
+    value: Batchable
+
+    @property
+    def batch_axes(self) -> BatchAxes:
+        return infer_batch_axes(self.value)
 
 
 def resolve_annotation(annotation, type_mapping, class_vars):

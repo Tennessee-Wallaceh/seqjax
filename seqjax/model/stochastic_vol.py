@@ -5,17 +5,20 @@ from jaxtyping import Scalar, PRNGKeyArray
 import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import jax.random as jrandom
+import haliax as hax
 
-from seqjax.model.base import (
-    Target,
+from seqjax.model.typing import (
     Particle,
     Observation,
     Condition,
     Parameters,
+    HyperParameters,
+)
+from seqjax.model.base import (
+    Target,
     Transition,
     Prior,
     Emission,
-    HyperParameters,
     ParameterPrior,
 )
 
@@ -27,10 +30,12 @@ All values are in annualised terms.
 # Latent Particles
 class LatentVol(Particle):
     log_vol: Scalar
+    _spec_log_vol = ()
 
 
 class Underlying(Observation):
     underlying: Scalar
+    _spec_underlying = ()
 
 
 # parameters
@@ -58,6 +63,7 @@ LogVolRandomWalks = Union[LogVolRW, LogVolWithSkew]
 
 class TimeIncrement(Condition):
     dt: Scalar  # time since last observation
+    _spec_dt = ()
 
 
 class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
@@ -75,13 +81,13 @@ class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
 
         z = (x - mean) / scale
         log_numerator = jstats.norm.logpdf(z) - jnp.log(scale)
-        log_denominator = jnp.log(normalization)
-        std_log_vol_lpdf = jnp.where(
-            (x >= 0.0), log_numerator - log_denominator, -jnp.inf
+        log_denominator = hax.log(normalization)
+        std_log_vol_lpdf = hax.where(
+            (x >= 0.0), log_numerator - log_denominator, -hax.inf
         )
 
         base_log_lpdf = jstats.norm.logpdf(
-            jnp.log(parameteters.long_term_vol),
+            hax.log(parameteters.long_term_vol),
             loc=jnp.array(-2.0),
             scale=jnp.array(0.5),
         )
@@ -93,10 +99,10 @@ class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         normalization = 1 - jstats.norm.cdf(alpha)
 
         z = (x - mean) / scale
-        log_numerator = jstats.norm.logpdf(z) - jnp.log(scale)
-        log_denominator = jnp.log(normalization)
-        mean_reversion_lpdf = jnp.where(
-            (x >= 0.0), log_numerator - log_denominator, -jnp.inf
+        log_numerator = jstats.norm.logpdf(z) - hax.log(scale)
+        log_denominator = hax.log(normalization)
+        mean_reversion_lpdf = hax.where(
+            (x >= 0.0), log_numerator - log_denominator, -hax.inf
         )
 
         return std_log_vol_lpdf + base_log_lpdf + mean_reversion_lpdf
@@ -157,11 +163,11 @@ class RandomWalk(Transition[LatentVol, TimeIncrement, LogVolRandomWalks]):
         condition: TimeIncrement,
         parameters: LogVolRandomWalks,
     ):
-        move_scale = jnp.sqrt(condition.dt) * parameters.std_log_vol
+        move_scale = hax.sqrt(condition.dt) * parameters.std_log_vol
         (prev_particle,) = particle_history  # unpack
 
         move_loc = prev_particle.log_vol + condition.dt * parameters.mean_reversion * (
-            jnp.log(parameters.long_term_vol) - prev_particle.log_vol
+            hax.log(parameters.long_term_vol) - prev_particle.log_vol
         )
 
         return move_loc, move_scale
@@ -187,7 +193,7 @@ class RandomWalk(Transition[LatentVol, TimeIncrement, LogVolRandomWalks]):
         # clip evaluations to reasonable level, if we are sampling outside this frequently
         # something has gone wrong
         # TODO: should this be an error instead?
-        log_vol = jnp.clip(particle.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
+        log_vol = hax.clip(particle.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
         return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
 
 

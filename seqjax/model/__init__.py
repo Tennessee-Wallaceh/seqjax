@@ -1,1 +1,2 @@
-from .base import Particle, Emission, Target
+from .typing import Particle
+from .base import Emission, Target
