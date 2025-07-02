@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from functools import partial
-from typing import Callable, Generic
+from typing import Callable, Protocol, Generic
 
 import equinox as eqx
 import jax
