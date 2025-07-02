@@ -135,10 +135,3 @@ class Target(Generic[ParticleType, ObservationType, ConditionType, ParametersTyp
     prior: Prior[ParticleType, ConditionType, ParametersType]
     transition: Transition[ParticleType, ConditionType, ParametersType]
     emission: Emission[ParticleType, ObservationType, ConditionType, ParametersType]
-
-    def additional_length(self, sequence_length):
-        return self.prior.order - 1 + sequence_length
-
-    def __post__init__(self):
-        # TODO: check order compatability + raise informative errors
-        pass

@@ -18,7 +18,7 @@ from seqjax.model.base import (
 )
 from seqjax.util import dynamic_index_pytree_in_dim as index_tree
 
-Resampler = Callable[[PRNGKeyArray, Array, ParticleType, float], ParticleType]
+Resampler = Callable[[PRNGKeyArray, Array, ParticleType, Scalar], ParticleType]
 
 
 def gumbel_resample_from_log_weights(key, log_weights, particles, ess_e):
@@ -69,7 +69,7 @@ class GeneralSequentialImportanceSampler(
         target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
         num_particles: int,
         proposal: Transition[ParticleType, ConditionType, ParametersType],
-        resampler: Resampler = resample_from_log_weights,
+        resampler: Resampler = gumbel_resample_from_log_weights,
     ) -> None:
         super().__init__()
         self.num_particles = num_particles
@@ -96,11 +96,14 @@ class GeneralSequentialImportanceSampler(
         condition: ConditionType,
         params: ParametersType,
     ) -> tuple[Array, ParticleType, Float[Array, ""]]:
+        #TODO: the sample step should appropriately build particle history
+
         resample_key, proposal_key = jrandom.split(step_key)
         ess_e = compute_esse_from_log_weights(log_w)
-        particles, log_w = self.resample(resample_key, log_w, p)
+        particles, log_w = self.resample(resample_key, log_w, particles, ess_e)
+
         next_particles = self.proposal_sample(
-            jrandom.split(proposal_key, num_particles),
+            jrandom.split(proposal_key, self.num_particles),
             particles,
             condition,
             params,
