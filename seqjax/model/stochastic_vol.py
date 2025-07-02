@@ -1,25 +1,26 @@
-from typing import Union, ClassVar, Literal
-from dataclasses import dataclass, field
+"""Stochastic volatility models."""
 
-from jaxtyping import Scalar, PRNGKeyArray
+from dataclasses import dataclass, field
+from typing import ClassVar, Literal, Union
+
 import jax.numpy as jnp
-import jax.scipy.stats as jstats
 import jax.random as jrandom
+import jax.scipy.stats as jstats
+from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
-    Target,
-    Transition,
-    Prior,
     Emission,
     ParameterPrior,
+    Prior,
+    Target,
+    Transition,
 )
-
 from seqjax.model.typing import (
-    Particle,
-    Observation,
     Condition,
-    Parameters,
     HyperParameters,
+    Observation,
+    Parameters,
+    Particle,
 )
 
 """
@@ -80,7 +81,7 @@ class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         log_numerator = jstats.norm.logpdf(z) - jnp.log(scale)
         log_denominator = jnp.log(normalization)
         std_log_vol_lpdf = jnp.where(
-            (x >= 0.0), log_numerator - log_denominator, -jnp.inf
+            (x >= 0.0), log_numerator - log_denominator, -jnp.inf,
         )
 
         base_log_lpdf = jstats.norm.logpdf(
@@ -99,7 +100,7 @@ class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         log_numerator = jstats.norm.logpdf(z) - jnp.log(scale)
         log_denominator = jnp.log(normalization)
         mean_reversion_lpdf = jnp.where(
-            (x >= 0.0), log_numerator - log_denominator, -jnp.inf
+            (x >= 0.0), log_numerator - log_denominator, -jnp.inf,
         )
 
         return std_log_vol_lpdf + base_log_lpdf + mean_reversion_lpdf
@@ -224,7 +225,7 @@ class LogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolRW]):
         (prev_observation,) = observation_history
         return_scale = jnp.sqrt(condition.dt) * jnp.exp(last_particle.log_vol)
         log_return = jnp.log(observation.underlying) - jnp.log(
-            prev_observation.underlying
+            prev_observation.underlying,
         )
         return jstats.norm.logpdf(log_return, loc=0.0, scale=return_scale)
 
@@ -275,7 +276,7 @@ class SkewLogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolWithSke
         last_particle, current_particle = particle
         (prev_observation,) = observation_history
         return_mean, return_scale = SkewLogReturn.return_mean_and_scale(
-            last_particle, current_particle, condition, parameters
+            last_particle, current_particle, condition, parameters,
         )
         log_return = jrandom.normal(key) * return_scale + return_mean
         return Underlying(underlying=prev_observation.underlying * jnp.exp(log_return))
@@ -291,11 +292,11 @@ class SkewLogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolWithSke
         last_particle, current_particle = particle
         (prev_observation,) = observation_history
         return_mean, return_scale = SkewLogReturn.return_mean_and_scale(
-            last_particle, current_particle, condition, parameters
+            last_particle, current_particle, condition, parameters,
         )
 
         log_return = jnp.log(observation.underlying) - jnp.log(
-            prev_observation.underlying
+            prev_observation.underlying,
         )
 
         return jstats.norm.logpdf(log_return, loc=return_mean, scale=return_scale)
@@ -316,7 +317,7 @@ class SkewStochasticVol(Target[LatentVol, Underlying, TimeIncrement, LogVolWithS
 @dataclass
 class StochasticVolConfig:
     label: Literal["simple_stochastic_vol"] = field(
-        init=False, default="simple_stochastic_vol"
+        init=False, default="simple_stochastic_vol",
     )
     path_length: int
     data_seed: int

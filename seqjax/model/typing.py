@@ -1,8 +1,11 @@
-import typing
+"""Runtime type checking utilities for model interfaces."""
+
 import inspect
-import jax.numpy as jnp
+import typing
+
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 
 """
 Suprisingly, Python ABCs ensure that an abstract method is implemented, 
@@ -19,7 +22,7 @@ We can do this by making the base classes metaclasses, using __init__subclass__ 
 class Particle(eqx.Module):
     def as_array(self):
         return jnp.dstack(
-            [jnp.expand_dims(l, -1) for l in jax.tree_util.tree_leaves(self)]
+            [jnp.expand_dims(leaf, -1) for leaf in jax.tree_util.tree_leaves(self)],
         )
 
     @classmethod
@@ -33,14 +36,14 @@ class Particle(eqx.Module):
 class Observation(eqx.Module):
     def as_array(self):
         return jnp.dstack(
-            [jnp.expand_dims(l, -1) for l in jax.tree_util.tree_leaves(self)]
+            [jnp.expand_dims(leaf, -1) for leaf in jax.tree_util.tree_leaves(self)],
         )
 
 
 class Condition(eqx.Module):
     def as_array(self):
         return jnp.dstack(
-            [jnp.expand_dims(l, -1) for l in jax.tree_util.tree_leaves(self)]
+            [jnp.expand_dims(leaf, -1) for leaf in jax.tree_util.tree_leaves(self)],
         )
 
 
@@ -49,7 +52,7 @@ class Parameters(eqx.Module):
 
     def as_array(self):
         return jnp.dstack(
-            [jnp.expand_dims(l, -1) for l in jax.tree_util.tree_leaves(self)]
+            [jnp.expand_dims(leaf, -1) for leaf in jax.tree_util.tree_leaves(self)],
         )
 
 
@@ -78,13 +81,11 @@ def resolve_annotation(annotation, type_mapping, class_vars):
         argument_typevar = annotation.__args__[0]
         if argument_typevar == ObservationType:
             order = class_vars["observation_dependency"]
-        elif argument_typevar == ParticleType:
-            order = class_vars["order"]
-        elif argument_typevar == ConditionType:
+        elif argument_typevar == ParticleType or argument_typevar == ConditionType:
             order = class_vars["order"]
         else:
             raise TypeError(
-                f"Unknown order for typevar {argument_typevar} please raise issue."
+                f"Unknown order for typevar {argument_typevar} please raise issue.",
             )
 
         ptype = type_mapping[argument_typevar]
@@ -115,7 +116,7 @@ def check_interface(cls):
                 gbase.__origin__.__parameters__
             )  # e.g. (ParticleType, ParametersType)
             concrete_types = gbase.__args__  # e.g. (LatentVol, LogVolRW)
-            type_mapping = {**type_mapping, **dict(zip(type_vars, concrete_types))}
+            type_mapping = {**type_mapping, **dict(zip(type_vars, concrete_types, strict=False))}
     class_vars = {cvar: getattr(cls, cvar) for cvar in base.__abstractclassvars__}
 
     # perform the interface checks
@@ -125,12 +126,12 @@ def check_interface(cls):
 
         if subclass_method is None:
             raise TypeError(
-                f"{cls.__name__} must override the static method {method_name}."
+                f"{cls.__name__} must override the static method {method_name}.",
             )
 
         if not isinstance(subclass_method, staticmethod):
             raise TypeError(
-                f"In {cls.__name__}, {method_name} must be implemented as a static method."
+                f"In {cls.__name__}, {method_name} must be implemented as a static method.",
             )
 
         # compare signatures
@@ -144,7 +145,7 @@ def check_interface(cls):
             raise TypeError(
                 f"In {cls.__name__}.{method_name}: signature mismatch\n"
                 f"Expected: {normalized_base_sig}\nGot:      {derived_sig} \n"
-                f"Class vars: {class_vars} Generic type map: {type_mapping}"
+                f"Class vars: {class_vars} Generic type map: {type_mapping}",
             )
 
 
