@@ -26,7 +26,8 @@ def log_p_x(
     smarter implementation could be required
     """
     sequence_start = target.prior.order - 1
-    sequence_length = pytree_shape(x_path)[0] - sequence_start
+    x_shape = pytree_shape(x_path)[0]
+    sequence_length = x_shape[0] - sequence_start
 
     # compute prior
     prior_particles = tuple(
@@ -75,7 +76,8 @@ def log_p_x_noncentered(
     """Return ``log p(x)`` and the implied path using a non-centred form."""
 
     sequence_start = target.prior.order - 1
-    sequence_length = pytree_shape(eps_path)[0] - sequence_start
+    eps_shape = pytree_shape(eps_path)[0]
+    sequence_length = eps_shape[0] - sequence_start
 
     prior_particles = tuple(
         index_pytree(eps_path, i)
@@ -115,7 +117,7 @@ def log_p_y_given_x(
     parameters: ParametersType,
 ) -> Scalar:
     """Return ``log p(y | x)`` for a sequence of observations."""
-    x_length = pytree_shape(x_path)[0]
+    x_length = pytree_shape(x_path)[0][0]
 
     x_sequence_start = target.prior.order - 1
     y_sequence_start = target.emission.observation_dependency
