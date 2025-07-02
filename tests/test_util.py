@@ -2,7 +2,6 @@ import os
 import sys
 import jax.numpy as jnp
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from seqjax.util import pytree_shape
 
 
