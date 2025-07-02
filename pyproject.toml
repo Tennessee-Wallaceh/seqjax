@@ -41,3 +41,5 @@ extend-exclude = ["seqjax/inference/particlefilter.py", "sketch.ipynb", "noteboo
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["E501"]
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["S101"]

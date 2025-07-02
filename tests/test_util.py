@@ -10,7 +10,7 @@ def test_pytree_shape_dict() -> None:
 
     tree = {"a": jnp.zeros((2, 3)), "b": jnp.ones((2, 3))}
     shape, leaf_count = pytree_shape(tree)
-    assert shape == (2, 3)  # noqa: S101
-    assert leaf_count == 2  # noqa: S101
+    assert shape == (2, 3)
+    assert leaf_count == 2
 
 
