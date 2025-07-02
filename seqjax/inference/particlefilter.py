@@ -91,32 +91,44 @@ class GeneralSequentialImportanceSampler(
         self,
         step_key: PRNGKeyArray,
         log_w: Array,
-        particles: ParticleType,
+        particles: tuple[ParticleType, ...],
         observation: ObservationType,
         condition: ConditionType,
         params: ParametersType,
-    ) -> tuple[Array, ParticleType, Float[Array, ""]]:
-        #TODO: the sample step should appropriately build particle history
+    ) -> tuple[Array, tuple[ParticleType, ...], Float[Array, ""]]:
+        """Advance the filter by one step and maintain particle history."""
 
         resample_key, proposal_key = jrandom.split(step_key)
         ess_e = compute_esse_from_log_weights(log_w)
-        particles, log_w = self.resample(resample_key, log_w, particles, ess_e)
+
+        # Resample complete particle histories if necessary
+        particles = self.resample(resample_key, log_w, particles, ess_e)
+
+        # Determine which part of the history the proposal/transition depend on
+        proposal_history = particles[-self.proposal.order :]
+        transition_history = particles[-self.target.transition.order :]
 
         next_particles = self.proposal_sample(
             jrandom.split(proposal_key, self.num_particles),
-            particles,
+            proposal_history,
             condition,
             params,
         )
 
+        emission_history = particles[-(self.target.emission.order - 1) :] if self.target.emission.order > 1 else ()
+        emission_particles = (*emission_history, next_particles)
+
         inc_weight = (
-            self.transition_logp(particles, next_particles, condition, params)
-            + self.emission_logp(next_particles, observation, condition, params)
-            - self.proposal_logp(particles, next_particles, condition, params)
+            self.transition_logp(transition_history, next_particles, condition, params)
+            + self.emission_logp(emission_particles, observation, condition, params)
+            - self.proposal_logp(proposal_history, next_particles, condition, params)
         )
         log_w = log_w + inc_weight
 
-        return log_w, next_particles, ess_e
+        max_order = max(self.target.transition.order, self.target.emission.order)
+        particles = (*particles, next_particles)[-max_order:]
+
+        return log_w, particles, ess_e
 
 
 def run_filter(
