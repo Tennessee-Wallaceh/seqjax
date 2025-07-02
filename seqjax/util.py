@@ -62,7 +62,8 @@ def concat_pytree(*trees, axis=0):
 
 def pytree_shape(tree):
     # assumes tree is matched and all leaves are arrays
-    leaf_shapes = jax.tree.leaves(jax.tree_util.tree_map(lambda t: t.shape, tree))
+    leaves = jax.tree_util.tree_leaves(tree)
+    leaf_shapes = [jnp.shape(leaf) for leaf in leaves]
     return leaf_shapes[0], len(leaf_shapes)
 
 def broadcast_pytree(tree, target_shape):

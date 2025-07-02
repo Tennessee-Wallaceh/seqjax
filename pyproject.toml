@@ -32,6 +32,7 @@ dev = [
     "jupyter",
     "pre-commit",
     "matplotlib",
+    "pytest",
 ]
 
 [tool.ruff.lint]
