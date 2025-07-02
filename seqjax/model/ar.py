@@ -9,16 +9,18 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
-    Condition,
     Emission,
-    HyperParameters,
-    Observation,
     ParameterPrior,
-    Parameters,
-    Particle,
     Prior,
     Target,
     Transition,
+)
+from seqjax.model.typing import (
+    Condition,
+    HyperParameters,
+    Observation,
+    Parameters,
+    Particle,
 )
 
 
@@ -72,7 +74,7 @@ class InitialValue(Prior[LatentValue, Condition, ARParameters]):
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        _conditions: tuple[Condition],
+        conditions: tuple[Condition],
         parameters: ARParameters,
     ) -> tuple[LatentValue]:
         """Sample the initial latent value."""
@@ -84,7 +86,7 @@ class InitialValue(Prior[LatentValue, Condition, ARParameters]):
     @staticmethod
     def log_p(
         particle: tuple[LatentValue],
-        _conditions: tuple[Condition],
+        conditions: tuple[Condition],
         parameters: ARParameters,
     ) -> Scalar:
         """Evaluate the prior log-density."""
@@ -100,7 +102,7 @@ class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
     def sample(
         key: PRNGKeyArray,
         particle_history: tuple[LatentValue],
-        _condition: Condition,
+        condition: Condition,
         parameters: ARParameters,
     ) -> LatentValue:
         """Sample the next latent state."""
@@ -115,7 +117,7 @@ class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
     def log_p(
         particle_history: tuple[LatentValue],
         particle: LatentValue,
-        _condition: Condition,
+        condition: Condition,
         parameters: ARParameters,
     ) -> Scalar:
         """Return the transition log-density."""
@@ -137,8 +139,8 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition,  ARParameters])
     def sample(
         key: PRNGKeyArray,
         particle: tuple[LatentValue],
-        _observation_history: tuple[()],
-        _condition: Condition,
+        observation_history: tuple[()],
+        condition: Condition,
         parameters: ARParameters,
     ) -> NoisyEmission:
         """Sample an observation."""
@@ -149,9 +151,9 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition,  ARParameters])
     @staticmethod
     def log_p(
         particle: tuple[LatentValue],
-        _observation_history: tuple[()],
+        observation_history: tuple[()],
         observation: NoisyEmission,
-        _condition: Condition,
+        condition: Condition,
         parameters: ARParameters,
     ) -> Scalar:
         """Return the emission log-density."""
