@@ -1,27 +1,33 @@
+"""Utilities for simulating sequences from a target model."""
+
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 from jaxtyping import PRNGKeyArray, PyTree
-from functools import partial
-from typing import Optional
-from seqjax.util import index_pytree, slice_pytree, concat_pytree
+
 from seqjax.model.base import (
-    Target,
-    ParticleType,
-    ObservationType,
     ConditionType,
+    ObservationType,
     ParametersType,
+    ParticleType,
+    Target,
 )
+from seqjax.util import concat_pytree, index_pytree, slice_pytree
+
 
 def step(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType], 
-    parameters: ParametersType, 
+    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    parameters: ParametersType,
     state: tuple[
         tuple[ParticleType, ...],
         tuple[ObservationType, ...],
-    ], 
-    inputs
-):
+    ],
+    inputs,
+) -> tuple[tuple[tuple[ParticleType, ...], tuple[ObservationType, ...]], tuple[ParticleType, ObservationType]]:
+    """Single simulation step returning updated state and new sample."""
+
     # pad the RHS with a None, then no condition => condition is None
     step_key, condition = (inputs + (None,))[:2]
     particles, emissions = state
@@ -30,20 +36,20 @@ def step(
     # last particle is at t
     # sample x_t+1 then y_t+1
     next_particle = target.transition.sample(
-        transition_key, 
+        transition_key,
         particles[-target.transition.order:],
-        condition, 
-        parameters
+        condition,
+        parameters,
     )
 
     particles = (*particles, next_particle)
 
     emission = target.emission.sample(
-        emission_key, 
+        emission_key,
         particles[-target.emission.order:],
-        emissions, 
-        condition, 
-        parameters
+        emissions,
+        condition,
+        parameters,
     )
 
     # add the next particle to the history before emission
@@ -59,22 +65,26 @@ def step(
 def simulate(
     key: PRNGKeyArray,
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
-    condition: Optional[PyTree[ConditionType, "sequence_length"]],
+    condition: PyTree | None,
     parameters: ParametersType,
     sequence_length: int,
-):
+) -> tuple[
+    PyTree,
+    PyTree,
+]:
+    """Simulate a path of length ``sequence_length`` from ``target``."""
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
-    
+
     # special handling for sampling first state
     prior_conditions = tuple(index_pytree(condition, ix) for ix in range(target.prior.order))
     condition_0 = index_pytree(condition, target.prior.order - 1)
     x_0 = target.prior.sample(init_x_key, prior_conditions, parameters)
     y_0 = target.emission.sample(
-        init_y_key, 
+        init_y_key,
         x_0,
-        parameters.reference_emission, 
-        condition_0, 
-        parameters
+        parameters.reference_emission,
+        condition_0,
+        parameters,
     )
 
     # build start point of scan
@@ -82,15 +92,15 @@ def simulate(
     emission_history = tuple(emission_history[len(emission_history)-target.emission.observation_dependency:])
     state = (x_0, emission_history)
     inputs = (
-        (jnp.array(step_keys),) 
-        if condition is None 
+        (jnp.array(step_keys),)
+        if condition is None
         else (
-            jnp.array(step_keys), 
+            jnp.array(step_keys),
             slice_pytree(
-                condition, 
-                target.prior.order, 
-                sequence_length + target.prior.order - 1
-            )
+                condition,
+                target.prior.order,
+                sequence_length + target.prior.order - 1,
+            ),
         )
     )
 
@@ -105,3 +115,4 @@ def simulate(
     latent_path = concat_pytree(*x_0, latent_path)
     observed_path = concat_pytree(*parameters.reference_emission, y_0, observed_path)
     return latent_path, observed_path
+

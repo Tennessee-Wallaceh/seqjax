@@ -1,84 +1,113 @@
-import jax
+"""Utility helpers for manipulating JAX pytrees."""
+
 from functools import partial
+from typing import Any, Iterable
+
+import jax
 import jax.numpy as jnp
 
-def index_pytree(tree, index):
+
+def index_pytree(tree: Any, index: int | Iterable[int]) -> Any:
+    """Index a pytree of arrays along the first dimension."""
+
     if isinstance(index, int):
         index = (index,)
 
-    def take_index(tree):
+    def take_index(tree: Any) -> Any:
         for sub_index in index:
             tree = partial(jax.lax.index_in_dim, index=sub_index, keepdims=False)(tree)
         return tree
 
     return jax.tree_util.tree_map(take_index, tree)
 
-def index_pytree_in_dim(tree, index, dim):
+def index_pytree_in_dim(tree: Any, index: int, dim: int) -> Any:
+    """Index a pytree along a specified dimension."""
 
-    def take_index(tree):
+    def take_index(tree: Any) -> Any:
         return jax.lax.index_in_dim(
-            tree, index, axis=dim, keepdims=False
+            tree, index, axis=dim, keepdims=False,
         )
-    
+
     return jax.tree_util.tree_map(take_index, tree)
 
-def dynamic_index_pytree_in_dim(tree, index, dim):
+def dynamic_index_pytree_in_dim(tree: Any, index: int, dim: int) -> Any:
+    """Dynamically index a pytree along a specified dimension."""
 
-    def take_index(tree):
+    def take_index(tree: Any) -> Any:
         return jax.lax.dynamic_index_in_dim(
-            tree, index, axis=dim, keepdims=False
+            tree, index, axis=dim, keepdims=False,
         )
-    
+
     return jax.tree_util.tree_map(take_index, tree)
 
 
-def slice_pytree(tree, start_index, limit_index, dim=0):
+def slice_pytree(tree: Any, start_index: int, limit_index: int, dim: int = 0) -> Any:
+    """Slice a pytree along ``dim`` between ``start_index`` and ``limit_index``."""
+
     return jax.tree_util.tree_map(
         partial(jax.lax.slice_in_dim, start_index=start_index, limit_index=limit_index, axis=dim),
         tree,
     )
 
-def dynamic_slice_pytree(tree, start_index, limit_index, dim=0):
+def dynamic_slice_pytree(
+    tree: Any,
+    start_index: int,
+    limit_index: int,
+    dim: int = 0,
+) -> Any:
+    """Dynamically slice a pytree along ``dim``."""
+
     return jax.tree_util.tree_map(
-        partial(jax.lax.dynamic_slice_in_dim, start_index=start_index, limit_index=limit_index, axis=dim),
+        partial(
+            jax.lax.dynamic_slice_in_dim,
+            start_index=start_index,
+            limit_index=limit_index,
+            axis=dim,
+        ),
         tree,
     )
 
-def promote_scalar_to_vector(x):
+def promote_scalar_to_vector(x: Any) -> Any:
+    """Ensure array leaves are at least 1D."""
     if isinstance(x, jnp.ndarray) and x.ndim == 0:
         return jnp.expand_dims(x, axis=0)
     return x
 
-def concat_pytree(*trees, axis=0):
+def concat_pytree(*trees: Any, axis: int = 0) -> Any:
+    """Concatenate pytrees along ``axis``."""
     promoted_trees = [
         jax.tree_util.tree_map(promote_scalar_to_vector, tree)
         for tree in trees
     ]
-    
+
     return jax.tree_util.tree_map(
         lambda *leaves: jax.lax.concatenate(leaves, dimension=axis),
-        *promoted_trees
+        *promoted_trees,
     )
 
-def pytree_shape(tree):
+def pytree_shape(tree: Any) -> tuple[tuple[int, ...], int]:
+    """Return the shape of leaves and leaf count of ``tree``."""
+
     # assumes tree is matched and all leaves are arrays
     leaves = jax.tree_util.tree_leaves(tree)
     leaf_shapes = [jnp.shape(leaf) for leaf in leaves]
     return leaf_shapes[0], len(leaf_shapes)
 
-def broadcast_pytree(tree, target_shape):
-    def _broadcast(x):
+def broadcast_pytree(tree: Any, target_shape: tuple[int, ...]) -> Any:
+    """Broadcast leaves in ``tree`` to ``target_shape``."""
+    def _broadcast(x: Any) -> Any:
         x = jnp.asarray(x)
         if x.shape == target_shape:
             return x
-        elif x.shape == ():  # scalar
+        if x.shape == ():  # scalar
             return jnp.broadcast_to(x, target_shape)
-        else:
-            raise ValueError(f"Expected shape {target_shape} or (), got {x.shape}")
-    
+        raise ValueError(f"Expected shape {target_shape} or (), got {x.shape}")
+
     return jax.tree_util.tree_map(_broadcast, tree)
 
-def infer_pytree_shape(pytree):
+def infer_pytree_shape(pytree: Any) -> tuple[int, ...]:
+    """Infer a broadcastable shape from a pytree."""
+
     leaves, _ = jax.tree_util.tree_flatten(pytree)
 
     shape = ()
@@ -86,5 +115,6 @@ def infer_pytree_shape(pytree):
         if jnp.shape(x) != ():
             shape = jnp.shape(x)
             break
-        
+
     return shape
+

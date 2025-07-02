@@ -1,14 +1,26 @@
-from typing import Generic
+"""Abstract base classes for sequential targets.
+
+Condition and Parameters are separated. Parameters remain static over time while
+conditions vary.
+
+Use ``Target`` to group pure functions that operate on the same ``Particle`` and
+``Emission`` types. ``Prior``, ``Transition`` and ``Emission`` provide additional
+structure and are typically paired in use.
+"""
+
 from abc import abstractmethod
+from typing import Generic
+
 import equinox as eqx
 from jaxtyping import PRNGKeyArray, Scalar
+
 from seqjax.model.typing import (
+    ConditionType,
     EnforceInterface,
+    HyperParametersType,
+    ObservationType,
     ParametersType,
     ParticleType,
-    ObservationType,
-    ConditionType,
-    HyperParametersType,
 )
 
 """
@@ -19,17 +31,10 @@ Notes:
 - order refers to the length of the history of the latent.
 
 """
-# Condition and Parameters are seperated, the idea being parameters are static across time
-# condition is varying.
-
-# use Target class to group together a number of pure functions (staticmethod), that operate on the same
-# Particle, Emission etc.
-# Prior, Transition, Emission give additional levels of grouping, since in practice these will always be paired.
 
 
 class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
-    """
-    Parameter prior specified as utility for specifying Bayesian models.
+    """Parameter prior specified as utility for specifying Bayesian models.
     """
 
     # @staticmethod
@@ -41,15 +46,14 @@ class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
     @staticmethod
     @abstractmethod
     def log_p(
-        parameters: ParametersType, hyperparameters: HyperParametersType
+        parameters: ParametersType, hyperparameters: HyperParametersType,
     ) -> Scalar: ...
 
 
 class Prior(
-    eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface
+    eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface,
 ):
-    """
-    Prior must define density + sampling up to the start state t=0.
+    """Prior must define density + sampling up to the start state t=0.
     As such it receives conditions up to t=0, length corresponding to order.
 
     This could be over a number of particles if the dependency structure of the model requires.
@@ -79,7 +83,7 @@ class Prior(
 
 
 class Transition(
-    eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface
+    eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface,
 ):
     order: eqx.AbstractClassVar[int]
 

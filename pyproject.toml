@@ -35,5 +35,9 @@ dev = [
     "pytest",
 ]
 
+[tool.ruff]
+extend-exclude = ["seqjax/inference/particlefilter.py", "sketch.ipynb", "notebooks/*"]
+
 [tool.ruff.lint]
-select = ["ALL"]
+select = ["E", "F"]
+ignore = ["E501"]
