@@ -8,15 +8,18 @@ import jax.random as jrandom
 
 from seqjax.model.base import (
     Target,
+    Transition,
+    Prior,
+    Emission,
+    ParameterPrior,
+)
+
+from seqjax.model.typing import (
     Particle,
     Observation,
     Condition,
     Parameters,
-    Transition,
-    Prior,
-    Emission,
     HyperParameters,
-    ParameterPrior,
 )
 
 """
@@ -239,8 +242,8 @@ class SkewLogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolWithSke
     ) -> tuple[Scalar, Scalar]:
         dt = condition.dt
 
-        last_vol = jnp.exp(last_particle.log_vol)
-        last_var = jnp.exp(2 * last_particle.log_vol)
+        current_vol = jnp.exp(current_particle.log_vol)
+        current_var = jnp.exp(2 * current_particle.log_vol)
 
         log_vol_mean, _ = RandomWalk.loc_scale(
             (last_particle,),
@@ -248,15 +251,15 @@ class SkewLogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolWithSke
             parameters,
         )
 
-        return_mean = -0.5 * dt * last_var
+        return_mean = -0.5 * dt * current_var
         return_mean += (
             parameters.skew
-            * (last_vol / parameters.std_log_vol)
+            * (current_vol / parameters.std_log_vol)
             * (current_particle.log_vol - log_vol_mean)
         )
 
         return_scale = (
-            jnp.sqrt(condition.dt) * last_vol * jnp.sqrt(1 - parameters.skew**2)
+            jnp.sqrt(condition.dt) * current_vol * jnp.sqrt(1 - parameters.skew**2)
         )
 
         return return_mean, return_scale
