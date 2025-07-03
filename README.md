@@ -30,7 +30,7 @@ model = AR1Target()
 key = jrandom.key(0)
 
 # Simulate a sequence of length 5
-latent_path, observation_path = simulate(
+latent_path, observation_path, latent_hist, obs_hist = simulate.simulate(
     key, model, condition=None, parameters=parameters, sequence_length=5
 )
 print(observation_path)

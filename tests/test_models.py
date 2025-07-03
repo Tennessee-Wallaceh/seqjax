@@ -35,7 +35,6 @@ def test_ar1_target_simulate_length() -> None:
     assert jnp.shape(logp) == ()
 
 
-
 def test_simple_stochastic_vol_simulate_length() -> None:
     key = jax.random.PRNGKey(0)
     params = LogVolRW(
@@ -96,7 +95,9 @@ class Transition1(Transition[DummyParticle, DummyCondition, DummyParameters]):
         return jnp.array(0.0)
 
 
-class Emission1(Emission[DummyParticle, DummyObservation, DummyCondition, DummyParameters]):
+class Emission1(
+    Emission[DummyParticle, DummyObservation, DummyCondition, DummyParameters]
+):
     order: ClassVar[int] = 1
     observation_dependency: ClassVar[int] = 0
 
@@ -121,7 +122,9 @@ class Emission1(Emission[DummyParticle, DummyObservation, DummyCondition, DummyP
         return jnp.array(0.0)
 
 
-class Target1(SequentialModel[DummyParticle, DummyObservation, DummyCondition, DummyParameters]):
+class Target1(
+    SequentialModel[DummyParticle, DummyObservation, DummyCondition, DummyParameters]
+):
     prior = Prior1()
     transition = Transition1()
     emission = Emission1()
@@ -173,7 +176,9 @@ class Transition2(Transition[DummyParticle, DummyCondition, DummyParameters]):
         return jnp.array(0.0)
 
 
-class Emission2(Emission[DummyParticle, DummyObservation, DummyCondition, DummyParameters]):
+class Emission2(
+    Emission[DummyParticle, DummyObservation, DummyCondition, DummyParameters]
+):
     order: ClassVar[int] = 2
     observation_dependency: ClassVar[int] = 1
 
@@ -198,7 +203,9 @@ class Emission2(Emission[DummyParticle, DummyObservation, DummyCondition, DummyP
         return jnp.array(0.0)
 
 
-class Target2(SequentialModel[DummyParticle, DummyObservation, DummyCondition, DummyParameters]):
+class Target2(
+    SequentialModel[DummyParticle, DummyObservation, DummyCondition, DummyParameters]
+):
     prior = Prior2()
     transition = Transition2()
     emission = Emission2()
