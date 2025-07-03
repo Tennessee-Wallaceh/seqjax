@@ -10,7 +10,11 @@ from seqjax.model.base import (
     ParticleType,
     SequentialModel,
 )
-from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
+from seqjax.util import index_pytree, pytree_shape, slice_pytree
+
+# ``Target`` used to be an alias for ``SequentialModel``.  Define the
+# alias here so that older annotations continue to import correctly.
+Target = SequentialModel
 
 
 def log_prob_x(
