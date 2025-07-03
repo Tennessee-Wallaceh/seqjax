@@ -66,19 +66,19 @@ def slice_pytree(tree: Any, start_index: int, limit_index: int, dim: int = 0) ->
 def dynamic_slice_pytree(
     tree: Any,
     start_index: int,
-    limit_index: int,
+    slice_size: int,
     dim: int = 0,
 ) -> Any:
     """Dynamically slice a pytree along ``dim``."""
 
-    slice_size = limit_index - start_index
+
+
     return jax.tree_util.tree_map(
         partial(
             jax.lax.dynamic_slice_in_dim,
             start_index=start_index,
             slice_size=slice_size,
             slice_size=limit_index - start_index,
-
             axis=dim,
         ),
         tree,
