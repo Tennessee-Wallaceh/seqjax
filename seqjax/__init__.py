@@ -10,6 +10,7 @@ from .model.visualise import graph_model
 
 # base model interfaces
 from .model.base import Emission, Prior, SequentialModel, Transition
+from .inference.particlefilter import Proposal
 
 # simple inference utilities
 from .inference.particlefilter import BootstrapParticleFilter
@@ -19,6 +20,7 @@ __all__ = [
     "evaluate",
     "Prior",
     "Transition",
+    "Proposal",
     "Emission",
     "SequentialModel",
     "graph_model",
