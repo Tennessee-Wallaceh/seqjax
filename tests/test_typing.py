@@ -29,6 +29,16 @@ class DummyParameters(Parameters):
     )
 
 
+class MultiParticle(Particle):
+    x: Scalar = eqx.field(default_factory=lambda: jnp.array(0.0))
+    y: Scalar = eqx.field(default_factory=lambda: jnp.array(0.0))
+
+
+class MultiObservation(Observation):
+    x: Scalar = eqx.field(default_factory=lambda: jnp.array(0.0))
+    y: Scalar = eqx.field(default_factory=lambda: jnp.array(0.0))
+
+
 class GoodPrior(Prior[DummyParticle, DummyCondition, DummyParameters]):
     order: ClassVar[int] = 1
 
@@ -128,6 +138,23 @@ def test_prior_missing_staticmethod() -> None:
                 parameters: DummyParameters,
             ) -> Scalar:
                 return jnp.array(0.0)
+
+
+def test_as_array_helpers() -> None:
+    """``Particle.as_array`` and ``Observation.as_array`` stack leaf values."""
+
+    p = MultiParticle(jnp.array([1.0, 2.0]), jnp.array([3.0, 4.0]))
+    o = MultiObservation(jnp.array([5.0, 6.0]), jnp.array([7.0, 8.0]))
+
+    expected_p = jnp.dstack(
+        [jnp.expand_dims(p.x, -1), jnp.expand_dims(p.y, -1)]
+    )
+    expected_o = jnp.dstack(
+        [jnp.expand_dims(o.x, -1), jnp.expand_dims(o.y, -1)]
+    )
+
+    assert jnp.array_equal(p.as_array(), expected_p)
+    assert jnp.array_equal(o.as_array(), expected_o)
 
 
 def test_prior_order_mismatch() -> None:
