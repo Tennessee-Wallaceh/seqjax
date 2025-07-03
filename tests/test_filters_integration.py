@@ -5,6 +5,7 @@ import pytest
 from seqjax import BootstrapParticleFilter, AuxiliaryParticleFilter, simulate
 from seqjax.inference.particlefilter import run_filter
 from seqjax.model.ar import AR1Target, ARParameters
+from seqjax.model.linear_gaussian import LinearGaussianSSM, LGSSMParameters
 from seqjax.model.stochastic_vol import (
     SimpleStochasticVol,
     LogVolRW,
@@ -58,3 +59,22 @@ def test_filters_ar1_and_stochastic_vol(filter_cls) -> None:
         observation_history=(Underlying(y_hist.underlying[0]),)
     )
     assert log_w.shape == (sv_pf.num_particles,)
+
+
+@pytest.mark.parametrize("filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter])
+def test_filters_linear_gaussian(filter_cls) -> None:
+    seq_len = 4
+
+    key = jrandom.PRNGKey(4)
+    target = LinearGaussianSSM()
+    params = LGSSMParameters()
+    _, obs, _, _ = simulate.simulate(key, target, None, params, sequence_length=seq_len)
+    pf = filter_cls(target, num_particles=5)
+    log_w, _, _, _, _ = run_filter(
+        pf,
+        jrandom.PRNGKey(5),
+        params,
+        obs,
+        initial_conditions=(None,),
+    )
+    assert log_w.shape == (pf.num_particles,)
