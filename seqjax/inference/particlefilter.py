@@ -73,16 +73,16 @@ class GeneralSequentialImportanceSampler(
 
     @cached_property
     def proposal_logp(self) -> Callable:
-        return jax.vmap(self.proposal.log_p, in_axes=[0, 0, None, None])
+        return jax.vmap(self.proposal.log_prob, in_axes=[0, 0, None, None])
 
     @cached_property
     def transition_logp(self) -> Callable:
-        return jax.vmap(self.target.transition.log_p, in_axes=[0, 0, None, None])
+        return jax.vmap(self.target.transition.log_prob, in_axes=[0, 0, None, None])
 
     @cached_property
     def emission_logp(self) -> Callable:
         return jax.vmap(
-            lambda p, o, c, r: self.target.emission.log_p(p, (), o, c, r),
+            lambda p, o, c, r: self.target.emission.log_prob(p, (), o, c, r),
             in_axes=[0, None, None, None],
         )
 

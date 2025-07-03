@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import pytest
 
 # mark requires jax
@@ -17,7 +18,7 @@ def test_ar1_target_simulate_and_logp() -> None:
     assert latent.x.shape == (3,)
     assert obs.y.shape == (3,)
 
-    logp = evaluate.log_p_joint(AR1Target, latent, obs, None, params)
+    logp = evaluate.log_prob_joint(AR1Target, latent, obs, None, params)
     assert jnp.shape(logp) == ()
 
 
@@ -36,5 +37,5 @@ def test_simple_stochastic_vol_simulate_and_logp() -> None:
     assert latent.log_vol.shape == (4,)
     assert obs.underlying.shape == (4,)
 
-    logp = evaluate.log_p_joint(SimpleStochasticVol, latent, obs, cond, params)
+    logp = evaluate.log_prob_joint(SimpleStochasticVol, latent, obs, cond, params)
     assert jnp.shape(logp) == ()
