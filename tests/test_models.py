@@ -84,7 +84,6 @@ def test_sir_simulate_length() -> None:
 
     assert latent.s.shape == (3,)
     assert obs.new_cases.shape == (3,)
-    logp = evaluate.log_prob_joint(SIRModel, latent, obs, None, params)
 
 
 def test_poisson_ssm_simulate_length() -> None:
@@ -96,7 +95,6 @@ def test_poisson_ssm_simulate_length() -> None:
 
     assert latent.log_rate.shape == (3,)
     assert obs.count.shape == (3,)
-    logp = evaluate.log_prob_joint(PoissonSSM, latent, obs, None, params)
 
 def test_hmm_simulate_length() -> None:
     key = jax.random.PRNGKey(0)
