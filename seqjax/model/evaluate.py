@@ -15,7 +15,9 @@ from seqjax.util import index_pytree, pytree_shape, slice_pytree
 
 
 def log_prob_x(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     x_path: Batched[ParticleType, SequenceAxis],
     condition: Batched[ConditionType, SequenceAxis],
     parameters: ParametersType,
@@ -65,7 +67,9 @@ def log_prob_x(
 
   
 def log_prob_y_given_x(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     x_path: Batched[ParticleType, SequenceAxis],
     y_path: Batched[ObservationType, SequenceAxis],
     condition: Batched[ConditionType, SequenceAxis],

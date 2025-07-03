@@ -40,7 +40,7 @@ dev = [
 include = ["seqjax/*", "seqjax/py.typed"]
 
 [tool.ruff]
-extend-exclude = ["seqjax/inference/particlefilter.py", "sketch.ipynb", "notebooks/*"]
+extend-exclude = ["sketch.ipynb", "notebooks/*"]
 
 [tool.ruff.lint]
 select = ["E", "F"]
