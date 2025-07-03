@@ -1,6 +1,6 @@
 # SeqJAX
 
-SeqJAX provides utilities for building sequential probabilistic models with [JAX](https://github.com/google/jax). The library encourages a functional style: models are composed of `Prior`, `Transition` and `Emission` classes which operate on simple dataclasses for particles, observations and parameters. Runtime interface checks ensure that these components implement the correct methods and signatures, reducing boilerplate errors.
+SeqJAX provides utilities for building sequential probabilistic models with [JAX](https://github.com/google/jax). The library encourages a functional style: models are composed of `Prior`, `Transition` and `Emission` classes which operate on simple dataclasses for particles, observations and parameters. Runtime interface checks ensure that these components implement the correct methods and signatures, reducing boilerplate errors. The three components are grouped together in a ``SequentialModel`` definition.
 
 ## Installation
 
