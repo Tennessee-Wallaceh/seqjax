@@ -5,11 +5,16 @@ import pytest
 jax = pytest.importorskip("jax")
 import jax.numpy as jnp
 import jax.random as jrandom
+import jax.scipy.stats as jstats
 
 
 from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
+from seqjax.model.linear_gaussian import LinearGaussianSSM, LGSSMParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
+from seqjax.model.sir import SIRModel, SIRParameters
+from seqjax.model.poisson_ssm import PoissonSSM, PoissonSSMParameters
+from seqjax.model.hmm import HiddenMarkovModel, HMMParameters
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
 from seqjax.util import pytree_shape
 from tests.test_typing import (
@@ -35,6 +40,19 @@ def test_ar1_target_simulate_length() -> None:
     assert jnp.shape(logp) == ()
 
 
+def test_linear_gaussian_simulate_length() -> None:
+    key = jax.random.PRNGKey(0)
+    params = LGSSMParameters()
+    latent, obs, x_hist, y_hist = simulate.simulate(
+        key, LinearGaussianSSM, None, params, sequence_length=3
+    )
+
+    assert latent.x.shape == (3, 2)
+    assert obs.y.shape == (3, 2)
+    logp = evaluate.log_prob_joint(LinearGaussianSSM, latent, obs, None, params)
+    assert jnp.shape(logp) == ()
+
+
 def test_simple_stochastic_vol_simulate_length() -> None:
     key = jax.random.PRNGKey(0)
     params = LogVolRW(
@@ -51,6 +69,49 @@ def test_simple_stochastic_vol_simulate_length() -> None:
     assert obs.underlying.shape == (3,)
     assert pytree_shape(x_hist)[0][0] == 1
     assert pytree_shape(y_hist)[0][0] == 1
+
+
+def test_sir_simulate_length() -> None:
+    key = jrandom.PRNGKey(0)
+    params = SIRParameters(
+        infection_rate=jnp.array(0.1),
+        recovery_rate=jnp.array(0.05),
+        population=jnp.array(100.0),
+    )
+    latent, obs, _, _ = simulate.simulate(
+        key, SIRModel, None, params, sequence_length=3
+    )
+
+    assert latent.s.shape == (3,)
+    assert obs.new_cases.shape == (3,)
+
+
+def test_poisson_ssm_simulate_length() -> None:
+    key = jax.random.PRNGKey(0)
+    params = PoissonSSMParameters()
+    latent, obs, x_hist, y_hist = simulate.simulate(
+        key, PoissonSSM, None, params, sequence_length=3
+    )
+
+    assert latent.log_rate.shape == (3,)
+    assert obs.count.shape == (3,)
+
+def test_hmm_simulate_length() -> None:
+    key = jax.random.PRNGKey(0)
+    params = HMMParameters(
+        initial_probs=jnp.array([0.6, 0.4]),
+        transition_matrix=jnp.array([[0.7, 0.3], [0.2, 0.8]]),
+        emission_probs=jnp.array([[0.9, 0.1], [0.2, 0.8]]),
+    )
+    latent, obs, x_hist, y_hist = simulate.simulate(
+        key, HiddenMarkovModel, None, params, sequence_length=3
+    )
+
+    assert latent.z.shape == (3,)
+    assert obs.y.shape == (3,)
+    logp = evaluate.log_prob_joint(HiddenMarkovModel, latent, obs, None, params)
+
+    assert jnp.shape(logp) == ()
 
 
 class Prior1(Prior[DummyParticle, DummyCondition, DummyParameters]):
@@ -244,3 +305,30 @@ def test_simulate_dependency_lengths(
         assert pytree_shape(obs)[0][0] == seq_len
         assert pytree_shape(x_hist)[0][0] == target.prior.order - 1
         assert pytree_shape(y_hist)[0][0] == obs_dep
+
+
+def test_ar1_joint_log_prob_closed_form() -> None:
+    key = jrandom.PRNGKey(0)
+    params = ARParameters(
+        ar=jnp.array(0.5),
+        observation_std=jnp.array(1.0),
+        transition_std=jnp.array(0.3),
+    )
+    latents, observations, _, _ = simulate.simulate(
+        key, AR1Target, None, params, sequence_length=3
+    )
+
+    x = latents.x
+    y = observations.y
+
+    manual_logp = jstats.norm.logpdf(x[0], loc=0.0, scale=params.transition_std)
+    manual_logp += jstats.norm.logpdf(y[0], loc=x[0], scale=params.observation_std)
+    manual_logp += jnp.sum(
+        jstats.norm.logpdf(x[1:], loc=params.ar * x[:-1], scale=params.transition_std)
+    )
+    manual_logp += jnp.sum(
+        jstats.norm.logpdf(y[1:], loc=x[1:], scale=params.observation_std)
+    )
+
+    eval_logp = evaluate.log_prob_joint(AR1Target, latents, observations, None, params)
+    assert jnp.allclose(manual_logp, eval_logp)

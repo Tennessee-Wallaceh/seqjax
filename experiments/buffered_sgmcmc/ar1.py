@@ -16,6 +16,7 @@ if __name__ == "__main__":
     key = jrandom.PRNGKey(0)
     _, obs, _, _ = simulate.simulate(key, AR1Target(), None, true_params, sequence_length=50)
 
+
     pf = BootstrapParticleFilter(AR1Target(), num_particles=256)
     config = BufferedSGLDConfig(
         step_size=ARParameters(ar=jnp.array(5e-3), observation_std=0.0, transition_std=0.0),

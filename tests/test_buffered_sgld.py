@@ -25,7 +25,6 @@ def test_buffered_sgld_runs() -> None:
 
     assert samples.ar.shape == (config.num_iters,)
 
-
 def test_buffered_sgld_step_tree() -> None:
     key = jrandom.PRNGKey(0)
     target = AR1Target()
