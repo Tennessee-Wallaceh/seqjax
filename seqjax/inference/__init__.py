@@ -1,4 +1,4 @@
-from .interface import InferenceMethod
+from .interface import InferenceMethod, LatentInferenceMethod
 from .buffered import (
     BufferedConfig,
     run_buffered_filter,
@@ -8,6 +8,7 @@ from .buffered import (
 
 __all__ = [
     "InferenceMethod",
+    "LatentInferenceMethod",
     "BufferedConfig",
     "run_buffered_filter",
     "BufferedSGLDConfig",

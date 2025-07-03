@@ -41,3 +41,29 @@ class InferenceMethod(Protocol):
         initial_conditions: tuple[ConditionType, ...] | None = None,
         observation_history: tuple[ObservationType, ...] | None = None,
     ) -> Any: ...
+
+
+class LatentInferenceMethod(Protocol):
+    """Callable protocol for latent path inference routines.
+
+    This interface covers samplers that condition on known model parameters and
+    return samples from the posterior ``p(x | y, \theta)``. Concrete inference
+    functions such as :func:`~seqjax.inference.mcmc.run_nuts` should be
+    partially applied with any algorithm-specific configuration before being
+    used through this protocol.
+    """
+
+    def __call__(
+        self,
+        target: SequentialModel[
+            ParticleType, ObservationType, ConditionType, ParametersType
+        ],
+        key: PRNGKeyArray,
+        observations: Batched[ObservationType, SequenceAxis],
+        *,
+        parameters: ParametersType,
+        condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+        initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
+        initial_conditions: tuple[ConditionType, ...] | None = None,
+        observation_history: tuple[ObservationType, ...] | None = None,
+    ) -> Any: ...
