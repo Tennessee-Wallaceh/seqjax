@@ -277,4 +277,18 @@ def run_filter(
     ess_history = scan_hist[1]
     recorder_history = tuple(scan_hist[2:])
 
-    return log_weights, particles, log_marginal_history, ess_history, recorder_history
+    if recorders is None:
+        return (
+            log_weights,
+            particles,
+            log_marginal_history,
+            ess_history,
+            recorder_history,
+        )
+    else:
+        return (
+            log_weights,
+            particles,
+            log_marginal_history,
+            recorder_history,
+        )

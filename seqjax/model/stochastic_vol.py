@@ -67,7 +67,35 @@ class TimeIncrement(Condition):
 class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
     @staticmethod
     def sample(key, hyperparameters):
-        pass
+        std_key, mr_key, ltv_key = jrandom.split(key, 3)
+
+        std_mean = jnp.array(3.0)
+        std_scale = jnp.array(1.0)
+        std_lower = (0.0 - std_mean) / std_scale
+        std_log_vol = (
+            std_mean
+            + std_scale
+            * jrandom.truncated_normal(std_key, lower=std_lower, upper=jnp.inf)
+        )
+
+        mr_mean = jnp.array(10.0)
+        mr_scale = jnp.array(10.0)
+        mr_lower = (0.0 - mr_mean) / mr_scale
+        mean_reversion = (
+            mr_mean
+            + mr_scale
+            * jrandom.truncated_normal(mr_key, lower=mr_lower, upper=jnp.inf)
+        )
+
+        long_term_vol = jnp.exp(
+            jnp.array(-2.0) + jnp.array(0.5) * jrandom.normal(ltv_key)
+        )
+
+        return LogVolRW(
+            std_log_vol=std_log_vol,
+            mean_reversion=mean_reversion,
+            long_term_vol=long_term_vol,
+        )
 
     @staticmethod
     def log_prob(parameteters, hyperparameters=None):
