@@ -1,7 +1,7 @@
 """Model evaluation utilities for computing log probabilities."""
 
 import jax
-from jaxtyping import PyTree, Scalar
+from jaxtyping import Scalar
 
 from seqjax.model.base import (
     ConditionType,
@@ -10,15 +10,14 @@ from seqjax.model.base import (
     ParticleType,
     SequentialModel,
 )
+from seqjax.model.typing import Batched, SequenceAxis
 from seqjax.util import index_pytree, pytree_shape, slice_pytree
 
 
 def log_prob_x(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
-    x_path: ParticleType,
-    condition: ConditionType,
+    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    x_path: Batched[ParticleType, SequenceAxis],
+    condition: Batched[ConditionType, SequenceAxis],
     parameters: ParametersType,
 ) -> Scalar:
     """Slice out particle histories for vectorised evaluation
@@ -66,15 +65,17 @@ def log_prob_x(
 
   
 def log_prob_y_given_x(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
-    x_path: PyTree,
-    y_path: PyTree,
-    condition: PyTree,
+    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    x_path: Batched[ParticleType, SequenceAxis],
+    y_path: Batched[ObservationType, SequenceAxis],
+    condition: Batched[ConditionType, SequenceAxis],
     parameters: ParametersType,
 ) -> Scalar:
-    """Return ``log p(y | x)`` for a sequence of observations."""
+    """Return ``log p(y | x)`` for a sequence of observations.
+
+    The ``x_path`` and ``y_path`` arguments share the same leading ``Batch``
+    dimensions, matching the output of :func:`~seqjax.model.simulate.simulate`.
+    """
     x_length = pytree_shape(x_path)[0][0]
 
     x_sequence_start = target.prior.order - 1
@@ -119,12 +120,16 @@ def log_prob_y_given_x(
 
 def log_prob_joint(
     target,
-    x_path,
-    y_path,
-    condition,
+    x_path: Batched[ParticleType, SequenceAxis],
+    y_path: Batched[ObservationType, SequenceAxis],
+    condition: Batched[ConditionType, SequenceAxis],
     parameters,
 ) -> Scalar:
-    """Return ``log p(x, y)`` for a path and observations."""
+    """Return ``log p(x, y)`` for a path and observations.
+
+    The latent and observation sequences share their ``Batch`` dimensions,
+    reflecting the output of :func:`~seqjax.model.simulate.simulate`.
+    """
     return log_prob_x(
         target,
         x_path,
@@ -146,8 +151,8 @@ def get_log_prob_x_for_target(
     """Return a ``log_prob_x`` function bound to ``target``."""
 
     def _log_prob_x(
-        x_path: PyTree,
-        condition: PyTree,
+        x_path: Batched[ParticleType, SequenceAxis],
+        condition: Batched[ConditionType, SequenceAxis],
         parameters: ParametersType,
     ):
         return log_prob_x(target, x_path, condition, parameters)
@@ -163,9 +168,9 @@ def get_log_prob_joint_for_target(
     """Return a ``log_prob_joint`` function bound to ``target``."""
 
     def _log_prob_joint(
-        x_path,
-        y_path,
-        condition,
+        x_path: Batched[ParticleType, SequenceAxis],
+        y_path: Batched[ObservationType, SequenceAxis],
+        condition: Batched[ConditionType, SequenceAxis],
         parameters,
     ):
         return log_prob_joint(target, x_path, y_path, condition, parameters)

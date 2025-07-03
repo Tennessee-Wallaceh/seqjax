@@ -1,6 +1,7 @@
 """Runtime type checking utilities for model interfaces."""
 
 import inspect
+from typing import Generic, Protocol, TypeVar, TypeVarTuple, Unpack
 import typing
 
 import equinox as eqx
@@ -59,11 +60,27 @@ class Parameters(eqx.Module):
 class HyperParameters(eqx.Module): ...
 
 
-ParticleType = typing.TypeVar("ParticleType", bound=Particle)
-ObservationType = typing.TypeVar("ObservationType", bound=Observation)
-ConditionType = typing.TypeVar("ConditionType", bound=Condition)
-ParametersType = typing.TypeVar("ParametersType", bound=Parameters, contravariant=True)
-HyperParametersType = typing.TypeVar("HyperParametersType", bound=HyperParameters)
+ParticleType = TypeVar("ParticleType", bound=Particle)
+ObservationType = TypeVar("ObservationType", bound=Observation)
+ConditionType = TypeVar("ConditionType", bound=Condition)
+ParametersType = TypeVar("ParametersType", bound=Parameters, contravariant=True)
+HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters)
+
+# Generic helpers -----------------------------------------------------------
+
+Batch = TypeVarTuple("Batch")
+SequenceAxis = TypeVar("SequenceAxis")
+T_co = TypeVar("T_co", covariant=True)
+
+
+class Batched(Protocol, Generic[T_co, Unpack[Batch], SequenceAxis]):
+    """A :class:`~jaxtyping.PyTree` with arbitrary leading batch axes.
+
+    ``Batch`` represents the shared leading dimensions while ``SequenceAxis``
+    denotes the trailing sequence length. Multiple return values can reuse the
+    same ``Batch`` tuple to indicate they are batched together.
+    """
+
 
 
 def resolve_annotation(annotation, type_mapping, class_vars):

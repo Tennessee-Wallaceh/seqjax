@@ -14,6 +14,7 @@ from seqjax.model.base import (
     ParticleType,
     SequentialModel,
 )
+from seqjax.model.typing import Batched, SequenceAxis
 from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
 
 
@@ -79,8 +80,8 @@ def simulate(
     parameters: ParametersType,
     sequence_length: int,
 ) -> tuple[
-    PyTree,
-    PyTree,
+    Batched[ParticleType, SequenceAxis],
+    Batched[ObservationType, SequenceAxis],
     PyTree,
     PyTree,
 ]:
@@ -110,9 +111,9 @@ def simulate(
     subsequent transition step receive the correct context.
 
     Returns ``(latents, observations, latent_history, observation_history)``.
-    The first two items contain the simulated sequences of length
-    ``sequence_length``. The final two contain the latent and observation
-    histories used for the simulation.
+    ``latents`` and ``observations`` share the same leading ``Batch`` dimensions
+    while ``SequenceAxis`` corresponds to ``sequence_length``.  The final two
+    values are the latent and observation histories used for the simulation.
     """
 
     if sequence_length < 1:
