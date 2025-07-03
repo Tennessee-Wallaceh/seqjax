@@ -9,6 +9,7 @@ import jax.random as jrandom
 
 from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
+from seqjax.model.linear_gaussian import LinearGaussianSSM, LGSSMParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
 from seqjax.util import pytree_shape
@@ -32,6 +33,19 @@ def test_ar1_target_simulate_length() -> None:
     assert latent.x.shape == (3,)
     assert obs.y.shape == (3,)
     logp = evaluate.log_prob_joint(AR1Target, latent, obs, None, params)
+    assert jnp.shape(logp) == ()
+
+
+def test_linear_gaussian_simulate_length() -> None:
+    key = jax.random.PRNGKey(0)
+    params = LGSSMParameters()
+    latent, obs, x_hist, y_hist = simulate.simulate(
+        key, LinearGaussianSSM, None, params, sequence_length=3
+    )
+
+    assert latent.x.shape == (3, 2)
+    assert obs.y.shape == (3, 2)
+    logp = evaluate.log_prob_joint(LinearGaussianSSM, latent, obs, None, params)
     assert jnp.shape(logp) == ()
 
 
