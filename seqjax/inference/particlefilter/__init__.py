@@ -1,5 +1,5 @@
 from .base import (
-    GeneralSequentialImportanceSampler,
+    SMCSampler,
     Proposal,
     proposal_from_transition,
     run_filter,
@@ -18,7 +18,7 @@ from .recorders import (
 )
 
 __all__ = [
-    "GeneralSequentialImportanceSampler",
+    "SMCSampler",
     "Proposal",
     "proposal_from_transition",
     "run_filter",
