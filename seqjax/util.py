@@ -75,7 +75,7 @@ def dynamic_slice_pytree(
         partial(
             jax.lax.dynamic_slice_in_dim,
             start_index=start_index,
-            limit_index=limit_index,
+            slice_size=limit_index - start_index,
             axis=dim,
         ),
         tree,
