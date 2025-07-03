@@ -11,6 +11,7 @@ from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
 from seqjax.model.linear_gaussian import LinearGaussianSSM, LGSSMParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
+from seqjax.model.hmm import HiddenMarkovModel, HMMParameters
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
 from seqjax.util import pytree_shape
 from tests.test_typing import (
@@ -65,6 +66,23 @@ def test_simple_stochastic_vol_simulate_length() -> None:
     assert obs.underlying.shape == (3,)
     assert pytree_shape(x_hist)[0][0] == 1
     assert pytree_shape(y_hist)[0][0] == 1
+
+
+def test_hmm_simulate_length() -> None:
+    key = jax.random.PRNGKey(0)
+    params = HMMParameters(
+        initial_probs=jnp.array([0.6, 0.4]),
+        transition_matrix=jnp.array([[0.7, 0.3], [0.2, 0.8]]),
+        emission_probs=jnp.array([[0.9, 0.1], [0.2, 0.8]]),
+    )
+    latent, obs, x_hist, y_hist = simulate.simulate(
+        key, HiddenMarkovModel, None, params, sequence_length=3
+    )
+
+    assert latent.z.shape == (3,)
+    assert obs.y.shape == (3,)
+    logp = evaluate.log_prob_joint(HiddenMarkovModel, latent, obs, None, params)
+    assert jnp.shape(logp) == ()
 
 
 class Prior1(Prior[DummyParticle, DummyCondition, DummyParameters]):
