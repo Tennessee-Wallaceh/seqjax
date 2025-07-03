@@ -21,14 +21,15 @@ def test_dynamic_slice_pytree_matches_lax() -> None:
 
     tree = {"a": jnp.arange(10), "b": jnp.arange(10) * 2}
     start_index = 2
-    limit_index = 7
+    slice_size = 5
 
-    sliced = dynamic_slice_pytree(tree, start_index, limit_index - start_index)
+    sliced = dynamic_slice_pytree(tree, start_index, slice_size)
+
     expected = jax.tree_util.tree_map(
         partial(
             jax.lax.dynamic_slice_in_dim,
             start_index=start_index,
-            slice_size=limit_index - start_index,
+            slice_size=slice_size,
             axis=0,
         ),
         tree,
