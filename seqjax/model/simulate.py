@@ -81,6 +81,8 @@ def simulate(
 ) -> tuple[
     PyTree,
     PyTree,
+    PyTree,
+    PyTree,
 ]:
     """Simulate a path of length ``sequence_length`` from ``target``.
 
@@ -106,6 +108,11 @@ def simulate(
     The ``condition`` array must therefore have length
     ``sequence_length + target.prior.order - 1`` so that the prior and every
     subsequent transition step receive the correct context.
+
+    Returns ``(latents, observations, latent_history, observation_history)``.
+    The first two items contain the simulated sequences of length
+    ``sequence_length``. The final two contain the latent and observation
+    histories used for the simulation.
     """
 
     if sequence_length < 1:
@@ -168,8 +175,8 @@ def simulate(
         length=sequence_length - 1,
     )
 
-    latent_path = concat_pytree(*x_0, latent_path)
-    observed_path = concat_pytree(
+    latent_full = concat_pytree(*x_0, latent_path)
+    observed_full = concat_pytree(
         *parameters.reference_emission,
         y_0,
         observed_path,
@@ -177,11 +184,16 @@ def simulate(
 
     latent_start = target.prior.order - 1
     obs_start = target.emission.observation_dependency
-    latent_path = slice_pytree(latent_path, latent_start, latent_start + sequence_length)
+    latent_path = slice_pytree(latent_full, latent_start, latent_start + sequence_length)
     observed_path = slice_pytree(
-        observed_path,
+        observed_full,
         obs_start,
         obs_start + sequence_length,
     )
 
-    return latent_path, observed_path
+    latent_history = slice_pytree(latent_full, 0, latent_start)
+    observation_history = slice_pytree(
+        observed_full, 0, obs_start
+    )
+
+    return latent_path, observed_path, latent_history, observation_history

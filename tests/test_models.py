@@ -23,10 +23,14 @@ from jaxtyping import PRNGKeyArray, Scalar
 def test_ar1_target_simulate_length() -> None:
     key = jax.random.PRNGKey(0)
     params = ARParameters()
-    latent, obs = simulate.simulate(key, AR1Target, None, params, sequence_length=3)
+    latent, obs, x_hist, y_hist = simulate.simulate(
+        key, AR1Target, None, params, sequence_length=3
+    )
 
     assert latent.x.shape == (3,)
     assert obs.y.shape == (3,)
+    assert pytree_shape(x_hist)[0][0] == 0
+    assert pytree_shape(y_hist)[0][0] == 0
 
 
 def test_simple_stochastic_vol_simulate_length() -> None:
@@ -37,12 +41,14 @@ def test_simple_stochastic_vol_simulate_length() -> None:
         long_term_vol=jnp.array(1.0),
     )
     cond = TimeIncrement(jnp.array([1.0, 1.0, 1.0, 1.0]))
-    latent, obs = simulate.simulate(
+    latent, obs, x_hist, y_hist = simulate.simulate(
         key, SimpleStochasticVol, cond, params, sequence_length=3
     )
 
     assert latent.log_vol.shape == (3,)
     assert obs.underlying.shape == (3,)
+    assert pytree_shape(x_hist)[0][0] == 1
+    assert pytree_shape(y_hist)[0][0] == 1
 
 
 class Prior1(Prior[DummyParticle, DummyCondition, DummyParameters]):
@@ -221,6 +227,10 @@ def test_simulate_dependency_lengths(
         with pytest.raises(jax.errors.JaxRuntimeError):
             simulate.simulate(key, target, condition, params, seq_len)
     else:
-        latent, obs = simulate.simulate(key, target, condition, params, seq_len)
+        latent, obs, x_hist, y_hist = simulate.simulate(
+            key, target, condition, params, seq_len
+        )
         assert pytree_shape(latent)[0][0] == seq_len
         assert pytree_shape(obs)[0][0] == seq_len
+        assert pytree_shape(x_hist)[0][0] == target.prior.order - 1
+        assert pytree_shape(y_hist)[0][0] == obs_dep
