@@ -87,7 +87,7 @@ def test_ar1_auxiliary_filter_runs() -> None:
     )
     filter_key = jrandom.PRNGKey(1)
     apf = AuxiliaryParticleFilter(target, num_particles=10)
-    log_w, particles, ess, _ = run_filter(
+    log_w, particles, log_mp, ess, _ = run_filter(
         apf,
         filter_key,
         parameters,
