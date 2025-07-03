@@ -91,7 +91,9 @@ from .metrics import compute_esse_from_log_weights
 
 
 class Recorder(Protocol):
-    def __call__(self, weights: Array, particles: tuple[ParticleType, ...]) -> PyTree: ...
+    def __call__(
+        self, weights: Array, particles: tuple[ParticleType, ...]
+    ) -> PyTree: ...
 
 
 class GeneralSequentialImportanceSampler(
@@ -178,7 +180,9 @@ class GeneralSequentialImportanceSampler(
 
 
 def run_filter(
-    gsis: GeneralSequentialImportanceSampler[ParticleType, ObservationType, ConditionType, ParametersType],
+    gsis: GeneralSequentialImportanceSampler[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     key: PRNGKeyArray,
     parameters: ParametersType,
     observation_path: Batched[ObservationType, SequenceAxis],
@@ -192,7 +196,11 @@ def run_filter(
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
 
     if initial_conditions is None:
-        initial_conditions = tuple(None for _ in range(gsis.target.prior.order))
+        if gsis.target.prior.order > 0:
+            raise ValueError(
+                "initial_conditions must be provided when the prior has order > 0"
+            )
+        initial_conditions = ()
 
     init_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
@@ -212,7 +220,9 @@ def run_filter(
         )
         weights = jax.nn.softmax(log_w)
         recorder_vals = (
-            tuple(r(weights, particles) for r in recorders) if recorders is not None else ()
+            tuple(r(weights, particles) for r in recorders)
+            if recorders is not None
+            else ()
         )
         return (log_w, particles), (ess_e, *recorder_vals)
 
