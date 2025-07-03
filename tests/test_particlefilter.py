@@ -2,7 +2,7 @@ import jax.random as jrandom
 import pytest
 
 from seqjax.model.ar import AR1Target, ARParameters
-from seqjax import BootstrapParticleFilter, simulate
+from seqjax import BootstrapParticleFilter, AuxiliaryParticleFilter, simulate
 from seqjax.inference.particlefilter import (
     run_filter,
     current_particle_quantiles,
@@ -75,3 +75,25 @@ def test_particle_recorders_shapes() -> None:
     seq_len = observations.y.shape[0]
     assert quant_hist.shape == (seq_len, 2)
     assert var_hist.shape == (seq_len,)
+
+
+def test_ar1_auxiliary_filter_runs() -> None:
+    key = jrandom.PRNGKey(0)
+    target = AR1Target()
+    parameters = ARParameters()
+
+    _, observations, _, _ = simulate.simulate(
+        key, target, None, parameters, sequence_length=5
+    )
+    filter_key = jrandom.PRNGKey(1)
+    apf = AuxiliaryParticleFilter(target, num_particles=10)
+    log_w, particles, ess, _ = run_filter(
+        apf,
+        filter_key,
+        parameters,
+        observations,
+        initial_conditions=(None,),
+    )
+
+    assert log_w.shape == (apf.num_particles,)
+    assert ess.shape == (observations.y.shape[0],)

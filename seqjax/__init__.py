@@ -13,7 +13,7 @@ from .model.base import Emission, Prior, SequentialModel, Transition
 from .inference.particlefilter import Proposal
 
 # simple inference utilities
-from .inference.particlefilter import BootstrapParticleFilter
+from .inference.particlefilter import BootstrapParticleFilter, AuxiliaryParticleFilter
 from .inference.mcmc import NUTSConfig, run_nuts
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "SequentialModel",
     "graph_model",
     "BootstrapParticleFilter",
+    "AuxiliaryParticleFilter",
     "NUTSConfig",
     "run_nuts",
 ]
