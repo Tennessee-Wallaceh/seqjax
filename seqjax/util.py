@@ -71,11 +71,14 @@ def dynamic_slice_pytree(
 ) -> Any:
     """Dynamically slice a pytree along ``dim``."""
 
+    slice_size = limit_index - start_index
     return jax.tree_util.tree_map(
         partial(
             jax.lax.dynamic_slice_in_dim,
             start_index=start_index,
+            slice_size=slice_size,
             slice_size=limit_index - start_index,
+
             axis=dim,
         ),
         tree,
@@ -125,7 +128,7 @@ def infer_pytree_shape(pytree: Any) -> tuple[int, ...]:
 
     leaves, _ = jax.tree_util.tree_flatten(pytree)
 
-    shape = ()
+    shape: tuple[int, ...] = ()
     for x in leaves:
         if jnp.shape(x) != ():
             shape = jnp.shape(x)

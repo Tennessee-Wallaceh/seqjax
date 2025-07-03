@@ -69,7 +69,7 @@ HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters)
 # Generic helpers -----------------------------------------------------------
 
 Batch = TypeVarTuple("Batch")
-SequenceAxis = TypeVar("SequenceAxis")
+SequenceAxis = TypeVar("SequenceAxis", covariant=True)
 T_co = TypeVar("T_co", covariant=True)
 
 

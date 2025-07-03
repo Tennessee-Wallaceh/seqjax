@@ -28,7 +28,7 @@ def gumbel_resample_from_log_weights(
     )
     particle_ix = jnp.argmax(log_weights + gumbels, axis=1).reshape(-1)
     resampled_particles = jax.vmap(index_tree, in_axes=[None, 0, None])(
-        particles, particle_ix, 0
+        particles, particle_ix, 0  # type: ignore[arg-type]
     )
     new_log_weights = jnp.full_like(log_weights, -jnp.log(log_weights.shape[0]))
     return resampled_particles, new_log_weights
