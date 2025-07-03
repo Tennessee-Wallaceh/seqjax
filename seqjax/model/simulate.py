@@ -84,10 +84,10 @@ def simulate(
 ]:
     """Simulate a path of length ``sequence_length`` from ``target``.
 
-    The returned latent and observation sequences include any prior history
-    required by ``target``. This means the latent path has length
-    ``sequence_length + target.prior.order - 1`` and the observation path has
-    length ``sequence_length + target.emission.observation_dependency``.
+    Any additional history required by the model is generated internally but
+    not returned.  The leading history for the latent path comes from the
+    ``Prior`` while any initial observations are taken from
+    ``parameters.reference_emission``.
     """
 
     if sequence_length < 1:
@@ -155,6 +155,15 @@ def simulate(
         *parameters.reference_emission,
         y_0,
         observed_path,
+    )
+
+    latent_start = target.prior.order - 1
+    obs_start = target.emission.observation_dependency
+    latent_path = slice_pytree(latent_path, latent_start, latent_start + sequence_length)
+    observed_path = slice_pytree(
+        observed_path,
+        obs_start,
+        obs_start + sequence_length,
     )
 
     return latent_path, observed_path
