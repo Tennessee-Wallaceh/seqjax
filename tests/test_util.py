@@ -24,6 +24,7 @@ def test_dynamic_slice_pytree_matches_lax() -> None:
     slice_size = 5
 
     sliced = dynamic_slice_pytree(tree, start_index, slice_size)
+
     expected = jax.tree_util.tree_map(
         partial(
             jax.lax.dynamic_slice_in_dim,
