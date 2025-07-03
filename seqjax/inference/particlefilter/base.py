@@ -324,16 +324,25 @@ def vmapped_run_filter(
     """Vectorise :func:`run_filter` over a leading batch dimension."""
 
     cond_axes = 0 if condition_path is not None else None
-    run_vmap = jax.vmap(run_filter, in_axes=(None, 0, 0, 0, cond_axes))
+
+    def _run(key, params, obs, cond):
+        return run_filter(
+            smc,
+            key,
+            params,
+            obs,
+            cond,
+            initial_conditions=initial_conditions,
+            observation_history=observation_history,
+            recorders=recorders,
+        )
+
+    run_vmap = jax.vmap(_run, in_axes=(0, 0, 0, cond_axes))
 
     return run_vmap(
-        smc,
         key,
         parameters,
         observation_path,
         condition_path,
-        initial_conditions=initial_conditions,
-        observation_history=observation_history,
-        recorders=recorders,
     )
 
