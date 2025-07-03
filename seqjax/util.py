@@ -77,29 +77,27 @@ def dynamic_slice_pytree(
             jax.lax.dynamic_slice_in_dim,
             start_index=start_index,
             slice_size=slice_size,
+            slice_size=limit_index - start_index,
+
             axis=dim,
         ),
         tree,
     )
 
 
-def promote_scalar_to_vector(x: Any) -> Any:
-    """Ensure array leaves are at least 1D."""
-    if isinstance(x, jnp.ndarray) and x.ndim == 0:
-        return jnp.expand_dims(x, axis=0)
-    return x
-
-
 def concat_pytree(*trees: Any, axis: int = 0) -> Any:
     """Concatenate pytrees along ``axis``."""
-    promoted_trees = [
-        jax.tree_util.tree_map(promote_scalar_to_vector, tree) for tree in trees
-    ]
+    def _concat(*leaves):
+        max_ndim = max(leaf.ndim for leaf in leaves)
+        expanded = [
+            jnp.expand_dims(leaf, list(range(max_ndim - leaf.ndim)))
+            if leaf.ndim < max_ndim
+            else leaf
+            for leaf in leaves
+        ]
+        return jax.lax.concatenate(expanded, dimension=axis)
 
-    return jax.tree_util.tree_map(
-        lambda *leaves: jax.lax.concatenate(leaves, dimension=axis),
-        *promoted_trees,
-    )
+    return jax.tree_util.tree_map(_concat, *trees)
 
 
 def pytree_shape(tree: Any) -> tuple[tuple[int, ...], int]:

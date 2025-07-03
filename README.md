@@ -2,6 +2,8 @@
 
 SeqJAX provides utilities for building sequential probabilistic models with [JAX](https://github.com/google/jax). The library encourages a functional style: models are composed of `Prior`, `Transition` and `Emission` classes which operate on simple dataclasses for particles, observations and parameters. Runtime interface checks ensure that these components implement the correct methods and signatures, reducing boilerplate errors. The three components are grouped together in a ``SequentialModel`` definition.
 
+SeqJAX ships with a handful of toy models demonstrating this approach: an AR(1) process, a stochastic volatility model and a multidimensional linear Gaussian state space model.
+
 ## Installation
 
 SeqJAX requires Python 3.12 or later. Only installation from source is currently available:

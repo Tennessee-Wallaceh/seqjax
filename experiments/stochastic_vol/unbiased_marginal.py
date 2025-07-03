@@ -8,7 +8,12 @@ from seqjax.model.stochastic_vol import (
     LogVolWithSkew,
     TimeIncrement,
 )
-from seqjax.inference.particlefilter import BootstrapParticleFilter, run_filter
+import jax
+
+from seqjax.inference.particlefilter import (
+    BootstrapParticleFilter,
+    vmapped_run_filter,
+)
 
 
 if __name__ == "__main__":
@@ -52,21 +57,36 @@ if __name__ == "__main__":
                 skew=jnp.array(beta),
             )
 
-        mp_estimates = []
-        for _ in range(num_repeats):
-            base_key, filter_key = jrandom.split(base_key)
-            _, _, log_mp, _, _ = run_filter(
-                bpf,
-                filter_key,
-                par,
-                obs,
-                cond_path,
-                initial_conditions=init_conds,
-                observation_history=params.reference_emission,
-            )
-            mp_estimates.append(float(log_mp[-1]))
+        split_keys = jrandom.split(base_key, num_repeats + 1)
+        base_key = split_keys[0]
+        filter_keys = split_keys[1:]
 
-        ax.hist(jnp.array(mp_estimates), bins=20, alpha=0.7)
+        batched_params = jax.tree_util.tree_map(
+            lambda x: jnp.broadcast_to(x, (num_repeats,) + jnp.shape(x)),
+            par,
+        )
+        batched_obs = jax.tree_util.tree_map(
+            lambda x: jnp.broadcast_to(x, (num_repeats,) + jnp.shape(x)),
+            obs,
+        )
+        batched_cond = jax.tree_util.tree_map(
+            lambda x: jnp.broadcast_to(x, (num_repeats,) + jnp.shape(x)),
+            cond_path,
+        )
+
+        _, _, log_mp, _, _ = vmapped_run_filter(
+            bpf,
+            filter_keys,
+            batched_params,
+            batched_obs,
+            batched_cond,
+            initial_conditions=init_conds,
+            observation_history=params.reference_emission,
+        )
+
+        mp_estimates = jnp.asarray(log_mp[:, -1])
+
+        ax.hist(mp_estimates, bins=20, alpha=0.7)
         ax.set_title(f"beta={float(beta):.2f}")
 
     fig.suptitle("Bootstrap log marginal estimates")
