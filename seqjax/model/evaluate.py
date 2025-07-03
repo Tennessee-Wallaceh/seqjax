@@ -62,55 +62,7 @@ def log_prob_x(
 
     return (log_p_x_0 + transition_log_p_x).sum()
 
-
-def log_prob_x_noncentered(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
-    eps_path: PyTree,
-    condition: PyTree,
-    parameters: ParametersType,
-):
-    """Return ``log p(x)`` and the implied path using a non-centred form."""
-
-    sequence_start = target.prior.order - 1
-    eps_shape = pytree_shape(eps_path)[0]
-    sequence_length = eps_shape[0] - sequence_start
-
-    prior_particles = tuple(
-        index_pytree(eps_path, i) for i in range(target.prior.order)
-    )
-    prior_conditions = tuple(
-        index_pytree(condition, ix) for ix in range(target.prior.order)
-    )
-
-    log_p_x_0 = target.prior.log_prob(prior_particles, prior_conditions, parameters)
-
-    def body(particle_history, inputs):
-        eps_t, cond_t = inputs
-        loc, scale = target.transition.loc_scale(particle_history, cond_t, parameters)
-        lp_innov = target.transition.log_prob_innovation(eps_t, loc, scale)
-        next_particle = target.transition.apply_innovation(eps_t, loc, scale)
-        return (*particle_history[1:], next_particle), (next_particle, lp_innov)
-
-    particle_history = prior_particles[-target.transition.order :]
-    # inputs = index_pytree(eps_path, 0), index_pytree(condition, 0)
-
-    _, (e_x_path, log_p_eps) = jax.lax.scan(
-        body,
-        particle_history,
-        (
-            slice_pytree(
-                eps_path, sequence_start + 1, sequence_start + sequence_length
-            ),
-            slice_pytree(
-                condition, sequence_start + 1, sequence_start + sequence_length
-            ),
-        ),
-    )
-
-    x_path = concat_pytree(*prior_particles, e_x_path)
-    return log_p_x_0 + log_p_eps.sum(), x_path
-
-
+  
 def log_prob_y_given_x(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
     x_path: PyTree,
