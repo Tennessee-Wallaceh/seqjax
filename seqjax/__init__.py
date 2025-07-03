@@ -13,7 +13,7 @@ from .model.base import Emission, Prior, SequentialModel, Transition
 from .inference.particlefilter import Proposal
 
 # simple inference utilities
-from .inference.particlefilter import BootstrapParticleFilter
+from .inference.particlefilter import BootstrapParticleFilter, AuxiliaryParticleFilter
 
 __all__ = [
     "simulate",
@@ -25,5 +25,6 @@ __all__ = [
     "SequentialModel",
     "graph_model",
     "BootstrapParticleFilter",
+    "AuxiliaryParticleFilter",
 ]
 
