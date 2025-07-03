@@ -23,6 +23,7 @@ from .inference import (
     run_buffered_sgld,
 )
 from .inference.pmcmc import RandomWalkConfig, ParticleMCMCConfig, run_particle_mcmc
+from .inference.kalman import run_kalman_filter
 
 __all__ = [
     "simulate",
@@ -47,4 +48,5 @@ __all__ = [
     "RandomWalkConfig",
     "ParticleMCMCConfig",
     "run_particle_mcmc",
+    "run_kalman_filter",
 ]
