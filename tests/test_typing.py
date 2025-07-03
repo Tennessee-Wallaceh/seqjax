@@ -7,7 +7,7 @@ import pytest
 from jaxtyping import PRNGKeyArray, Scalar
 import equinox as eqx
 
-from seqjax.model.base import Prior, Transition, Emission
+from seqjax import Emission, Prior, Transition
 from seqjax.model.typing import Condition, Observation, Parameters, Particle
 
 
@@ -41,7 +41,7 @@ class GoodPrior(Prior[DummyParticle, DummyCondition, DummyParameters]):
         return (DummyParticle(jnp.array(0.0)),)
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle],
         conditions: tuple[DummyCondition],
         parameters: DummyParameters,
@@ -62,7 +62,7 @@ class GoodTransition(Transition[DummyParticle, DummyCondition, DummyParameters])
         return DummyParticle(jnp.array(0.0))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle_history: tuple[DummyParticle],
         particle: DummyParticle,
         condition: DummyCondition,
@@ -88,7 +88,7 @@ class GoodEmission(
         return DummyObservation(jnp.array(0.0))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle],
         observation_history: tuple[DummyObservation],
         observation: DummyObservation,
@@ -122,7 +122,7 @@ def test_prior_missing_staticmethod() -> None:
                 return (DummyParticle(jnp.array(0.0)),)
 
             @staticmethod
-            def log_p(
+            def log_prob(
                 particle: tuple[DummyParticle],
                 conditions: tuple[DummyCondition],
                 parameters: DummyParameters,
@@ -147,7 +147,7 @@ def test_prior_order_mismatch() -> None:
                 return (DummyParticle(jnp.array(0.0)), DummyParticle(jnp.array(0.0)))
 
             @staticmethod
-            def log_p(
+            def log_prob(
                 particle: tuple[DummyParticle, DummyParticle],
                 conditions: tuple[DummyCondition],
                 parameters: DummyParameters,
@@ -173,7 +173,7 @@ def test_transition_order_mismatch() -> None:
                 return DummyParticle(jnp.array(0.0))
 
             @staticmethod
-            def log_p(
+            def log_prob(
                 particle_history: tuple[DummyParticle],
                 particle: DummyParticle,
                 condition: DummyCondition,
@@ -209,7 +209,7 @@ def test_emission_observation_dependency_mismatch() -> None:
                 return DummyObservation(jnp.array(0.0))
 
             @staticmethod
-            def log_p(
+            def log_prob(
                 particle: tuple[DummyParticle],
                 observation_history: tuple[DummyObservation],
                 observation: DummyObservation,
