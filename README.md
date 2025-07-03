@@ -17,7 +17,7 @@ The `seqjax.model.ar` module contains a small autoregressive example. The snippe
 ```python
 import jax.random as jrandom
 from seqjax.model.ar import AR1Target, ARParameters
-from seqjax.model.simulate import simulate
+from seqjax import simulate
 
 # Model parameters and target
 parameters = ARParameters(

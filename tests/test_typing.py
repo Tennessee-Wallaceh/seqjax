@@ -7,7 +7,7 @@ import pytest
 from jaxtyping import PRNGKeyArray, Scalar
 import equinox as eqx
 
-from seqjax.model.base import Prior, Transition, Emission
+from seqjax import Emission, Prior, Transition
 from seqjax.model.typing import Condition, Observation, Parameters, Particle
 
 

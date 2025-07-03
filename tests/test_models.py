@@ -4,7 +4,7 @@ import pytest
 jax = pytest.importorskip("jax")
 import jax.numpy as jnp
 
-from seqjax.model import simulate, evaluate
+from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
 
