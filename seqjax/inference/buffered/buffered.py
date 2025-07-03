@@ -36,13 +36,13 @@ class BufferedConfig(eqx.Module):
 
     buffer_size: int = 0
     batch_size: int = 1
-    particle_filter: SMCSampler[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ] | None = None
+    particle_filter: (
+        SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType] | None
+    ) = None
 
 
 def _run_segment(
-    start: int,
+    start: int | jax.Array,
     smc: SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType],
     key: PRNGKeyArray,
     parameters: ParametersType,
@@ -91,7 +91,9 @@ def _run_segment(
 
 
 def run_buffered_filter(
-    target: SequentialModel[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     key: PRNGKeyArray,
     parameters: ParametersType,
     observations: Batched[ObservationType, SequenceAxis],

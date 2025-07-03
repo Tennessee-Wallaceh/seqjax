@@ -112,7 +112,7 @@ def run_bayesian_nuts(
         return log_like + log_prior
 
     init_state = (initial_latents, initial_parameters)
-    flat, _ = jax.flatten_util.ravel_pytree(init_state)
+    flat, _ = jax.flatten_util.ravel_pytree(init_state)  # type: ignore[attr-defined]
     dim = flat.shape[0]
     inv_mass = (
         jnp.ones(dim)

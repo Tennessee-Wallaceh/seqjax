@@ -43,7 +43,7 @@ def _propose_parameters(
     params: Parameters,
     step_size: float,
 ) -> Parameters:
-    flat, unravel = jax.flatten_util.ravel_pytree(params)
+    flat, unravel = jax.flatten_util.ravel_pytree(params)  # type: ignore[attr-defined]
     noise = step_size * jrandom.normal(key, flat.shape)
     return unravel(flat + noise)
 
