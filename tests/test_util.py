@@ -23,7 +23,7 @@ def test_dynamic_slice_pytree_matches_lax() -> None:
     start_index = 2
     limit_index = 7
 
-    sliced = dynamic_slice_pytree(tree, start_index, limit_index)
+    sliced = dynamic_slice_pytree(tree, start_index, limit_index - start_index)
     expected = jax.tree_util.tree_map(
         partial(
             jax.lax.dynamic_slice_in_dim,
