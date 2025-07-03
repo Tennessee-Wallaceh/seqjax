@@ -48,7 +48,8 @@ if __name__ == "__main__":
     quant_rec = current_particle_quantiles(lambda p: p.log_vol, quantiles=(0.05, 0.95))
     init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(2))
     cond_path = TimeIncrement(cond.dt[2:])
-    log_w, _, ess, (filt_lv, filt_quant) = run_filter(
+
+    log_w, _, log_mp, ess, (filt_lv,filt_quant) = run_filter(
         bpf,
         filter_key,
         params,

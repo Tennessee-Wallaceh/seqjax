@@ -10,14 +10,12 @@ from seqjax.model.base import (
     SequentialModel,
 )
 
-from .base import GeneralSequentialImportanceSampler, proposal_from_transition
+from .base import SMCSampler, proposal_from_transition
 from .resampling import conditional_resample, gumbel_resample_from_log_weights
 
 
 class BootstrapParticleFilter(
-    GeneralSequentialImportanceSampler[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ]
+    SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType]
 ):
     """Classical bootstrap particle filter."""
 
