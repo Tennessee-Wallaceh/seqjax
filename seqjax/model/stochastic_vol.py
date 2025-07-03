@@ -44,7 +44,7 @@ class LogVolRW(Parameters):
     long_term_vol: Scalar
 
     # initial values
-    reference_emission: tuple[Underlying] = (Underlying(jnp.array(3000.0)),)
+    reference_emission: tuple[Underlying] = (Underlying(jnp.array(3000.0)),)  # type: ignore[assignment]
 
 
 class LogVolWithSkew(Parameters):
@@ -54,7 +54,7 @@ class LogVolWithSkew(Parameters):
     skew: Scalar  # correlation between random variations
 
     # initial values
-    reference_emission: tuple[Underlying] = (Underlying(jnp.array(3000.0)),)
+    reference_emission: tuple[Underlying] = (Underlying(jnp.array(3000.0)),)  # type: ignore[assignment]
 
 
 LogVolRandomWalks = Union[LogVolRW, LogVolWithSkew]
@@ -142,7 +142,7 @@ class GaussianStart(Prior[LatentVol, TimeIncrement, LogVolRandomWalks]):
     order: ClassVar[int] = 2
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         conditions: tuple[TimeIncrement, TimeIncrement],
         parameters: LogVolRandomWalks,
@@ -161,7 +161,7 @@ class GaussianStart(Prior[LatentVol, TimeIncrement, LogVolRandomWalks]):
         return start_lv, next_lv
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle: tuple[LatentVol, LatentVol],
         conditions: tuple[TimeIncrement, TimeIncrement],
         parameters: LogVolRandomWalks,
@@ -188,7 +188,7 @@ class RandomWalk(Transition[LatentVol, TimeIncrement, LogVolRandomWalks]):
     order: ClassVar[int] = 1
 
     @staticmethod
-    def loc_scale(
+    def loc_scale(  # type: ignore[override]
         particle_history: tuple[LatentVol],
         condition: TimeIncrement,
         parameters: LogVolRandomWalks,
@@ -203,7 +203,7 @@ class RandomWalk(Transition[LatentVol, TimeIncrement, LogVolRandomWalks]):
         return move_loc, move_scale
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         particle_history: tuple[LatentVol],
         condition: TimeIncrement,
@@ -213,7 +213,7 @@ class RandomWalk(Transition[LatentVol, TimeIncrement, LogVolRandomWalks]):
         return LatentVol(loc + scale * jrandom.normal(key))
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle_history: tuple[LatentVol],
         particle: LatentVol,
         condition: TimeIncrement,
@@ -232,7 +232,7 @@ class LogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolRW]):
     observation_dependency: ClassVar[int] = 1
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         particle: tuple[LatentVol, LatentVol],
         observation_history: tuple[Underlying],
@@ -246,7 +246,7 @@ class LogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolRW]):
         return Underlying(underlying=prev_observation.underlying * jnp.exp(log_return))
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle: tuple[LatentVol, LatentVol],
         observation_history: tuple[Underlying],
         observation: Underlying,
@@ -298,7 +298,7 @@ class SkewLogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolWithSke
         return return_mean, return_scale
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         particle: tuple[LatentVol, LatentVol],
         observation_history: tuple[Underlying],
@@ -317,7 +317,7 @@ class SkewLogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolWithSke
         return Underlying(underlying=prev_observation.underlying * jnp.exp(log_return))
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle: tuple[LatentVol, LatentVol],
         observation_history: tuple[Underlying],
         observation: Underlying,

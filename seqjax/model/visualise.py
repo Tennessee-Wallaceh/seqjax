@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from typing import Iterable
 
-from graphviz import Digraph
+from graphviz import Digraph  # type: ignore
 
 from .base import SequentialModel
 
@@ -59,7 +59,7 @@ def graph_model(
     # parameter node
     g.node("theta", label="θ", shape="square")
 
-    orig_args = model.__class__.__orig_bases__[0].__args__
+    orig_args = model.__class__.__orig_bases__[0].__args__  # type: ignore[attr-defined]
     particle_cls, obs_cls, cond_cls, _ = orig_args
 
     start = -model.prior.order + 1

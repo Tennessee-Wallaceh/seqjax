@@ -74,7 +74,7 @@ class InitialValue(Prior[LatentValue, Condition, ARParameters]):
     order: ClassVar[int] = 1
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         conditions: tuple[Condition],
         parameters: ARParameters,
@@ -86,7 +86,7 @@ class InitialValue(Prior[LatentValue, Condition, ARParameters]):
         return (LatentValue(x=x0),)
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle: tuple[LatentValue],
         conditions: tuple[Condition],
         parameters: ARParameters,
@@ -101,7 +101,7 @@ class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
     order: ClassVar[int] = 1
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         particle_history: tuple[LatentValue],
         condition: Condition,
@@ -116,7 +116,7 @@ class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
         return LatentValue(x=next_x)
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle_history: tuple[LatentValue],
         particle: LatentValue,
         condition: Condition,
@@ -138,7 +138,7 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition, ARParameters]):
     observation_dependency: ClassVar[int] = 0
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         particle: tuple[LatentValue],
         observation_history: tuple[()],
@@ -151,7 +151,7 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition, ARParameters]):
         return NoisyEmission(y=y)
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle: tuple[LatentValue],
         observation_history: tuple[()],
         observation: NoisyEmission,
