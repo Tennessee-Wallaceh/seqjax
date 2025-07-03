@@ -57,7 +57,9 @@ class HalfCauchyStds(ParameterPrior[ARParameters, HyperParameters]):
         )
 
     @staticmethod
-    def log_p(parameteters: ARParameters, _hyperparameters: HyperParameters) -> Scalar:
+    def log_prob(
+        parameteters: ARParameters, _hyperparameters: HyperParameters
+    ) -> Scalar:
         """Evaluate the log-density of ``parameteters`` under the prior."""
         log_p_theta = jstats.uniform.logpdf(parameteters.ar, loc=-1.0, scale=2.0)
         log_2 = jnp.log(jnp.array(2.0))
@@ -84,7 +86,7 @@ class InitialValue(Prior[LatentValue, Condition, ARParameters]):
         return (LatentValue(x=x0),)
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[LatentValue],
         conditions: tuple[Condition],
         parameters: ARParameters,
@@ -114,7 +116,7 @@ class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
         return LatentValue(x=next_x)
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle_history: tuple[LatentValue],
         particle: LatentValue,
         condition: Condition,
@@ -149,7 +151,7 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition, ARParameters]):
         return NoisyEmission(y=y)
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[LatentValue],
         observation_history: tuple[()],
         observation: NoisyEmission,

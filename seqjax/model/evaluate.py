@@ -13,7 +13,7 @@ from seqjax.model.base import (
 from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
 
 
-def log_p_x(
+def log_prob_x(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
     x_path: ParticleType,
     condition: ConditionType,
@@ -35,7 +35,7 @@ def log_p_x(
         index_pytree(condition, i) for i in range(target.prior.order)
     )
 
-    log_p_x_0 = target.prior.log_p(prior_particles, prior_conditions, parameters)
+    log_p_x_0 = target.prior.log_prob(prior_particles, prior_conditions, parameters)
 
     # rest of sequence
     particle_history = tuple(
@@ -53,7 +53,7 @@ def log_p_x(
     )
     transition_condition = slice_pytree(condition, sequence_start, sequence_length)
 
-    transition_log_p_x = jax.vmap(target.transition.log_p, in_axes=[0, 0, 0, None])(
+    transition_log_p_x = jax.vmap(target.transition.log_prob, in_axes=[0, 0, 0, None])(
         particle_history,
         target_particle,
         transition_condition,
@@ -63,7 +63,7 @@ def log_p_x(
     return (log_p_x_0 + transition_log_p_x).sum()
 
 
-def log_p_x_noncentered(
+def log_prob_x_noncentered(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
     eps_path: PyTree,
     condition: PyTree,
@@ -82,12 +82,12 @@ def log_p_x_noncentered(
         index_pytree(condition, ix) for ix in range(target.prior.order)
     )
 
-    log_p_x_0 = target.prior.log_p(prior_particles, prior_conditions, parameters)
+    log_p_x_0 = target.prior.log_prob(prior_particles, prior_conditions, parameters)
 
     def body(particle_history, inputs):
         eps_t, cond_t = inputs
         loc, scale = target.transition.loc_scale(particle_history, cond_t, parameters)
-        lp_innov = target.transition.log_p_innovation(eps_t, loc, scale)
+        lp_innov = target.transition.log_prob_innovation(eps_t, loc, scale)
         next_particle = target.transition.apply_innovation(eps_t, loc, scale)
         return (*particle_history[1:], next_particle), (next_particle, lp_innov)
 
@@ -111,7 +111,7 @@ def log_p_x_noncentered(
     return log_p_x_0 + log_p_eps.sum(), x_path
 
 
-def log_p_y_given_x(
+def log_prob_y_given_x(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
     x_path: PyTree,
     y_path: PyTree,
@@ -150,7 +150,7 @@ def log_p_y_given_x(
     )
 
     return jax.vmap(
-        target.emission.log_p,
+        target.emission.log_prob,
         in_axes=[0, 0, 0, 0, None],
     )(
         particle_history,
@@ -161,7 +161,7 @@ def log_p_y_given_x(
     ).sum()
 
 
-def log_p_joint(
+def log_prob_joint(
     target,
     x_path,
     y_path,
@@ -169,12 +169,12 @@ def log_p_joint(
     parameters,
 ) -> Scalar:
     """Return ``log p(x, y)`` for a path and observations."""
-    return log_p_x(
+    return log_prob_x(
         target,
         x_path,
         condition,
         parameters,
-    ) + log_p_y_given_x(
+    ) + log_prob_y_given_x(
         target,
         x_path,
         y_path,
@@ -184,32 +184,32 @@ def log_p_joint(
 
 
 # some utilities for getting densities for specific target
-def get_log_p_x_for_target(
+def get_log_prob_x_for_target(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
-    """Return a ``log_p_x`` function bound to ``target``."""
+    """Return a ``log_prob_x`` function bound to ``target``."""
 
-    def _log_p_x(
+    def _log_prob_x(
         x_path: PyTree,
         condition: PyTree,
         parameters: ParametersType,
     ):
-        return log_p_x(target, x_path, condition, parameters)
+        return log_prob_x(target, x_path, condition, parameters)
 
-    return _log_p_x
+    return _log_prob_x
 
 
-def get_log_p_joint_for_target(
+def get_log_prob_joint_for_target(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
-    """Return a ``log_p_joint`` function bound to ``target``."""
+    """Return a ``log_prob_joint`` function bound to ``target``."""
 
-    def _log_p_joint(
+    def _log_prob_joint(
         x_path,
         y_path,
         condition,
         parameters,
     ):
-        return log_p_joint(target, x_path, y_path, condition, parameters)
+        return log_prob_joint(target, x_path, y_path, condition, parameters)
 
-    return _log_p_joint
+    return _log_prob_joint

@@ -44,7 +44,7 @@ class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
 
     @staticmethod
     @abstractmethod
-    def log_p(
+    def log_prob(
         parameters: ParametersType,
         hyperparameters: HyperParametersType,
     ) -> Scalar: ...
@@ -77,7 +77,7 @@ class Prior(
 
     @staticmethod
     @abstractmethod
-    def log_p(
+    def log_prob(
         particle: tuple[ParticleType, ...],
         conditions: tuple[ConditionType, ...],
         parameters: ParametersType,
@@ -102,7 +102,7 @@ class Transition(
 
     @staticmethod
     @abstractmethod
-    def log_p(
+    def log_prob(
         particle_history: tuple[ParticleType, ...],
         particle: ParticleType,
         condition: ConditionType,
@@ -130,7 +130,7 @@ class Emission(
 
     @staticmethod
     @abstractmethod
-    def log_p(
+    def log_prob(
         particle: tuple[ParticleType, ...],
         observation_history: tuple[ObservationType, ...],
         observation: ObservationType,

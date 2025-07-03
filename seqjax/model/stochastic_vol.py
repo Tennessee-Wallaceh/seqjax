@@ -70,7 +70,7 @@ class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         pass
 
     @staticmethod
-    def log_p(parameteters, hyperparameters=None):
+    def log_prob(parameteters, hyperparameters=None):
         mean = 3.0
         scale = 1.0
         x = parameteters.std_log_vol
@@ -133,7 +133,7 @@ class GaussianStart(Prior[LatentVol, TimeIncrement, LogVolRandomWalks]):
         return start_lv, next_lv
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[LatentVol, LatentVol],
         conditions: tuple[TimeIncrement, TimeIncrement],
         parameters: LogVolRandomWalks,
@@ -147,7 +147,7 @@ class GaussianStart(Prior[LatentVol, TimeIncrement, LogVolRandomWalks]):
             loc=mu,
             scale=sigma,
         )
-        rw_log_p = RandomWalk.log_p(
+        rw_log_p = RandomWalk.log_prob(
             (start_lv,),
             next_lv,
             conditions[1],
@@ -185,7 +185,7 @@ class RandomWalk(Transition[LatentVol, TimeIncrement, LogVolRandomWalks]):
         return LatentVol(loc + scale * jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle_history: tuple[LatentVol],
         particle: LatentVol,
         condition: TimeIncrement,
@@ -218,7 +218,7 @@ class LogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolRW]):
         return Underlying(underlying=prev_observation.underlying * jnp.exp(log_return))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[LatentVol, LatentVol],
         observation_history: tuple[Underlying],
         observation: Underlying,
@@ -289,7 +289,7 @@ class SkewLogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolWithSke
         return Underlying(underlying=prev_observation.underlying * jnp.exp(log_return))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[LatentVol, LatentVol],
         observation_history: tuple[Underlying],
         observation: Underlying,
