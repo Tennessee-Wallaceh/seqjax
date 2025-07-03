@@ -14,6 +14,7 @@ from .inference.particlefilter import Proposal
 
 # simple inference utilities
 from .inference.particlefilter import BootstrapParticleFilter
+from .inference.mcmc import NUTSConfig, run_nuts
 
 __all__ = [
     "simulate",
@@ -25,5 +26,7 @@ __all__ = [
     "SequentialModel",
     "graph_model",
     "BootstrapParticleFilter",
+    "NUTSConfig",
+    "run_nuts",
 ]
 
