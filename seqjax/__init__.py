@@ -50,3 +50,22 @@ __all__ = [
     "run_particle_mcmc",
     "run_kalman_filter",
 ]
+from .inference.autoregressive_vi import (
+    Sampler,
+    Autoregressor,
+    RandomAutoregressor,
+    AmortizedUnivariateAutoregressor,
+    AmortizedResidualUnivariateAutoregressor,
+    AmortizedMultivariateAutoregressor,
+    AmortizedMultivariateIsotropicAutoregressor,
+)
+
+__all__ += [
+    "Sampler",
+    "Autoregressor",
+    "RandomAutoregressor",
+    "AmortizedUnivariateAutoregressor",
+    "AmortizedResidualUnivariateAutoregressor",
+    "AmortizedMultivariateAutoregressor",
+    "AmortizedMultivariateIsotropicAutoregressor",
+]

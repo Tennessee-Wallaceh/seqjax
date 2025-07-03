@@ -1,19 +1,5 @@
-from .interface import InferenceMethod, LatentInferenceMethod
-from .buffered import (
-    BufferedConfig,
-    run_buffered_filter,
-    BufferedSGLDConfig,
-    run_buffered_sgld,
-)
+"""Autoregressive variational inference utilities."""
 
-__all__ = [
-    "InferenceMethod",
-    "LatentInferenceMethod",
-    "BufferedConfig",
-    "run_buffered_filter",
-    "BufferedSGLDConfig",
-    "run_buffered_sgld",
-]
 from .autoregressive_vi import (
     Sampler,
     Autoregressor,
@@ -24,7 +10,7 @@ from .autoregressive_vi import (
     AmortizedMultivariateIsotropicAutoregressor,
 )
 
-__all__ += [
+__all__ = [
     "Sampler",
     "Autoregressor",
     "RandomAutoregressor",
