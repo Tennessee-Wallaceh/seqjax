@@ -84,10 +84,28 @@ def simulate(
 ]:
     """Simulate a path of length ``sequence_length`` from ``target``.
 
-    Any additional history required by the model is generated internally but
-    not returned.  The leading history for the latent path comes from the
-    ``Prior`` while any initial observations are taken from
-    ``parameters.reference_emission``.
+    The returned latent and observation arrays contain only ``x_0 \u2192 x_{T-1}``
+    and ``y_0 \u2192 y_{T-1}`` for ``T = sequence_length``.  Any additional
+    history required by the transition or emission is handled internally:
+
+    * The :class:`~seqjax.model.base.Prior` supplies the latent states for
+      ``t < 0``.  The number of states is ``target.prior.order`` and depends on
+      both the transition and emission orders.
+    * Initial observations ``y_{t<0}`` are provided via
+      ``parameters.reference_emission``.
+
+    For example:
+
+    #. ``obs_dep=1`` (emission depends on the previous observation) requires one
+       ``y_{-1}`` but only ``x_0`` from the prior.
+    #. ``latent_dep=1`` with a first-order transition needs ``x_{-1}`` and
+       ``x_0`` from the prior.
+    #. ``latent_dep=1`` with a second-order transition requires
+       ``x_{-2}, x_{-1}, x_0``.
+
+    The ``condition`` array must therefore have length
+    ``sequence_length + target.prior.order - 1`` so that the prior and every
+    subsequent transition step receive the correct context.
     """
 
     if sequence_length < 1:
