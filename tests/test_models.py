@@ -5,6 +5,7 @@ import pytest
 jax = pytest.importorskip("jax")
 import jax.numpy as jnp
 import jax.random as jrandom
+import jax.scipy.stats as jstats
 
 
 from seqjax import simulate, evaluate
@@ -306,3 +307,30 @@ def test_simulate_dependency_lengths(
         assert pytree_shape(obs)[0][0] == seq_len
         assert pytree_shape(x_hist)[0][0] == target.prior.order - 1
         assert pytree_shape(y_hist)[0][0] == obs_dep
+
+
+def test_ar1_joint_log_prob_closed_form() -> None:
+    key = jrandom.PRNGKey(0)
+    params = ARParameters(
+        ar=jnp.array(0.5),
+        observation_std=jnp.array(1.0),
+        transition_std=jnp.array(0.3),
+    )
+    latents, observations, _, _ = simulate.simulate(
+        key, AR1Target, None, params, sequence_length=3
+    )
+
+    x = latents.x
+    y = observations.y
+
+    manual_logp = jstats.norm.logpdf(x[0], loc=0.0, scale=params.transition_std)
+    manual_logp += jstats.norm.logpdf(y[0], loc=x[0], scale=params.observation_std)
+    manual_logp += jnp.sum(
+        jstats.norm.logpdf(x[1:], loc=params.ar * x[:-1], scale=params.transition_std)
+    )
+    manual_logp += jnp.sum(
+        jstats.norm.logpdf(y[1:], loc=x[1:], scale=params.observation_std)
+    )
+
+    eval_logp = evaluate.log_prob_joint(AR1Target, latents, observations, None, params)
+    assert jnp.allclose(manual_logp, eval_logp)
