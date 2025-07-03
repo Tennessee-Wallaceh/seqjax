@@ -137,7 +137,10 @@ def run_filter(
     observation_path,
     condition_path=None,
     initial_conditions: tuple[ConditionType, ...] | None = None,
-) -> tuple[Array, tuple[ParticleType, ...], Array]:
+    recorders: tuple[
+        Callable[[Array, tuple[ParticleType, ...]], PyTree], ...
+    ] | None = None,
+) -> tuple[Array, tuple[ParticleType, ...], Array, tuple[PyTree, ...]]:
     """Run a full filtering pass over ``observation_path``.
 
     Parameters
@@ -156,6 +159,10 @@ def run_filter(
     initial_conditions:
         Conditions for sampling the initial particles. ``None`` results in a
         tuple of ``None`` of appropriate length.
+    recorders:
+        Optional tuple of callables each returning a pytree summary statistic for
+        each filtering step. Each callable receives the normalised particle
+        weights and particle history.
 
     Returns
     -------
@@ -165,6 +172,8 @@ def run_filter(
         Particle history after the final step.
     ess_history:
         Effective sample size efficiency for each step.
+    recorder_history:
+        Tuple containing the history returned by each ``recorder``.
     """
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
@@ -188,14 +197,20 @@ def run_filter(
         log_w, particles, ess_e = gsis.sample_step(
             step_key, log_w, particles, observation, condition, parameters
         )
-        return (log_w, particles), ess_e
+        weights = jax.nn.softmax(log_w)
+        recorder_vals = (
+            tuple(r(weights, particles) for r in recorders)
+            if recorders is not None
+            else ()
+        )
+        return (log_w, particles), (ess_e, *recorder_vals)
 
     if condition_path is None:
         cond_seq = [None] * sequence_length
     else:
         cond_seq = condition_path
 
-    final_state, ess_history = jax.lax.scan(
+    final_state, scan_hist = jax.lax.scan(
         body,
         (log_weights, init_particles),
         (jnp.array(step_keys), observation_path, cond_seq),
@@ -203,7 +218,10 @@ def run_filter(
 
     log_weights, particles = final_state
 
-    return log_weights, particles, ess_history
+    ess_history = scan_hist[0]
+    recorder_history = tuple(scan_hist[1:])
+
+    return log_weights, particles, ess_history, recorder_history
 
 class BootstrapParticleFilter(
     GeneralSequentialImportanceSampler[
