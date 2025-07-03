@@ -35,6 +35,9 @@ dev = [
     "pytest",
 ]
 
+[tool.hatch.build]
+include = ["seqjax/*", "seqjax/py.typed"]
+
 [tool.ruff]
 extend-exclude = ["seqjax/inference/particlefilter.py", "sketch.ipynb", "notebooks/*"]
 
