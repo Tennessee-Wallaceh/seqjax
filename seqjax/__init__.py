@@ -6,12 +6,16 @@
 
 # simulation and evaluation helpers
 from .model import evaluate, simulate
+from .model.visualise import graph_model
 
 # base model interfaces
-from .model.base import Emission, Prior, Target, Transition
+from .model.base import Emission, Prior, SequentialModel, Transition
 
 # simple inference utilities
 from .inference.particlefilter import BootstrapParticleFilter
+
+# Maintain backwards compatibility with the old ``Target`` name.
+Target = SequentialModel
 
 __all__ = [
     "simulate",
@@ -19,7 +23,9 @@ __all__ = [
     "Prior",
     "Transition",
     "Emission",
+    "SequentialModel",
     "Target",
+    "graph_model",
     "BootstrapParticleFilter",
 ]
 

@@ -23,6 +23,7 @@ dependencies = [
     "jax>=0.5.2",
     "equinox>=0.12.1",
     "jaxtyping>=0.2.38",
+    "graphviz",
 ]
 
 [project.optional-dependencies]
