@@ -26,25 +26,31 @@ if __name__ == "__main__":
     )
 
     dt = jnp.array(1.0 / (256 * 8))
-    cond = TimeIncrement(dt * jnp.ones(steps + 1))
+    # condition array must include contexts for the prior as well as each
+    # filtering step
+    cond = TimeIncrement(dt * jnp.ones(steps + 2))
 
     key = jrandom.key(0)
     latent, obs, *_ = simulate.simulate(
         key,
-        SkewStochasticVol,
+        SkewStochasticVol(),
         cond,
         params,
         sequence_length=steps,
     )
 
-    bpf = BootstrapParticleFilter(SkewStochasticVol, num_particles=500)
+    bpf = BootstrapParticleFilter(SkewStochasticVol(), num_particles=500)
     filter_key = jrandom.key(1)
+    init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(2))
+    cond_path = TimeIncrement(cond.dt[2:])
     log_w, _, ess, (filt_lv,) = run_filter(
         bpf,
         filter_key,
         params,
         obs,
-        cond,
+        cond_path,
+        initial_conditions=init_conds,
+        observation_history=params.reference_emission,
         recorders=(mean_log_vol,),
     )
 
