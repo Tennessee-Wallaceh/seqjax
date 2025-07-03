@@ -12,5 +12,3 @@ def test_pytree_shape_dict() -> None:
     shape, leaf_count = pytree_shape(tree)
     assert shape == (2, 3)
     assert leaf_count == 2
-
-

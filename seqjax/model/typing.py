@@ -116,7 +116,10 @@ def check_interface(cls):
                 gbase.__origin__.__parameters__
             )  # e.g. (ParticleType, ParametersType)
             concrete_types = gbase.__args__  # e.g. (LatentVol, LogVolRW)
-            type_mapping = {**type_mapping, **dict(zip(type_vars, concrete_types, strict=False))}
+            type_mapping = {
+                **type_mapping,
+                **dict(zip(type_vars, concrete_types, strict=False)),
+            }
     class_vars = {cvar: getattr(cls, cvar) for cvar in base.__abstractclassvars__}
 
     # perform the interface checks
