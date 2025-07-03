@@ -126,8 +126,8 @@ class GeneralSequentialImportanceSampler(
     @cached_property
     def emission_logp(self) -> Callable:
         return jax.vmap(
-            lambda p, o, c, r: self.target.emission.log_prob(p, (), o, c, r),
-            in_axes=[0, None, None, None],
+            self.target.emission.log_prob,
+            in_axes=[0, None, None, None, None],
         )
 
     def sample_step(
@@ -135,10 +135,11 @@ class GeneralSequentialImportanceSampler(
         step_key: PRNGKeyArray,
         log_w: Array,
         particles: tuple[ParticleType, ...],
+        observation_history: tuple[ObservationType, ...],
         observation: ObservationType,
         condition: ConditionType,
         params: ParametersType,
-    ) -> tuple[Array, tuple[ParticleType, ...], Scalar]:
+    ) -> tuple[Array, tuple[ParticleType, ...], tuple[ObservationType, ...], Scalar]:
         """Advance the filter by one step and maintain particle history."""
 
         resample_key, proposal_key = jrandom.split(step_key)
@@ -164,9 +165,21 @@ class GeneralSequentialImportanceSampler(
         )
         emission_particles = (*emission_history, next_particles)
 
+        obs_history = (
+            observation_history[-self.target.emission.observation_dependency :]
+            if self.target.emission.observation_dependency > 0
+            else ()
+        )
+
         inc_weight = (
             self.transition_logp(transition_history, next_particles, condition, params)
-            + self.emission_logp(emission_particles, observation, condition, params)
+            + self.emission_logp(
+                emission_particles,
+                obs_history,
+                observation,
+                condition,
+                params,
+            )
             - self.proposal_logp(
                 proposal_history, observation, next_particles, condition, params
             )
@@ -176,7 +189,14 @@ class GeneralSequentialImportanceSampler(
         max_order = max(self.target.transition.order, self.target.emission.order)
         particles = (*particles, next_particles)[-max_order:]
 
-        return log_w, particles, ess_e
+        if self.target.emission.observation_dependency > 0:
+            observation_history = (*observation_history, observation)[
+                -self.target.emission.observation_dependency :
+            ]
+        else:
+            observation_history = ()
+
+        return log_w, particles, observation_history, ess_e
 
 
 def run_filter(
@@ -189,6 +209,7 @@ def run_filter(
     condition_path: Batched[ConditionType, SequenceAxis] | None = None,
     *,
     initial_conditions: tuple[ConditionType, ...] | None = None,
+    observation_history: tuple[ObservationType, ...] | None = None,
     recorders: tuple[Recorder, ...] | None = None,
 ) -> tuple[Array, tuple[ParticleType, ...], Array, tuple[PyTree, ...]]:
     """Run a filtering pass over ``observation_path``."""
@@ -202,6 +223,13 @@ def run_filter(
             )
         initial_conditions = ()
 
+    if observation_history is None:
+        if gsis.target.emission.observation_dependency > 0:
+            raise ValueError(
+                "observation_history must be provided when the emission has observation dependency > 0"
+            )
+        observation_history = ()
+
     init_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
     init_particles = jax.vmap(gsis.target.prior.sample, in_axes=[0, None, None])(
@@ -214,9 +242,15 @@ def run_filter(
 
     def body(state, inputs):
         step_key, observation, condition = inputs
-        log_w, particles = state
-        log_w, particles, ess_e = gsis.sample_step(
-            step_key, log_w, particles, observation, condition, parameters
+        log_w, particles, obs_hist = state
+        log_w, particles, obs_hist, ess_e = gsis.sample_step(
+            step_key,
+            log_w,
+            particles,
+            obs_hist,
+            observation,
+            condition,
+            parameters,
         )
         weights = jax.nn.softmax(log_w)
         recorder_vals = (
@@ -224,7 +258,7 @@ def run_filter(
             if recorders is not None
             else ()
         )
-        return (log_w, particles), (ess_e, *recorder_vals)
+        return (log_w, particles, obs_hist), (ess_e, *recorder_vals)
 
     if condition_path is None:
         cond_seq = [None] * sequence_length
@@ -233,11 +267,11 @@ def run_filter(
 
     final_state, scan_hist = jax.lax.scan(
         body,
-        (log_weights, init_particles),
+        (log_weights, init_particles, observation_history),
         (jnp.array(step_keys), observation_path, cond_seq),
     )
 
-    log_weights, particles = final_state
+    log_weights, particles, _ = final_state
 
     ess_history = scan_hist[0]
     recorder_history = tuple(scan_hist[1:])
