@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import cached_property
 from typing import Callable, Generic, Protocol
+from abc import abstractmethod
 
 import equinox as eqx
 import jax
@@ -17,7 +18,73 @@ from seqjax.model.base import (
     SequentialModel,
     Transition,
 )
-from seqjax.model.typing import Batched, SequenceAxis
+from seqjax.model.typing import Batched, SequenceAxis, EnforceInterface
+
+
+class Proposal(
+    eqx.Module,
+    Generic[ParticleType, ObservationType, ConditionType, ParametersType],
+    EnforceInterface,
+):
+    """Proposal distribution for sequential importance sampling."""
+
+    order: eqx.AbstractClassVar[int]
+
+    @staticmethod
+    @abstractmethod
+    def sample(
+        key: PRNGKeyArray,
+        particle_history: tuple[ParticleType, ...],
+        observation: ObservationType,
+        condition: ConditionType,
+        parameters: ParametersType,
+    ) -> ParticleType: ...
+
+    @staticmethod
+    @abstractmethod
+    def log_prob(
+        particle_history: tuple[ParticleType, ...],
+        observation: ObservationType,
+        particle: ParticleType,
+        condition: ConditionType,
+        parameters: ParametersType,
+    ) -> Scalar: ...
+
+
+class TransitionProposal(
+    eqx.Module,
+    Generic[ParticleType, ObservationType, ConditionType, ParametersType],
+):
+    """Adapter converting a ``Transition`` to a ``Proposal``."""
+
+    transition: Transition[ParticleType, ConditionType, ParametersType]
+    order: int
+
+    def sample(
+        self,
+        key: PRNGKeyArray,
+        particle_history: tuple[ParticleType, ...],
+        observation: ObservationType,
+        condition: ConditionType,
+        parameters: ParametersType,
+    ) -> ParticleType:
+        return self.transition.sample(key, particle_history, condition, parameters)
+
+    def log_prob(
+        self,
+        particle_history: tuple[ParticleType, ...],
+        observation: ObservationType,
+        particle: ParticleType,
+        condition: ConditionType,
+        parameters: ParametersType,
+    ) -> Scalar:
+        return self.transition.log_prob(particle_history, particle, condition, parameters)
+
+
+def proposal_from_transition(
+    transition: Transition[ParticleType, ConditionType, ParametersType]
+) -> TransitionProposal[ParticleType, ObservationType, ConditionType, ParametersType]:
+    return TransitionProposal(transition=transition, order=transition.order)
 
 from .resampling import Resampler
 from .metrics import compute_esse_from_log_weights
@@ -35,20 +102,22 @@ class GeneralSequentialImportanceSampler(
 ):
     """Base class implementing sequential importance sampling."""
 
-    target: SequentialModel[
+    target: SequentialModel[ParticleType, ObservationType, ConditionType, ParametersType]
+    proposal: Proposal[
         ParticleType, ObservationType, ConditionType, ParametersType
     ]
-    proposal: Transition[ParticleType, ConditionType, ParametersType]
     resampler: Resampler
     num_particles: int
 
     @cached_property
     def proposal_sample(self) -> Callable:
-        return jax.vmap(self.proposal.sample, in_axes=[0, 0, None, None])
+        return jax.vmap(self.proposal.sample, in_axes=[0, 0, None, None, None])
 
     @cached_property
     def proposal_logp(self) -> Callable:
-        return jax.vmap(self.proposal.log_prob, in_axes=[0, 0, None, None])
+        return jax.vmap(
+            self.proposal.log_prob, in_axes=[0, None, 0, None, None]
+        )
 
     @cached_property
     def transition_logp(self) -> Callable:
@@ -83,6 +152,7 @@ class GeneralSequentialImportanceSampler(
         next_particles = self.proposal_sample(
             jrandom.split(proposal_key, self.num_particles),
             proposal_history,
+            observation,
             condition,
             params,
         )
@@ -97,7 +167,9 @@ class GeneralSequentialImportanceSampler(
         inc_weight = (
             self.transition_logp(transition_history, next_particles, condition, params)
             + self.emission_logp(emission_particles, observation, condition, params)
-            - self.proposal_logp(proposal_history, next_particles, condition, params)
+            - self.proposal_logp(
+                proposal_history, observation, next_particles, condition, params
+            )
         )
         log_w = log_w + inc_weight
 

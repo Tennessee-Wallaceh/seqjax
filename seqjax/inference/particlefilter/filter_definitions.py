@@ -10,7 +10,7 @@ from seqjax.model.base import (
     SequentialModel,
 )
 
-from .base import GeneralSequentialImportanceSampler
+from .base import GeneralSequentialImportanceSampler, proposal_from_transition
 from .resampling import conditional_resample, gumbel_resample_from_log_weights
 
 
@@ -30,7 +30,7 @@ class BootstrapParticleFilter(
     ) -> None:
         super().__init__(
             target=target,
-            proposal=target.transition,
+            proposal=proposal_from_transition(target.transition),
             resampler=partial(
                 conditional_resample,
                 resampler=gumbel_resample_from_log_weights,

@@ -1,4 +1,9 @@
-from .base import GeneralSequentialImportanceSampler, run_filter
+from .base import (
+    GeneralSequentialImportanceSampler,
+    Proposal,
+    proposal_from_transition,
+    run_filter,
+)
 from .filter_definitions import BootstrapParticleFilter
 from .resampling import (
     Resampler,
@@ -10,6 +15,8 @@ from .recorders import current_particle_mean
 
 __all__ = [
     "GeneralSequentialImportanceSampler",
+    "Proposal",
+    "proposal_from_transition",
     "run_filter",
     "Resampler",
     "gumbel_resample_from_log_weights",
