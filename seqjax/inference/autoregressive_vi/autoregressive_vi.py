@@ -10,9 +10,6 @@ import jax.scipy.stats as jstats
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
 
-# Small helper modules -----------------------------------------------------
-
-
 def xavier_init(key: PRNGKeyArray, shape: tuple[int, ...]) -> Array:
     fan_in, fan_out = shape[1], shape[0]
     std = jnp.sqrt(2.0 / (fan_in + fan_out))
@@ -123,8 +120,6 @@ class Residual(eqx.Module):
         return self.mlp(x, *args, **kwargs) + x
 
 
-# Utility for covariance construction -------------------------------------
-
 def flat_to_chol(flat: Array, dim: int) -> Tuple[Array, Array]:
     tri = jnp.zeros((dim, dim))
     idx = jnp.tril_indices(dim)
@@ -133,9 +128,7 @@ def flat_to_chol(flat: Array, dim: int) -> Tuple[Array, Array]:
     return tri, cov
 
 
-# Base classes -------------------------------------------------------------
-
-class Sampler(eqx.Module):
+class AutoregressiveSampler(eqx.Module):
     """Minimal base class for autoregressive samplers."""
 
     sample_length: int
@@ -143,14 +136,16 @@ class Sampler(eqx.Module):
     context_dim: int
     parameter_dim: int
 
-    def __init__(self, *, sample_length: int, x_dim: int, context_dim: int, parameter_dim: int) -> None:
+    def __init__(
+        self, *, sample_length: int, x_dim: int, context_dim: int, parameter_dim: int
+    ) -> None:
         self.sample_length = sample_length
         self.x_dim = x_dim
         self.context_dim = context_dim
         self.parameter_dim = parameter_dim
 
 
-class Autoregressor(Sampler):
+class Autoregressor(AutoregressiveSampler):
     """Base class for autoregressive variational samplers."""
 
     lag_order: int
@@ -195,15 +190,21 @@ class Autoregressor(Sampler):
         def update(carry, key_context):
             key, ctx = key_context
             ix, prev_x = carry
-            previous_available_flag = jnp.arange(self.lag_order) + ix - self.lag_order >= 0
-            next_x, log_q_x_ix = self.conditional(key, prev_x, previous_available_flag, theta_context, ctx)
+            previous_available_flag = (
+                jnp.arange(self.lag_order) + ix - self.lag_order >= 0
+            )
+            next_x, log_q_x_ix = self.conditional(
+                key, prev_x, previous_available_flag, theta_context, ctx
+            )
             next_x_context = (*prev_x[1:], next_x)
             return (ix + 1, next_x_context), (next_x, log_q_x_ix)
 
         init_state = (offset, init)
         keys = jrandom.split(key, num_steps)
         subpath_context = context[offset : offset + num_steps]
-        _, (x_path, log_q_x_path) = jax.lax.scan(update, init_state, (keys, subpath_context))
+        _, (x_path, log_q_x_path) = jax.lax.scan(
+            update, init_state, (keys, subpath_context)
+        )
         return x_path, jnp.sum(log_q_x_path, axis=-1)
 
     def sample_single_path(
@@ -240,7 +241,9 @@ class Autoregressor(Sampler):
 class RandomAutoregressor(Autoregressor):
     """Autoregressor that samples from standard normal regardless of context."""
 
-    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
+    def conditional(
+        self, key, prev_x, previous_available_flag, theta_context, context
+    ):  # noqa: D401, ANN001
         return jrandom.normal(key, (self.x_dim,)), jrandom.normal(key, ())
 
 
@@ -275,71 +278,17 @@ class AmortizedUnivariateAutoregressor(Autoregressor):
             key=key,
         )
 
-    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
-        inputs = jnp.concatenate([*prev_x, previous_available_flag, theta_context, context])
+    def conditional(
+        self, key, prev_x, previous_available_flag, theta_context, context
+    ):  # noqa: D401, ANN001
+        inputs = jnp.concatenate(
+            [*prev_x, previous_available_flag, theta_context, context]
+        )
         z = jrandom.normal(key, shape=(1,))
         loc, _unc_scale = self.amortizer_mlp(inputs)
         scale = jnp.clip(jax.nn.softplus(_unc_scale), 1e-10, 1e2)
         x = z * scale + loc
         log_q_x = jstats.norm.logpdf(x, loc, scale)
-        return x, log_q_x
-
-
-class AmortizedResidualUnivariateAutoregressor(Autoregressor):
-    amortizer_mlp: eqx.nn.MLP
-    init_mlp: eqx.nn.MLP
-
-    def __init__(
-        self,
-        *,
-        sample_length: int,
-        context_dim: int,
-        parameter_dim: int,
-        lag_order: int,
-        nn_width: int,
-        nn_depth: int,
-        key: PRNGKeyArray,
-    ) -> None:
-        super().__init__(
-            sample_length=sample_length,
-            x_dim=1,
-            context_dim=context_dim,
-            parameter_dim=parameter_dim,
-            lag_order=lag_order,
-        )
-        input_dim = lag_order * 2 + context_dim + parameter_dim
-        self.amortizer_mlp = eqx.nn.MLP(
-            in_size=input_dim,
-            out_size=2,
-            width_size=nn_width,
-            depth=nn_depth,
-            key=key,
-        )
-        self.init_mlp = eqx.nn.MLP(
-            in_size=context_dim + parameter_dim,
-            out_size=2,
-            width_size=nn_width,
-            depth=2,
-            key=key,
-        )
-
-    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
-        prev_x = tuple(jax.lax.stop_gradient(x) for x in prev_x)
-        previous_available_flag = jax.lax.stop_gradient(previous_available_flag)
-        inputs = jnp.concatenate([*prev_x, previous_available_flag, theta_context, context])
-        z = jrandom.normal(key, shape=(1,))
-        loc, _unc_scale = self.amortizer_mlp(inputs)
-        loc += prev_x[-1]
-        scale = jnp.sqrt(jnp.array(1 / (256 * 8 * 60))) * jnp.clip(jax.nn.softplus(_unc_scale), 1e-3, 1e2)
-        init_inputs = jnp.concatenate([theta_context, context])
-        init_loc, _unc_init_scale = self.init_mlp(init_inputs)
-        init_scale = jnp.clip(jax.nn.softplus(_unc_init_scale), 1e-10, 1e2)
-        init_loc = jnp.array(-2.0)
-        init_scale = jnp.array(0.5)
-        floc = jax.lax.select(previous_available_flag[0].astype(jnp.bool_), jnp.squeeze(loc), jnp.squeeze(init_loc))
-        fscale = jax.lax.select(previous_available_flag[0].astype(jnp.bool_), jnp.squeeze(scale), jnp.squeeze(init_scale))
-        x = z * fscale + floc
-        log_q_x = jnp.squeeze(jstats.norm.logpdf(x, floc, fscale))
         return x, log_q_x
 
 
@@ -375,9 +324,13 @@ class AmortizedMultivariateAutoregressor(Autoregressor):
             key=key,
         )
 
-    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
+    def conditional(
+        self, key, prev_x, previous_available_flag, theta_context, context
+    ):  # noqa: D401, ANN001
         flat_prev_x = (jnp.ravel(_x) for _x in prev_x)
-        inputs = jnp.concatenate([*flat_prev_x, previous_available_flag, theta_context, context])
+        inputs = jnp.concatenate(
+            [*flat_prev_x, previous_available_flag, theta_context, context]
+        )
         z = jrandom.normal(key, shape=(self.x_dim,))
         trans_params = self.amortizer_mlp(inputs)
         loc = trans_params[: self.x_dim]
@@ -419,8 +372,12 @@ class AmortizedMultivariateIsotropicAutoregressor(Autoregressor):
             key=key,
         )
 
-    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
-        inputs = jnp.concatenate([*prev_x, previous_available_flag, theta_context, context])
+    def conditional(
+        self, key, prev_x, previous_available_flag, theta_context, context
+    ):  # noqa: D401, ANN001
+        inputs = jnp.concatenate(
+            [*prev_x, previous_available_flag, theta_context, context]
+        )
         z = jrandom.normal(key, shape=(self.x_dim,))
         loc, _unc_scale = jnp.split(self.amortizer_mlp(inputs), [self.x_dim])
         scale = jax.nn.softplus(_unc_scale)
