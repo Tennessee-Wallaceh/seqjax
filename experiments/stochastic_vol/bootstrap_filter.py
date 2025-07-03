@@ -8,7 +8,11 @@ from seqjax.model.stochastic_vol import (
     LogVolWithSkew,
     TimeIncrement,
 )
-from seqjax.inference.particlefilter import BootstrapParticleFilter, run_filter
+from seqjax.inference.particlefilter import (
+    BootstrapParticleFilter,
+    current_particle_quantiles,
+    run_filter,
+)
 
 
 def mean_log_vol(weights, particles):
@@ -41,9 +45,11 @@ if __name__ == "__main__":
 
     bpf = BootstrapParticleFilter(SkewStochasticVol(), num_particles=500)
     filter_key = jrandom.key(1)
+    quant_rec = current_particle_quantiles(lambda p: p.log_vol, quantiles=(0.05, 0.95))
     init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(2))
     cond_path = TimeIncrement(cond.dt[2:])
-    log_w, _, log_mp, ess, (filt_lv,) = run_filter(
+
+    log_w, _, log_mp, ess, (filt_lv,filt_quant) = run_filter(
         bpf,
         filter_key,
         params,
@@ -51,13 +57,14 @@ if __name__ == "__main__":
         cond_path,
         initial_conditions=init_conds,
         observation_history=params.reference_emission,
-        recorders=(mean_log_vol,),
+        recorders=(mean_log_vol, quant_rec),
     )
 
     t = jnp.arange(filt_lv.shape[0])
     plt.figure(figsize=(10, 4))
     plt.plot(t, latent.log_vol, label="true")
     plt.plot(t, filt_lv, label="filtered")
+    plt.fill_between(t, filt_quant[:, 0], filt_quant[:, 1], alpha=0.3, label="5%-95% quantile")
     plt.legend()
     plt.title("Log volatility")
     plt.tight_layout()
