@@ -148,8 +148,8 @@ def simulate(
     )
 
     # build start point of scan
-    emission_history = (*parameters.reference_emission, y_0)
-    emission_history = tuple(
+    emission_history = (*parameters.reference_emission, y_0)  # type: ignore[assignment]
+    emission_history = tuple(  # type: ignore[assignment]
         emission_history[
             len(emission_history) - target.emission.observation_dependency :
         ]
@@ -170,7 +170,7 @@ def simulate(
 
     # scan for generic step
     _, (latent_path, observed_path) = jax.lax.scan(
-        partial(step, target, parameters),
+        partial(step, target, parameters),  # type: ignore[arg-type]
         state,
         xs=inputs,
         length=sequence_length - 1,

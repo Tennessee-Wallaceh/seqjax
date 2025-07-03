@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Callable, Generic, Protocol
+from typing import Any, Callable, Generic, Protocol
 from abc import abstractmethod
 
 import equinox as eqx
@@ -232,7 +232,13 @@ def run_filter(
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
     recorders: tuple[Recorder, ...] | None = None,
-) -> tuple[Array, tuple[ParticleType, ...], Array, tuple[PyTree, ...]]:
+) -> tuple[
+    Array,
+    tuple[ParticleType, ...],
+    Array,
+    Array,
+    tuple[PyTree, ...],
+]:
     """Run a filtering pass over ``observation_path``."""
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
@@ -285,7 +291,7 @@ def run_filter(
         return (log_w, particles, obs_hist, log_mp), (log_mp, ess_e, *recorder_vals)
 
     if condition_path is None:
-        cond_seq = [None] * sequence_length
+        cond_seq: Any = [None] * sequence_length
     else:
         cond_seq = condition_path
 
@@ -320,7 +326,13 @@ def vmapped_run_filter(
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
     recorders: tuple[Recorder, ...] | None = None,
-) -> tuple[Array, tuple[ParticleType, ...], Array, tuple[PyTree, ...]]:
+) -> tuple[
+    Array,
+    tuple[ParticleType, ...],
+    Array,
+    Array,
+    tuple[PyTree, ...],
+]:
     """Vectorise :func:`run_filter` over a leading batch dimension."""
 
     cond_axes = 0 if condition_path is not None else None
