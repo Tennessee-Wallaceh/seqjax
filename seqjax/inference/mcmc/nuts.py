@@ -35,19 +35,24 @@ def run_nuts(
         ParticleType, ObservationType, ConditionType, ParametersType
     ],
     key: PRNGKeyArray,
-    parameters: ParametersType,
     observations: Batched[ObservationType, SequenceAxis],
     *,
-    condition: Batched[ConditionType, SequenceAxis] | None = None,
+    parameters: ParametersType,
+    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
     initial_latents: Batched[ParticleType, SequenceAxis],
     config: NUTSConfig = NUTSConfig(),
+    parameter_prior: ParameterPrior[ParametersType, HyperParametersType] | None = None,
+    initial_parameters: ParametersType | None = None,
+    hyper_parameters: HyperParametersType | None = None,
+    initial_conditions: tuple[ConditionType, ...] | None = None,
+    observation_history: tuple[ObservationType, ...] | None = None,
 ) -> Batched[ParticleType, SequenceAxis | int]:
     """Sample latent paths using the NUTS algorithm from ``blackjax``."""
 
     log_prob_joint = evaluate.get_log_prob_joint_for_target(target)
 
     def logdensity(x):
-        return log_prob_joint(x, observations, condition, parameters)
+        return log_prob_joint(x, observations, condition_path, parameters)
 
     flat, _ = jax.flatten_util.ravel_pytree(initial_latents)  # type: ignore[attr-defined]
     dim = flat.shape[0]
@@ -83,14 +88,15 @@ def run_bayesian_nuts(
         ParticleType, ObservationType, ConditionType, ParametersType
     ],
     key: PRNGKeyArray,
-    parameter_prior: ParameterPrior[ParametersType, HyperParametersType],
     observations: Batched[ObservationType, SequenceAxis],
     *,
+    parameter_prior: ParameterPrior[ParametersType, HyperParametersType],
     hyper_parameters: HyperParametersType | None = None,
-    condition: Batched[ConditionType, SequenceAxis] | None = None,
+    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
     initial_latents: Batched[ParticleType, SequenceAxis],
     initial_parameters: ParametersType,
     config: NUTSConfig = NUTSConfig(),
+    parameters: ParametersType | None = None,
 ) -> Tuple[
     Batched[ParticleType, SequenceAxis | int],
     Batched[ParametersType, SequenceAxis | int],
@@ -102,7 +108,7 @@ def run_bayesian_nuts(
     def logdensity(state):
         latents, params = state
         log_prior = parameter_prior.log_prob(params, hyper_parameters)
-        log_like = log_prob_joint(latents, observations, condition, params)
+        log_like = log_prob_joint(latents, observations, condition_path, params)
         return log_like + log_prior
 
     init_state = (initial_latents, initial_parameters)

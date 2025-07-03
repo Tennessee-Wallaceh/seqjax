@@ -24,8 +24,8 @@ def test_run_particle_mcmc_shape() -> None:
     samples = run_particle_mcmc(
         target,
         sample_key,
-        HalfCauchyStds(),
         observations,
+        parameter_prior=HalfCauchyStds(),
         config=config,
         initial_parameters=parameters,
         initial_conditions=(None,),
