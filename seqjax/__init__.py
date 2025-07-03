@@ -21,7 +21,7 @@ from .inference import (
     BufferedSGLDConfig,
     run_buffered_sgld,
 )
-
+from .inference.pmcmc import RandomWalkConfig, ParticleMCMCConfig, run_particle_mcmc
 __all__ = [
     "simulate",
     "evaluate",
@@ -39,4 +39,8 @@ __all__ = [
     "run_buffered_filter",
     "BufferedSGLDConfig",
     "run_buffered_sgld",
+    "RandomWalkConfig",
+    "ParticleMCMCConfig",
+    "run_particle_mcmc",
+
 ]
