@@ -106,7 +106,7 @@ class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
         parameters: ARParameters,
     ) -> LatentValue:
         """Sample the next latent state."""
-        last_particle, = particle_history
+        (last_particle,) = particle_history
         next_x = (
             parameters.ar * last_particle.x
             + jrandom.normal(key) * parameters.transition_std
@@ -121,7 +121,7 @@ class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
         parameters: ARParameters,
     ) -> Scalar:
         """Return the transition log-density."""
-        last_particle, = particle_history
+        (last_particle,) = particle_history
         return jstats.norm.logpdf(
             particle.x,
             loc=parameters.ar * last_particle.x,
@@ -129,7 +129,7 @@ class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
         )
 
 
-class AREmission(Emission[LatentValue, NoisyEmission, Condition,  ARParameters]):
+class AREmission(Emission[LatentValue, NoisyEmission, Condition, ARParameters]):
     """Normal emission from the latent state."""
 
     order: ClassVar[int] = 1
@@ -144,7 +144,7 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition,  ARParameters])
         parameters: ARParameters,
     ) -> NoisyEmission:
         """Sample an observation."""
-        current_particle, = particle
+        (current_particle,) = particle
         y = current_particle.x + jrandom.normal(key) * parameters.observation_std
         return NoisyEmission(y=y)
 
@@ -157,7 +157,7 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition,  ARParameters])
         parameters: ARParameters,
     ) -> Scalar:
         """Return the emission log-density."""
-        current_particle, = particle
+        (current_particle,) = particle
         return jstats.norm.logpdf(
             observation.y,
             loc=current_particle.x,
@@ -165,9 +165,8 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition,  ARParameters])
         )
 
 
-class AR1Target(Target[LatentValue, NoisyEmission, Condition,  ARParameters]):
+class AR1Target(Target[LatentValue, NoisyEmission, Condition, ARParameters]):
     particle_type = LatentValue
     prior = InitialValue()
-    transition= ARRandomWalk()
-    emission=AREmission()
-
+    transition = ARRandomWalk()
+    emission = AREmission()
