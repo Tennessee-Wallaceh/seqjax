@@ -3,6 +3,7 @@ from .base import (
     Proposal,
     proposal_from_transition,
     run_filter,
+    vmapped_run_filter,
 )
 from .filter_definitions import BootstrapParticleFilter, AuxiliaryParticleFilter
 from .resampling import (
@@ -22,6 +23,7 @@ __all__ = [
     "Proposal",
     "proposal_from_transition",
     "run_filter",
+    "vmapped_run_filter",
     "Resampler",
     "gumbel_resample_from_log_weights",
     "conditional_resample",

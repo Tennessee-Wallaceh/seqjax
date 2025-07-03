@@ -1,3 +1,5 @@
+import jax
+import jax.numpy as jnp
 import jax.random as jrandom
 import pytest
 
@@ -5,6 +7,7 @@ from seqjax.model.ar import AR1Target, ARParameters
 from seqjax import BootstrapParticleFilter, AuxiliaryParticleFilter, simulate
 from seqjax.inference.particlefilter import (
     run_filter,
+    vmapped_run_filter,
     current_particle_quantiles,
     current_particle_variance,
 )
@@ -63,7 +66,7 @@ def test_particle_recorders_shapes() -> None:
     quant_rec = current_particle_quantiles(lambda p: p.x)
     var_rec = current_particle_variance(lambda p: p.x)
 
-    log_w, _, _, (quant_hist, var_hist) = run_filter(
+    log_w, _, _, _, (quant_hist, var_hist) = run_filter(
         bpf,
         filter_key,
         parameters,
@@ -97,3 +100,38 @@ def test_ar1_auxiliary_filter_runs() -> None:
 
     assert log_w.shape == (apf.num_particles,)
     assert ess.shape == (observations.y.shape[0],)
+
+
+def test_vmapped_run_filter_shapes() -> None:
+    batch = 3
+    key = jrandom.PRNGKey(0)
+    target = AR1Target()
+    parameters = ARParameters()
+
+    _, observations, _, _ = simulate.simulate(
+        key, target, None, parameters, sequence_length=5
+    )
+
+    bpf = BootstrapParticleFilter(target, num_particles=4)
+
+    keys = jrandom.split(jrandom.PRNGKey(1), batch)
+
+    batched_params = jax.tree_util.tree_map(
+        lambda x: jnp.broadcast_to(x, (batch,) + jnp.shape(x)),
+        parameters,
+    )
+    batched_obs = jax.tree_util.tree_map(
+        lambda x: jnp.broadcast_to(x, (batch,) + jnp.shape(x)),
+        observations,
+    )
+
+    log_w, _, log_mp, _, _ = vmapped_run_filter(
+        bpf,
+        keys,
+        batched_params,
+        batched_obs,
+        initial_conditions=(None,),
+    )
+
+    assert log_w.shape == (batch, bpf.num_particles)
+    assert log_mp.shape == (batch, observations.y.shape[0])

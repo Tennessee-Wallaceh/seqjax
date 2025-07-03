@@ -309,3 +309,31 @@ def run_filter(
         recorder_history,
     )
 
+
+def vmapped_run_filter(
+    smc: SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType],
+    key: Array,
+    parameters: ParametersType,
+    observation_path: Batched[ObservationType, SequenceAxis],
+    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    *,
+    initial_conditions: tuple[ConditionType, ...] | None = None,
+    observation_history: tuple[ObservationType, ...] | None = None,
+    recorders: tuple[Recorder, ...] | None = None,
+) -> tuple[Array, tuple[ParticleType, ...], Array, tuple[PyTree, ...]]:
+    """Vectorise :func:`run_filter` over a leading batch dimension."""
+
+    cond_axes = 0 if condition_path is not None else None
+    run_vmap = jax.vmap(run_filter, in_axes=(None, 0, 0, 0, cond_axes))
+
+    return run_vmap(
+        smc,
+        key,
+        parameters,
+        observation_path,
+        condition_path,
+        initial_conditions=initial_conditions,
+        observation_history=observation_history,
+        recorders=recorders,
+    )
+
