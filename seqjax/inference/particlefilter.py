@@ -22,7 +22,12 @@ from seqjax.util import dynamic_index_pytree_in_dim as index_tree
 Resampler = Callable[[PRNGKeyArray, Array, ParticleType, Scalar], ParticleType]
 
 
-def gumbel_resample_from_log_weights(key, log_weights, particles, ess_e):
+def gumbel_resample_from_log_weights(
+    key: PRNGKeyArray,
+    log_weights: Float[Array, "num_particles"],
+    particles: tuple[ParticleType, ...],
+    ess_e: Scalar,
+) -> tuple[ParticleType, ...]:
     # gumbel max trick
     gumbels = -jnp.log(
         -jnp.log(jrandom.uniform(key, (log_weights.shape[0], log_weights.shape[0])))
@@ -32,8 +37,13 @@ def gumbel_resample_from_log_weights(key, log_weights, particles, ess_e):
 
 
 def conditional_resample(
-    key, log_weights, particles, ess_e, resampler: Resampler, esse_threshold: float
-):
+    key: PRNGKeyArray,
+    log_weights: Float[Array, "num_particles"],
+    particles: tuple[ParticleType, ...],
+    ess_e: Scalar,
+    resampler: Resampler,
+    esse_threshold: float,
+) -> tuple[ParticleType, ...]:
     particles = jax.lax.cond(
         ess_e < esse_threshold,
         lambda p: resampler(key, log_weights, p, ess_e),
@@ -73,16 +83,16 @@ class GeneralSequentialImportanceSampler(
 
     @cached_property
     def proposal_logp(self) -> Callable:
-        return jax.vmap(self.proposal.log_p, in_axes=[0, 0, None, None])
+        return jax.vmap(self.proposal.log_prob, in_axes=[0, 0, None, None])
 
     @cached_property
     def transition_logp(self) -> Callable:
-        return jax.vmap(self.target.transition.log_p, in_axes=[0, 0, None, None])
+        return jax.vmap(self.target.transition.log_prob, in_axes=[0, 0, None, None])
 
     @cached_property
     def emission_logp(self) -> Callable:
         return jax.vmap(
-            lambda p, o, c, r: self.target.emission.log_p(p, (), o, c, r),
+            lambda p, o, c, r: self.target.emission.log_prob(p, (), o, c, r),
             in_axes=[0, None, None, None],
         )
 
@@ -137,7 +147,10 @@ def run_filter(
     observation_path,
     condition_path=None,
     initial_conditions: tuple[ConditionType, ...] | None = None,
-) -> tuple[Array, tuple[ParticleType, ...], Array]:
+    recorders: tuple[
+        Callable[[Array, tuple[ParticleType, ...]], PyTree], ...
+    ] | None = None,
+) -> tuple[Array, tuple[ParticleType, ...], Array, tuple[PyTree, ...]]:
     """Run a full filtering pass over ``observation_path``.
 
     Parameters
@@ -156,6 +169,10 @@ def run_filter(
     initial_conditions:
         Conditions for sampling the initial particles. ``None`` results in a
         tuple of ``None`` of appropriate length.
+    recorders:
+        Optional tuple of callables each returning a pytree summary statistic for
+        each filtering step. Each callable receives the normalised particle
+        weights and particle history.
 
     Returns
     -------
@@ -165,6 +182,8 @@ def run_filter(
         Particle history after the final step.
     ess_history:
         Effective sample size efficiency for each step.
+    recorder_history:
+        Tuple containing the history returned by each ``recorder``.
     """
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
@@ -188,14 +207,20 @@ def run_filter(
         log_w, particles, ess_e = gsis.sample_step(
             step_key, log_w, particles, observation, condition, parameters
         )
-        return (log_w, particles), ess_e
+        weights = jax.nn.softmax(log_w)
+        recorder_vals = (
+            tuple(r(weights, particles) for r in recorders)
+            if recorders is not None
+            else ()
+        )
+        return (log_w, particles), (ess_e, *recorder_vals)
 
     if condition_path is None:
         cond_seq = [None] * sequence_length
     else:
         cond_seq = condition_path
 
-    final_state, ess_history = jax.lax.scan(
+    final_state, scan_hist = jax.lax.scan(
         body,
         (log_weights, init_particles),
         (jnp.array(step_keys), observation_path, cond_seq),
@@ -203,7 +228,10 @@ def run_filter(
 
     log_weights, particles = final_state
 
-    return log_weights, particles, ess_history
+    ess_history = scan_hist[0]
+    recorder_history = tuple(scan_hist[1:])
+
+    return log_weights, particles, ess_history, recorder_history
 
 class BootstrapParticleFilter(
     GeneralSequentialImportanceSampler[

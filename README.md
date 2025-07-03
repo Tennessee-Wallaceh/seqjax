@@ -17,7 +17,7 @@ The `seqjax.model.ar` module contains a small autoregressive example. The snippe
 ```python
 import jax.random as jrandom
 from seqjax.model.ar import AR1Target, ARParameters
-from seqjax.model.simulate import simulate
+from seqjax import simulate
 
 # Model parameters and target
 parameters = ARParameters(
@@ -36,4 +36,4 @@ latent_path, observation_path = simulate(
 print(observation_path)
 ```
 
-SeqJAX will check at runtime that `AR1Target` and its components implement the required interface. When extending the library, these checks help catch mistakes such as missing `sample` or `log_p` implementations.
+SeqJAX will check at runtime that `AR1Target` and its components implement the required interface. When extending the library, these checks help catch mistakes such as missing `sample` or `log_prob` implementations.

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import pytest
 
 # mark requires jax
@@ -5,8 +6,8 @@ jax = pytest.importorskip("jax")
 import jax.numpy as jnp
 import jax.random as jrandom
 
-from seqjax.model import simulate
-from seqjax.util import pytree_shape
+
+from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
@@ -29,8 +30,9 @@ def test_ar1_target_simulate_length() -> None:
 
     assert latent.x.shape == (3,)
     assert obs.y.shape == (3,)
-    assert pytree_shape(x_hist)[0][0] == 0
-    assert pytree_shape(y_hist)[0][0] == 0
+    logp = evaluate.log_prob_joint(AR1Target, latent, obs, None, params)
+    assert jnp.shape(logp) == ()
+
 
 
 def test_simple_stochastic_vol_simulate_length() -> None:

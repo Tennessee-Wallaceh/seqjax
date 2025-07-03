@@ -123,7 +123,7 @@ def check_interface(cls):
     class_vars = {cvar: getattr(cls, cvar) for cvar in base.__abstractclassvars__}
 
     # perform the interface checks
-    for method_name in ["log_p", "sample"]:
+    for method_name in ["log_prob", "sample"]:
         base_method = base.__dict__[method_name]
         subclass_method = cls.__dict__.get(method_name, None)
 
