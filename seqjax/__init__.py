@@ -47,3 +47,22 @@ __all__ = [
     "ParticleMCMCConfig",
     "run_particle_mcmc",
 ]
+from .inference.autoregressive_vi import (
+    Sampler,
+    Autoregressor,
+    RandomAutoregressor,
+    AmortizedUnivariateAutoregressor,
+    AmortizedResidualUnivariateAutoregressor,
+    AmortizedMultivariateAutoregressor,
+    AmortizedMultivariateIsotropicAutoregressor,
+)
+
+__all__ += [
+    "Sampler",
+    "Autoregressor",
+    "RandomAutoregressor",
+    "AmortizedUnivariateAutoregressor",
+    "AmortizedResidualUnivariateAutoregressor",
+    "AmortizedMultivariateAutoregressor",
+    "AmortizedMultivariateIsotropicAutoregressor",
+]
