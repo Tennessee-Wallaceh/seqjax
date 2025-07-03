@@ -41,9 +41,7 @@ class BootstrapParticleFilter(
 
 
 class AuxiliaryParticleFilter(
-    GeneralSequentialImportanceSampler[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ]
+    SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType]
 ):
     """Bootstrap particle filter with auxiliary resampling."""
 
