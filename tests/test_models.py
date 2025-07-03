@@ -11,6 +11,7 @@ from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
+from seqjax.util import pytree_shape
 from tests.test_typing import (
     DummyParticle,
     DummyObservation,
@@ -65,7 +66,7 @@ class Prior1(Prior[DummyParticle, DummyCondition, DummyParameters]):
         return (DummyParticle(jrandom.normal(key)),)
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle],
         conditions: tuple[DummyCondition],
         parameters: DummyParameters,
@@ -86,7 +87,7 @@ class Transition1(Transition[DummyParticle, DummyCondition, DummyParameters]):
         return DummyParticle(jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle_history: tuple[DummyParticle],
         particle: DummyParticle,
         condition: DummyCondition,
@@ -110,7 +111,7 @@ class Emission1(Emission[DummyParticle, DummyObservation, DummyCondition, DummyP
         return DummyObservation(jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle],
         observation_history: tuple[()],
         observation: DummyObservation,
@@ -142,7 +143,7 @@ class Prior2(Prior[DummyParticle, DummyCondition, DummyParameters]):
         )
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle, DummyParticle],
         conditions: tuple[DummyCondition, DummyCondition],
         parameters: DummyParameters,
@@ -163,7 +164,7 @@ class Transition2(Transition[DummyParticle, DummyCondition, DummyParameters]):
         return DummyParticle(jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle_history: tuple[DummyParticle],
         particle: DummyParticle,
         condition: DummyCondition,
@@ -187,7 +188,7 @@ class Emission2(Emission[DummyParticle, DummyObservation, DummyCondition, DummyP
         return DummyObservation(jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle, DummyParticle],
         observation_history: tuple[DummyObservation],
         observation: DummyObservation,

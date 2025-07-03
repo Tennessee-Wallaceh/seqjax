@@ -10,9 +10,13 @@ def test_ar1_bootstrap_filter_runs() -> None:
     target = AR1Target()
     parameters = ARParameters()
 
-    _, observations, _, _ = simulate(
-
-
+    _, observations, _, _ = simulate.simulate(
+        key,
+        AR1Target,
+        None,
+        parameters,
+        sequence_length=3,
+    )
     filter_key = jrandom.PRNGKey(1)
     bpf = BootstrapParticleFilter(target, num_particles=10)
     log_w, particles, ess, rec = run_filter(bpf, filter_key, parameters, observations)
