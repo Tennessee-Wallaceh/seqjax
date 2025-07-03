@@ -16,7 +16,7 @@ def test_ar1_bootstrap_filter_runs() -> None:
     )
     filter_key = jrandom.PRNGKey(1)
     bpf = BootstrapParticleFilter(target, num_particles=10)
-    log_w, particles, ess, rec = run_filter(
+    log_w, particles, log_mp, ess, rec = run_filter(
         bpf,
         filter_key,
         parameters,
@@ -25,6 +25,7 @@ def test_ar1_bootstrap_filter_runs() -> None:
     )
 
     assert log_w.shape == (bpf.num_particles,)
+    assert log_mp.shape == (observations.y.shape[0],)
     assert ess.shape == (observations.y.shape[0],)
     assert rec == ()
 

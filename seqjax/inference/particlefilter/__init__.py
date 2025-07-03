@@ -1,5 +1,5 @@
 from .base import (
-    GeneralSequentialImportanceSampler,
+    SMCSampler,
     Proposal,
     proposal_from_transition,
     run_filter,
@@ -14,7 +14,7 @@ from .metrics import compute_esse_from_log_weights
 from .recorders import current_particle_mean
 
 __all__ = [
-    "GeneralSequentialImportanceSampler",
+    "SMCSampler",
     "Proposal",
     "proposal_from_transition",
     "run_filter",

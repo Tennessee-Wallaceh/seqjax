@@ -43,7 +43,7 @@ if __name__ == "__main__":
     filter_key = jrandom.key(1)
     init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(2))
     cond_path = TimeIncrement(cond.dt[2:])
-    log_w, _, ess, (filt_lv,) = run_filter(
+    log_w, _, log_mp, ess, (filt_lv,) = run_filter(
         bpf,
         filter_key,
         params,
