@@ -32,7 +32,9 @@ def test_run_nuts_recovers_latents() -> None:
     key = jrandom.PRNGKey(0)
     target = AR1Target()
     true_params = ARParameters(
-        ar=jnp.array(0.7), observation_std=jnp.array(0.05), transition_std=jnp.array(0.05)
+        ar=jnp.array(0.7),
+        observation_std=jnp.array(0.05),
+        transition_std=jnp.array(0.05),
     )
     latents, observations, _, _ = simulate.simulate(
         key, target, None, true_params, sequence_length=3
@@ -43,8 +45,8 @@ def test_run_nuts_recovers_latents() -> None:
     samples = run_nuts(
         target,
         sample_key,
-        true_params,
         observations,
+        parameters=true_params,
         initial_latents=latents,
         config=config,
     )

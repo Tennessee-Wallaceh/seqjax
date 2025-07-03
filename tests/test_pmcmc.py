@@ -1,7 +1,11 @@
 import jax.random as jrandom
 import jax.numpy as jnp
 
-from seqjax.inference.pmcmc import RandomWalkConfig, ParticleMCMCConfig, run_particle_mcmc
+from seqjax.inference.pmcmc import (
+    RandomWalkConfig,
+    ParticleMCMCConfig,
+    run_particle_mcmc,
+)
 from seqjax.inference.particlefilter import BootstrapParticleFilter
 from seqjax.model.ar import AR1Target, ARParameters, HalfCauchyStds
 from seqjax import simulate
@@ -38,7 +42,9 @@ def test_run_particle_mcmc_recovers_params() -> None:
     key = jrandom.PRNGKey(0)
     target = AR1Target()
     true_params = ARParameters(
-        ar=jnp.array(0.6), observation_std=jnp.array(0.05), transition_std=jnp.array(0.05)
+        ar=jnp.array(0.6),
+        observation_std=jnp.array(0.05),
+        transition_std=jnp.array(0.05),
     )
     _, observations, _, _ = simulate.simulate(
         key, target, None, true_params, sequence_length=4
@@ -53,8 +59,8 @@ def test_run_particle_mcmc_recovers_params() -> None:
     samples = run_particle_mcmc(
         target,
         sample_key,
-        HalfCauchyStds(),
         observations,
+        parameter_prior=HalfCauchyStds(),
         config=config,
         initial_parameters=true_params,
         initial_conditions=(None,),

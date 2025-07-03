@@ -27,9 +27,9 @@ class BufferedSGLDConfig(eqx.Module):
     num_iters: int = 100
     buffer_size: int = 0
     batch_size: int = 1
-    particle_filter: SMCSampler[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ] | None = None
+    particle_filter: (
+        SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType] | None
+    ) = None
     parameter_prior: ParameterPrior[ParametersType, HyperParametersType] | None = None
     hyperparameters: HyperParametersType | None = None
 
@@ -44,7 +44,9 @@ def _tree_randn_like(key: PRNGKeyArray, tree: ParametersType) -> ParametersType:
 
 
 def run_buffered_sgld(
-    target: SequentialModel[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     key: PRNGKeyArray,
     parameters: ParametersType,
     observations: Batched[ObservationType, SequenceAxis],
@@ -77,7 +79,9 @@ def run_buffered_sgld(
     )
     starts = jrandom.randint(start_key, shape=(n_iters,), minval=0, maxval=start_max)
 
-    if jax.tree_util.tree_structure(config.step_size) == jax.tree_util.tree_structure(parameters):
+    if jax.tree_util.tree_structure(config.step_size) == jax.tree_util.tree_structure(
+        parameters
+    ):  # type: ignore[operator]
         step_sizes = config.step_size
     else:
         step_sizes = jax.tree_util.tree_map(lambda _: config.step_size, parameters)
