@@ -23,7 +23,7 @@ def simulate_path(skew: float, steps: int = 10000, seed: int = 0):
     cond = TimeIncrement(dt * jnp.ones(steps))
 
     key = jrandom.key(seed)
-    latent, obs = simulate.simulate(
+    latent, obs, *_ = simulate.simulate(
         key,
         SkewStochasticVol,
         cond,

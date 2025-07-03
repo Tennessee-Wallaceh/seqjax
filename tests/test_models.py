@@ -11,6 +11,7 @@ from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
+from seqjax.util import pytree_shape
 from tests.test_typing import (
     DummyParticle,
     DummyObservation,
@@ -32,7 +33,6 @@ def test_ar1_target_simulate_length() -> None:
     assert obs.y.shape == (3,)
     logp = evaluate.log_prob_joint(AR1Target, latent, obs, None, params)
     assert jnp.shape(logp) == ()
-
 
 
 def test_simple_stochastic_vol_simulate_length() -> None:
@@ -65,7 +65,7 @@ class Prior1(Prior[DummyParticle, DummyCondition, DummyParameters]):
         return (DummyParticle(jrandom.normal(key)),)
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle],
         conditions: tuple[DummyCondition],
         parameters: DummyParameters,
@@ -86,7 +86,7 @@ class Transition1(Transition[DummyParticle, DummyCondition, DummyParameters]):
         return DummyParticle(jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle_history: tuple[DummyParticle],
         particle: DummyParticle,
         condition: DummyCondition,
@@ -95,7 +95,9 @@ class Transition1(Transition[DummyParticle, DummyCondition, DummyParameters]):
         return jnp.array(0.0)
 
 
-class Emission1(Emission[DummyParticle, DummyObservation, DummyCondition, DummyParameters]):
+class Emission1(
+    Emission[DummyParticle, DummyObservation, DummyCondition, DummyParameters]
+):
     order: ClassVar[int] = 1
     observation_dependency: ClassVar[int] = 0
 
@@ -110,7 +112,7 @@ class Emission1(Emission[DummyParticle, DummyObservation, DummyCondition, DummyP
         return DummyObservation(jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle],
         observation_history: tuple[()],
         observation: DummyObservation,
@@ -120,7 +122,9 @@ class Emission1(Emission[DummyParticle, DummyObservation, DummyCondition, DummyP
         return jnp.array(0.0)
 
 
-class Target1(SequentialModel[DummyParticle, DummyObservation, DummyCondition, DummyParameters]):
+class Target1(
+    SequentialModel[DummyParticle, DummyObservation, DummyCondition, DummyParameters]
+):
     prior = Prior1()
     transition = Transition1()
     emission = Emission1()
@@ -142,7 +146,7 @@ class Prior2(Prior[DummyParticle, DummyCondition, DummyParameters]):
         )
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle, DummyParticle],
         conditions: tuple[DummyCondition, DummyCondition],
         parameters: DummyParameters,
@@ -163,7 +167,7 @@ class Transition2(Transition[DummyParticle, DummyCondition, DummyParameters]):
         return DummyParticle(jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle_history: tuple[DummyParticle],
         particle: DummyParticle,
         condition: DummyCondition,
@@ -172,7 +176,9 @@ class Transition2(Transition[DummyParticle, DummyCondition, DummyParameters]):
         return jnp.array(0.0)
 
 
-class Emission2(Emission[DummyParticle, DummyObservation, DummyCondition, DummyParameters]):
+class Emission2(
+    Emission[DummyParticle, DummyObservation, DummyCondition, DummyParameters]
+):
     order: ClassVar[int] = 2
     observation_dependency: ClassVar[int] = 1
 
@@ -187,7 +193,7 @@ class Emission2(Emission[DummyParticle, DummyObservation, DummyCondition, DummyP
         return DummyObservation(jrandom.normal(key))
 
     @staticmethod
-    def log_p(
+    def log_prob(
         particle: tuple[DummyParticle, DummyParticle],
         observation_history: tuple[DummyObservation],
         observation: DummyObservation,
@@ -197,7 +203,9 @@ class Emission2(Emission[DummyParticle, DummyObservation, DummyCondition, DummyP
         return jnp.array(0.0)
 
 
-class Target2(SequentialModel[DummyParticle, DummyObservation, DummyCondition, DummyParameters]):
+class Target2(
+    SequentialModel[DummyParticle, DummyObservation, DummyCondition, DummyParameters]
+):
     prior = Prior2()
     transition = Transition2()
     emission = Emission2()

@@ -29,7 +29,7 @@ if __name__ == "__main__":
     cond = TimeIncrement(dt * jnp.ones(steps + 1))
 
     key = jrandom.key(0)
-    latent, obs = simulate.simulate(
+    latent, obs, *_ = simulate.simulate(
         key,
         SkewStochasticVol,
         cond,
