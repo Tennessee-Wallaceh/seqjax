@@ -11,7 +11,11 @@ from .resampling import (
     conditional_resample,
 )
 from .metrics import compute_esse_from_log_weights
-from .recorders import current_particle_mean
+from .recorders import (
+    current_particle_mean,
+    current_particle_quantiles,
+    current_particle_variance,
+)
 
 __all__ = [
     "GeneralSequentialImportanceSampler",
@@ -24,4 +28,6 @@ __all__ = [
     "compute_esse_from_log_weights",
     "BootstrapParticleFilter",
     "current_particle_mean",
+    "current_particle_quantiles",
+    "current_particle_variance",
 ]
