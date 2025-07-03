@@ -18,8 +18,8 @@ def test_run_bayesian_nuts_shape() -> None:
     samples_latents, samples_params = run_bayesian_nuts(
         target,
         sample_key,
-        HalfCauchyStds(),
         observations,
+        parameter_prior=HalfCauchyStds(),
         initial_latents=latents,
         initial_parameters=parameters,
         config=config,

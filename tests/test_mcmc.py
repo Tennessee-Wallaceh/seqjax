@@ -18,8 +18,8 @@ def test_run_nuts_shape() -> None:
     samples = run_nuts(
         target,
         sample_key,
-        parameters,
         observations,
+        parameters=parameters,
         initial_latents=latents,
         config=config,
     )

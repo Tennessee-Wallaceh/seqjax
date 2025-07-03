@@ -71,18 +71,12 @@ def dynamic_slice_pytree(
 ) -> Any:
     """Dynamically slice a pytree along ``dim``."""
 
+    def _slice(x: Any) -> Any:
+        return jax.lax.dynamic_slice_in_dim(
+            x, start_index=start_index, slice_size=slice_size, axis=dim
+        )
 
-
-    return jax.tree_util.tree_map(
-        partial(
-            jax.lax.dynamic_slice_in_dim,
-            start_index=start_index,
-            slice_size=slice_size,
-            slice_size=limit_index - start_index,
-            axis=dim,
-        ),
-        tree,
-    )
+    return jax.tree_util.tree_map(_slice, tree)
 
 
 def concat_pytree(*trees: Any, axis: int = 0) -> Any:
