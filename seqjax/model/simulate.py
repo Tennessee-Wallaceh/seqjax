@@ -82,7 +82,17 @@ def simulate(
     PyTree,
     PyTree,
 ]:
-    """Simulate a path of length ``sequence_length`` from ``target``."""
+    """Simulate a path of length ``sequence_length`` from ``target``.
+
+    ``sequence_length`` refers to the number of returned samples. The function
+    internally generates additional prior history as required by the model but
+    only returns the final ``sequence_length`` values.
+    """
+
+    if sequence_length < 1:
+        raise jax.errors.JaxRuntimeError(
+            "sequence_length must be >= 1, got {sequence_length}"
+        )
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
     # special handling for sampling first state
@@ -130,4 +140,16 @@ def simulate(
 
     latent_path = concat_pytree(*x_0, latent_path)
     observed_path = concat_pytree(*parameters.reference_emission, y_0, observed_path)
+
+    latent_path = slice_pytree(
+        latent_path,
+        target.prior.order - 1,
+        target.prior.order - 1 + sequence_length,
+    )
+    observed_path = slice_pytree(
+        observed_path,
+        target.emission.observation_dependency,
+        target.emission.observation_dependency + sequence_length,
+    )
+
     return latent_path, observed_path

@@ -33,8 +33,8 @@ def test_simple_stochastic_vol_simulate_and_logp() -> None:
         key, SimpleStochasticVol, cond, params, sequence_length=3
     )
 
-    assert latent.log_vol.shape == (4,)
-    assert obs.underlying.shape == (4,)
+    assert latent.log_vol.shape == (3,)
+    assert obs.underlying.shape == (3,)
 
     logp = evaluate.log_p_joint(SimpleStochasticVol, latent, obs, cond, params)
     assert jnp.shape(logp) == ()
