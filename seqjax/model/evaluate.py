@@ -8,13 +8,15 @@ from seqjax.model.base import (
     ObservationType,
     ParametersType,
     ParticleType,
-    Target,
+    SequentialModel,
 )
 from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
 
 
 def log_p_x(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     x_path: ParticleType,
     condition: ConditionType,
     parameters: ParametersType,
@@ -64,7 +66,9 @@ def log_p_x(
 
 
 def log_p_x_noncentered(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     eps_path: PyTree,
     condition: PyTree,
     parameters: ParametersType,
@@ -112,7 +116,9 @@ def log_p_x_noncentered(
 
 
 def log_p_y_given_x(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     x_path: PyTree,
     y_path: PyTree,
     condition: PyTree,
@@ -185,7 +191,9 @@ def log_p_joint(
 
 # some utilities for getting densities for specific target
 def get_log_p_x_for_target(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
 ):
     """Return a ``log_p_x`` function bound to ``target``."""
 
@@ -200,7 +208,9 @@ def get_log_p_x_for_target(
 
 
 def get_log_p_joint_for_target(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
 ):
     """Return a ``log_p_joint`` function bound to ``target``."""
 

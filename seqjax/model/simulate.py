@@ -12,13 +12,15 @@ from seqjax.model.base import (
     ObservationType,
     ParametersType,
     ParticleType,
-    Target,
+    SequentialModel,
 )
 from seqjax.util import concat_pytree, index_pytree, slice_pytree
 
 
 def step(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     parameters: ParametersType,
     state: tuple[
         tuple[ParticleType, ...],
@@ -70,7 +72,9 @@ def step(
 
 def simulate(
     key: PRNGKeyArray,
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
     condition: PyTree | None,
     parameters: ParametersType,
     sequence_length: int,

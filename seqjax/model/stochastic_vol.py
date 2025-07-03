@@ -12,7 +12,7 @@ from seqjax.model.base import (
     Emission,
     ParameterPrior,
     Prior,
-    Target,
+    SequentialModel,
     Transition,
 )
 from seqjax.model.typing import (
@@ -312,13 +312,13 @@ class SkewLogReturn(Emission[LatentVol, Underlying, TimeIncrement, LogVolWithSke
         return jstats.norm.logpdf(log_return, loc=return_mean, scale=return_scale)
 
 
-class SimpleStochasticVol(Target[LatentVol, Underlying, TimeIncrement, LogVolRW]):
+class SimpleStochasticVol(SequentialModel[LatentVol, Underlying, TimeIncrement, LogVolRW]):
     prior = GaussianStart()
     transition = RandomWalk()
     emission = LogReturn()
 
 
-class SkewStochasticVol(Target[LatentVol, Underlying, TimeIncrement, LogVolWithSkew]):
+class SkewStochasticVol(SequentialModel[LatentVol, Underlying, TimeIncrement, LogVolWithSkew]):
     prior = GaussianStart()
     transition = RandomWalk()
     emission = SkewLogReturn()

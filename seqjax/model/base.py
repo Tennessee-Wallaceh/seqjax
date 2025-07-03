@@ -1,11 +1,11 @@
-"""Abstract base classes for sequential targets.
+"""Abstract base classes for sequential models.
 
 Condition and Parameters are separated. Parameters remain static over time while
 conditions vary.
 
-Use ``Target`` to group pure functions that operate on the same ``Particle`` and
-``Emission`` types. ``Prior``, ``Transition`` and ``Emission`` provide additional
-structure and are typically paired in use.
+Use ``SequentialModel`` to group pure functions that operate on the same
+``Particle`` and ``Emission`` types. ``Prior``, ``Transition`` and ``Emission``
+provide additional structure and are typically paired in use.
 """
 
 from abc import abstractmethod
@@ -139,7 +139,7 @@ class Emission(
     ) -> Scalar: ...
 
 
-class Target(Generic[ParticleType, ObservationType, ConditionType, ParametersType]):
+class SequentialModel(Generic[ParticleType, ObservationType, ConditionType, ParametersType]):
     prior: Prior[ParticleType, ConditionType, ParametersType]
     transition: Transition[ParticleType, ConditionType, ParametersType]
     emission: Emission[ParticleType, ObservationType, ConditionType, ParametersType]
