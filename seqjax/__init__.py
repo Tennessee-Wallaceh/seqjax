@@ -15,6 +15,12 @@ from .inference.particlefilter import Proposal
 # simple inference utilities
 from .inference.particlefilter import BootstrapParticleFilter, AuxiliaryParticleFilter
 from .inference.mcmc import NUTSConfig, run_nuts
+from .inference import (
+    BufferedConfig,
+    run_buffered_filter,
+    BufferedSGLDConfig,
+    run_buffered_sgld,
+)
 
 __all__ = [
     "simulate",
@@ -29,5 +35,8 @@ __all__ = [
     "AuxiliaryParticleFilter",
     "NUTSConfig",
     "run_nuts",
+    "BufferedConfig",
+    "run_buffered_filter",
+    "BufferedSGLDConfig",
+    "run_buffered_sgld",
 ]
-
