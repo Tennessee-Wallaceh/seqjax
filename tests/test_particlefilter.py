@@ -4,6 +4,7 @@ import jax.random as jrandom
 import pytest
 
 from seqjax.model.ar import AR1Target, ARParameters
+from seqjax.model.sir import SIRModel, SIRParameters
 from seqjax import BootstrapParticleFilter, AuxiliaryParticleFilter, simulate
 from seqjax.inference.particlefilter import (
     run_filter,
@@ -100,6 +101,32 @@ def test_ar1_auxiliary_filter_runs() -> None:
 
     assert log_w.shape == (apf.num_particles,)
     assert ess.shape == (observations.y.shape[0],)
+
+
+def test_sir_bootstrap_filter_runs() -> None:
+    key = jrandom.PRNGKey(0)
+    target = SIRModel()
+    parameters = SIRParameters(
+        infection_rate=jnp.array(0.1),
+        recovery_rate=jnp.array(0.05),
+        population=jnp.array(100.0),
+    )
+
+    _, observations, _, _ = simulate.simulate(
+        key, target, None, parameters, sequence_length=5
+    )
+    filter_key = jrandom.PRNGKey(1)
+    bpf = BootstrapParticleFilter(target, num_particles=10)
+    log_w, _, _, ess, _ = run_filter(
+        bpf,
+        filter_key,
+        parameters,
+        observations,
+        initial_conditions=(None,),
+    )
+
+    assert log_w.shape == (bpf.num_particles,)
+    assert ess.shape == (observations.new_cases.shape[0],)
 
 
 def test_vmapped_run_filter_shapes() -> None:

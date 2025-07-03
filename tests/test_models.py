@@ -11,6 +11,7 @@ from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
 from seqjax.model.linear_gaussian import LinearGaussianSSM, LGSSMParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
+from seqjax.model.sir import SIRModel, SIRParameters
 from seqjax.model.poisson_ssm import PoissonSSM, PoissonSSMParameters
 from seqjax.model.hmm import HiddenMarkovModel, HMMParameters
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
@@ -68,6 +69,21 @@ def test_simple_stochastic_vol_simulate_length() -> None:
     assert pytree_shape(x_hist)[0][0] == 1
     assert pytree_shape(y_hist)[0][0] == 1
 
+
+def test_sir_simulate_length() -> None:
+    key = jrandom.PRNGKey(0)
+    params = SIRParameters(
+        infection_rate=jnp.array(0.1),
+        recovery_rate=jnp.array(0.05),
+        population=jnp.array(100.0),
+    )
+    latent, obs, _, _ = simulate.simulate(
+        key, SIRModel, None, params, sequence_length=3
+    )
+
+    assert latent.s.shape == (3,)
+    assert obs.new_cases.shape == (3,)
+    logp = evaluate.log_prob_joint(SIRModel, latent, obs, None, params)
 
 
 def test_poisson_ssm_simulate_length() -> None:
