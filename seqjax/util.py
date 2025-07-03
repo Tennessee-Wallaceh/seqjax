@@ -20,22 +20,30 @@ def index_pytree(tree: Any, index: int | Iterable[int]) -> Any:
 
     return jax.tree_util.tree_map(take_index, tree)
 
+
 def index_pytree_in_dim(tree: Any, index: int, dim: int) -> Any:
     """Index a pytree along a specified dimension."""
 
     def take_index(tree: Any) -> Any:
         return jax.lax.index_in_dim(
-            tree, index, axis=dim, keepdims=False,
+            tree,
+            index,
+            axis=dim,
+            keepdims=False,
         )
 
     return jax.tree_util.tree_map(take_index, tree)
+
 
 def dynamic_index_pytree_in_dim(tree: Any, index: int, dim: int) -> Any:
     """Dynamically index a pytree along a specified dimension."""
 
     def take_index(tree: Any) -> Any:
         return jax.lax.dynamic_index_in_dim(
-            tree, index, axis=dim, keepdims=False,
+            tree,
+            index,
+            axis=dim,
+            keepdims=False,
         )
 
     return jax.tree_util.tree_map(take_index, tree)
@@ -45,9 +53,15 @@ def slice_pytree(tree: Any, start_index: int, limit_index: int, dim: int = 0) ->
     """Slice a pytree along ``dim`` between ``start_index`` and ``limit_index``."""
 
     return jax.tree_util.tree_map(
-        partial(jax.lax.slice_in_dim, start_index=start_index, limit_index=limit_index, axis=dim),
+        partial(
+            jax.lax.slice_in_dim,
+            start_index=start_index,
+            limit_index=limit_index,
+            axis=dim,
+        ),
         tree,
     )
+
 
 def dynamic_slice_pytree(
     tree: Any,
@@ -67,23 +81,25 @@ def dynamic_slice_pytree(
         tree,
     )
 
+
 def promote_scalar_to_vector(x: Any) -> Any:
     """Ensure array leaves are at least 1D."""
     if isinstance(x, jnp.ndarray) and x.ndim == 0:
         return jnp.expand_dims(x, axis=0)
     return x
 
+
 def concat_pytree(*trees: Any, axis: int = 0) -> Any:
     """Concatenate pytrees along ``axis``."""
     promoted_trees = [
-        jax.tree_util.tree_map(promote_scalar_to_vector, tree)
-        for tree in trees
+        jax.tree_util.tree_map(promote_scalar_to_vector, tree) for tree in trees
     ]
 
     return jax.tree_util.tree_map(
         lambda *leaves: jax.lax.concatenate(leaves, dimension=axis),
         *promoted_trees,
     )
+
 
 def pytree_shape(tree: Any) -> tuple[tuple[int, ...], int]:
     """Return the shape of leaves and leaf count of ``tree``."""
@@ -93,8 +109,10 @@ def pytree_shape(tree: Any) -> tuple[tuple[int, ...], int]:
     leaf_shapes = [jnp.shape(leaf) for leaf in leaves]
     return leaf_shapes[0], len(leaf_shapes)
 
+
 def broadcast_pytree(tree: Any, target_shape: tuple[int, ...]) -> Any:
     """Broadcast leaves in ``tree`` to ``target_shape``."""
+
     def _broadcast(x: Any) -> Any:
         x = jnp.asarray(x)
         if x.shape == target_shape:
@@ -104,6 +122,7 @@ def broadcast_pytree(tree: Any, target_shape: tuple[int, ...]) -> Any:
         raise ValueError(f"Expected shape {target_shape} or (), got {x.shape}")
 
     return jax.tree_util.tree_map(_broadcast, tree)
+
 
 def infer_pytree_shape(pytree: Any) -> tuple[int, ...]:
     """Infer a broadcastable shape from a pytree."""
@@ -117,4 +136,3 @@ def infer_pytree_shape(pytree: Any) -> tuple[int, ...]:
             break
 
     return shape
-

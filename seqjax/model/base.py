@@ -34,8 +34,7 @@ Notes:
 
 
 class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
-    """Parameter prior specified as utility for specifying Bayesian models.
-    """
+    """Parameter prior specified as utility for specifying Bayesian models."""
 
     # @staticmethod
     # @abstractmethod
@@ -46,12 +45,15 @@ class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
     @staticmethod
     @abstractmethod
     def log_p(
-        parameters: ParametersType, hyperparameters: HyperParametersType,
+        parameters: ParametersType,
+        hyperparameters: HyperParametersType,
     ) -> Scalar: ...
 
 
 class Prior(
-    eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface,
+    eqx.Module,
+    Generic[ParticleType, ConditionType, ParametersType],
+    EnforceInterface,
 ):
     """Prior must define density + sampling up to the start state t=0.
     As such it receives conditions up to t=0, length corresponding to order.
@@ -83,7 +85,9 @@ class Prior(
 
 
 class Transition(
-    eqx.Module, Generic[ParticleType, ConditionType, ParametersType], EnforceInterface,
+    eqx.Module,
+    Generic[ParticleType, ConditionType, ParametersType],
+    EnforceInterface,
 ):
     order: eqx.AbstractClassVar[int]
 

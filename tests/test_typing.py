@@ -110,6 +110,7 @@ def test_prior_missing_staticmethod() -> None:
     """A non-static method should raise a ``TypeError``."""
 
     with pytest.raises(TypeError):
+
         class BadPrior(Prior[DummyParticle, DummyCondition, DummyParameters]):
             order: ClassVar[int] = 1
 
@@ -133,6 +134,7 @@ def test_prior_order_mismatch() -> None:
     """Tuple lengths must match ``order``."""
 
     with pytest.raises(TypeError):
+
         class BadPrior(Prior[DummyParticle, DummyCondition, DummyParameters]):
             order: ClassVar[int] = 1
 
@@ -157,6 +159,7 @@ def test_transition_order_mismatch() -> None:
     """Tuple lengths must reflect ``order`` in ``Transition``."""
 
     with pytest.raises(TypeError):
+
         class BadTransition(Transition[DummyParticle, DummyCondition, DummyParameters]):
             order: ClassVar[int] = 2
 
@@ -183,6 +186,7 @@ def test_emission_observation_dependency_mismatch() -> None:
     """Observation history length must match ``observation_dependency``."""
 
     with pytest.raises(TypeError):
+
         class BadEmission(
             Emission[
                 DummyParticle,
