@@ -10,7 +10,7 @@ import jax.random as jrandom
 from jaxtyping import Array, Float, PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
-    Target,
+    SequentialModel,
     ParticleType,
     ObservationType,
     ConditionType,
@@ -59,7 +59,7 @@ class GeneralSequentialImportanceSampler(
 ):
     """Base class implementing sequential importance sampling."""
 
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType]
+    target: SequentialModel[ParticleType, ObservationType, ConditionType, ParametersType]
     proposal: Transition[ParticleType, ConditionType, ParametersType]
     resampler: Callable[[PRNGKeyArray, Array, ParticleType, Scalar], ParticleType]
     num_particles: int
@@ -214,7 +214,7 @@ class BootstrapParticleFilter(
 
     def __init__(
         self,
-        target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+        target: SequentialModel[ParticleType, ObservationType, ConditionType, ParametersType],
         num_particles: int,
     ) -> None:
         super().__init__(

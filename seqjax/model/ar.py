@@ -12,7 +12,7 @@ from seqjax.model.base import (
     Emission,
     ParameterPrior,
     Prior,
-    Target,
+    SequentialModel,
     Transition,
 )
 from seqjax.model.typing import (
@@ -167,7 +167,7 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition, ARParameters]):
         )
 
 
-class AR1Target(Target[LatentValue, NoisyEmission, Condition, ARParameters]):
+class AR1Target(SequentialModel[LatentValue, NoisyEmission, Condition, ARParameters]):
     particle_type = LatentValue
     prior = InitialValue()
     transition = ARRandomWalk()

@@ -8,7 +8,7 @@ from seqjax.model.base import (
     ObservationType,
     ParametersType,
     ParticleType,
-    Target,
+    SequentialModel,
 )
 from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
 
@@ -182,8 +182,6 @@ def log_prob_joint(
         parameters,
     )
 
-
-# some utilities for getting densities for specific target
 def get_log_prob_x_for_target(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
