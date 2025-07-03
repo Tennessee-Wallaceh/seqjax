@@ -17,7 +17,7 @@ from seqjax.model.base import (
 from seqjax.model.typing import Batched, SequenceAxis
 from seqjax.model import evaluate
 
-import blackjax
+import blackjax  # type: ignore
 
 
 class NUTSConfig(eqx.Module):
@@ -46,7 +46,7 @@ def run_nuts(
     def logdensity(x):
         return log_prob_joint(x, observations, condition, parameters)
 
-    flat, _ = jax.flatten_util.ravel_pytree(initial_latents)
+    flat, _ = jax.flatten_util.ravel_pytree(initial_latents)  # type: ignore[attr-defined]
     dim = flat.shape[0]
     inv_mass = (
         jnp.ones(dim)

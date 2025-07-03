@@ -30,7 +30,7 @@ class BootstrapParticleFilter(
     ) -> None:
         super().__init__(
             target=target,
-            proposal=proposal_from_transition(target.transition),
+            proposal=proposal_from_transition(target.transition),  # type: ignore[arg-type]
             resampler=partial(
                 conditional_resample,
                 resampler=gumbel_resample_from_log_weights,
@@ -54,7 +54,7 @@ class AuxiliaryParticleFilter(
     ) -> None:
         super().__init__(
             target=target,
-            proposal=proposal_from_transition(target.transition),
+            proposal=proposal_from_transition(target.transition),  # type: ignore[arg-type]
             resampler=partial(
                 conditional_resample,
                 resampler=gumbel_resample_from_log_weights,
