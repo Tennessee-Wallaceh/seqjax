@@ -14,7 +14,7 @@ from seqjax.model.base import (
     ParticleType,
     SequentialModel,
 )
-from seqjax.util import concat_pytree, index_pytree, slice_pytree
+from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
 
 
 def step(
@@ -84,15 +84,27 @@ def simulate(
 ]:
     """Simulate a path of length ``sequence_length`` from ``target``.
 
-    ``sequence_length`` refers to the number of returned samples. The function
-    internally generates additional prior history as required by the model but
-    only returns the final ``sequence_length`` values.
+    The returned latent and observation sequences include any prior history
+    required by ``target``. This means the latent path has length
+    ``sequence_length + target.prior.order - 1`` and the observation path has
+    length ``sequence_length + target.emission.observation_dependency``.
     """
 
     if sequence_length < 1:
         raise jax.errors.JaxRuntimeError(
-            "sequence_length must be >= 1, got {sequence_length}"
+            f"sequence_length must be >= 1, got {sequence_length}"
         )
+
+    if condition is not None:
+        cond_length = pytree_shape(condition)[0][0]
+        required_length = sequence_length + target.prior.order - 1
+        if cond_length < required_length:
+            raise jax.errors.JaxRuntimeError(
+                "condition must have length >= {} for sequence_length {}".format(
+                    required_length,
+                    sequence_length,
+                )
+            )
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
     # special handling for sampling first state
@@ -139,17 +151,10 @@ def simulate(
     )
 
     latent_path = concat_pytree(*x_0, latent_path)
-    observed_path = concat_pytree(*parameters.reference_emission, y_0, observed_path)
-
-    latent_path = slice_pytree(
-        latent_path,
-        target.prior.order - 1,
-        target.prior.order - 1 + sequence_length,
-    )
-    observed_path = slice_pytree(
+    observed_path = concat_pytree(
+        *parameters.reference_emission,
+        y_0,
         observed_path,
-        target.emission.observation_dependency,
-        target.emission.observation_dependency + sequence_length,
     )
 
     return latent_path, observed_path
