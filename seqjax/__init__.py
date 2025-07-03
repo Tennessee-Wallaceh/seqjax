@@ -15,7 +15,7 @@ from .inference.particlefilter import Proposal
 # simple inference utilities
 from .inference.particlefilter import BootstrapParticleFilter, AuxiliaryParticleFilter
 from .inference.mcmc import NUTSConfig, run_nuts, run_bayesian_nuts
-from .inference.interface import InferenceMethod
+from .inference.interface import InferenceMethod, LatentInferenceMethod
 from .inference import (
     BufferedConfig,
     run_buffered_filter,
@@ -39,6 +39,7 @@ __all__ = [
     "run_nuts",
     "run_bayesian_nuts",
     "InferenceMethod",
+    "LatentInferenceMethod",
     "BufferedConfig",
     "run_buffered_filter",
     "BufferedSGLDConfig",
