@@ -14,9 +14,6 @@ from .model.base import Emission, Prior, SequentialModel, Transition
 # simple inference utilities
 from .inference.particlefilter import BootstrapParticleFilter
 
-# Maintain backwards compatibility with the old ``Target`` name.
-Target = SequentialModel
-
 __all__ = [
     "simulate",
     "evaluate",
@@ -24,7 +21,6 @@ __all__ = [
     "Transition",
     "Emission",
     "SequentialModel",
-    "Target",
     "graph_model",
     "BootstrapParticleFilter",
 ]

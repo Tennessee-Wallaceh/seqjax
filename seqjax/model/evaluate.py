@@ -13,10 +13,6 @@ from seqjax.model.base import (
 from seqjax.model.typing import Batched, SequenceAxis
 from seqjax.util import index_pytree, pytree_shape, slice_pytree
 
-# ``Target`` used to be an alias for ``SequentialModel``.  Define the
-# alias here so that older annotations continue to import correctly.
-Target = SequentialModel
-
 
 def log_prob_x(
     target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
@@ -148,7 +144,9 @@ def log_prob_joint(
     )
 
 def get_log_prob_x_for_target(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
 ):
     """Return a ``log_prob_x`` function bound to ``target``."""
 
@@ -163,7 +161,9 @@ def get_log_prob_x_for_target(
 
 
 def get_log_prob_joint_for_target(
-    target: Target[ParticleType, ObservationType, ConditionType, ParametersType],
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
 ):
     """Return a ``log_prob_joint`` function bound to ``target``."""
 
