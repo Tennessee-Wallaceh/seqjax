@@ -14,7 +14,7 @@ from seqjax.model.base import (
     ParticleType,
     SequentialModel,
 )
-from seqjax.util import concat_pytree, index_pytree, slice_pytree
+from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
 
 
 def step(
@@ -81,8 +81,55 @@ def simulate(
 ) -> tuple[
     PyTree,
     PyTree,
+    PyTree,
+    PyTree,
 ]:
-    """Simulate a path of length ``sequence_length`` from ``target``."""
+    """Simulate a path of length ``sequence_length`` from ``target``.
+
+    The returned latent and observation arrays contain only ``x_0 \u2192 x_{T-1}``
+    and ``y_0 \u2192 y_{T-1}`` for ``T = sequence_length``.  Any additional
+    history required by the transition or emission is handled internally:
+
+    * The :class:`~seqjax.model.base.Prior` supplies the latent states for
+      ``t < 0``.  The number of states is ``target.prior.order`` and depends on
+      both the transition and emission orders.
+    * Initial observations ``y_{t<0}`` are provided via
+      ``parameters.reference_emission``.
+
+    For example:
+
+    #. ``obs_dep=1`` (emission depends on the previous observation) requires one
+       ``y_{-1}`` but only ``x_0`` from the prior.
+    #. ``latent_dep=1`` with a first-order transition needs ``x_{-1}`` and
+       ``x_0`` from the prior.
+    #. ``latent_dep=1`` with a second-order transition requires
+       ``x_{-2}, x_{-1}, x_0``.
+
+    The ``condition`` array must therefore have length
+    ``sequence_length + target.prior.order - 1`` so that the prior and every
+    subsequent transition step receive the correct context.
+
+    Returns ``(latents, observations, latent_history, observation_history)``.
+    The first two items contain the simulated sequences of length
+    ``sequence_length``. The final two contain the latent and observation
+    histories used for the simulation.
+    """
+
+    if sequence_length < 1:
+        raise jax.errors.JaxRuntimeError(
+            f"sequence_length must be >= 1, got {sequence_length}"
+        )
+
+    if condition is not None:
+        cond_length = pytree_shape(condition)[0][0]
+        required_length = sequence_length + target.prior.order - 1
+        if cond_length < required_length:
+            raise jax.errors.JaxRuntimeError(
+                "condition must have length >= {} for sequence_length {}".format(
+                    required_length,
+                    sequence_length,
+                )
+            )
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
     # special handling for sampling first state
@@ -128,6 +175,25 @@ def simulate(
         length=sequence_length - 1,
     )
 
-    latent_path = concat_pytree(*x_0, latent_path)
-    observed_path = concat_pytree(*parameters.reference_emission, y_0, observed_path)
-    return latent_path, observed_path
+    latent_full = concat_pytree(*x_0, latent_path)
+    observed_full = concat_pytree(
+        *parameters.reference_emission,
+        y_0,
+        observed_path,
+    )
+
+    latent_start = target.prior.order - 1
+    obs_start = target.emission.observation_dependency
+    latent_path = slice_pytree(latent_full, latent_start, latent_start + sequence_length)
+    observed_path = slice_pytree(
+        observed_full,
+        obs_start,
+        obs_start + sequence_length,
+    )
+
+    latent_history = slice_pytree(latent_full, 0, latent_start)
+    observation_history = slice_pytree(
+        observed_full, 0, obs_start
+    )
+
+    return latent_path, observed_path, latent_history, observation_history
