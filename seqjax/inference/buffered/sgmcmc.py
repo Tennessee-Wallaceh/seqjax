@@ -23,7 +23,7 @@ from .buffered import _run_segment
 class BufferedSGLDConfig(eqx.Module):
     """Configuration for :func:`run_buffered_sgld`."""
 
-    step_size: float = 1e-3
+    step_size: float | ParametersType = 1e-3
     num_iters: int = 100
     buffer_size: int = 0
     batch_size: int = 1
@@ -77,6 +77,11 @@ def run_buffered_sgld(
     )
     starts = jrandom.randint(start_key, shape=(n_iters,), minval=0, maxval=start_max)
 
+    if jax.tree_util.tree_structure(config.step_size) == jax.tree_util.tree_structure(parameters):
+        step_sizes = config.step_size
+    else:
+        step_sizes = jax.tree_util.tree_map(lambda _: config.step_size, parameters)
+
     def step(params: ParametersType, inp: tuple[PRNGKeyArray, PRNGKeyArray, jax.Array]):
         pf_key, noise_key, start = inp
 
@@ -96,9 +101,10 @@ def run_buffered_sgld(
         grad = jax.grad(log_post)(params)
         noise = _tree_randn_like(noise_key, params)
         updates = jax.tree_util.tree_map(
-            lambda g, n: 0.5 * config.step_size * g + jnp.sqrt(config.step_size) * n,
+            lambda g, n, s: 0.5 * s * g + jnp.sqrt(s) * n,
             grad,
             noise,
+            step_sizes,
         )
         params = eqx.apply_updates(params, updates)
         return params, params

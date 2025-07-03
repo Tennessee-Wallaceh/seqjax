@@ -76,13 +76,15 @@ def _log_density(
 def run_particle_mcmc(
     target: SequentialModel[ParticleType, ObservationType, ConditionType, Parameters],
     key: jrandom.PRNGKey,
-    parameter_prior: ParameterPrior[Parameters, HyperParametersType],
     observations: Batched[ObservationType, SequenceAxis],
     *,
+    parameter_prior: ParameterPrior[Parameters, HyperParametersType],
     config: ParticleMCMCConfig,
-    hyper_parameters: HyperParametersType | None = None,
     initial_parameters: Parameters,
     condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    hyper_parameters: HyperParametersType | None = None,
+    initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
+    parameters: Parameters | None = None,
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
 ) -> Batched[Parameters, SequenceAxis | int]:
