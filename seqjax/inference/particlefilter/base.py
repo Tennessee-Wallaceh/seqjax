@@ -129,6 +129,19 @@ class SMCSampler(
             in_axes=[0, None, None, None, None],
         )
 
+    def _resample_log_weights(
+        self,
+        log_w: Array,
+        particles: tuple[ParticleType, ...],
+        observation_history: tuple[ObservationType, ...],
+        observation: ObservationType,
+        condition: ConditionType,
+        params: ParametersType,
+    ) -> Array:
+        """Return the log-weights used for resampling."""
+
+        return log_w
+
     def sample_step(
         self,
         step_key: PRNGKeyArray,
@@ -142,7 +155,18 @@ class SMCSampler(
         """Advance the filter by one step and maintain particle history."""
 
         resample_key, proposal_key = jrandom.split(step_key)
-        ess_e = compute_esse_from_log_weights(log_w)
+
+        log_w_resample = self._resample_log_weights(
+            log_w,
+            particles,
+            observation_history,
+            observation,
+            condition,
+            params,
+        )
+
+        ess_e = compute_esse_from_log_weights(log_w_resample)
+
 
         particles, log_w = self.resampler(resample_key, log_w, particles, ess_e)
 
