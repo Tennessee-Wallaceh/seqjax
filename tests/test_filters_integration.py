@@ -12,6 +12,7 @@ from seqjax.model.stochastic_vol import (
     TimeIncrement,
     Underlying,
 )
+from seqjax.model.poisson_ssm import PoissonSSM, PoissonSSMParameters
 
 
 @pytest.mark.parametrize("filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter])
@@ -73,6 +74,25 @@ def test_filters_linear_gaussian(filter_cls) -> None:
     log_w, _, _, _, _ = run_filter(
         pf,
         jrandom.PRNGKey(5),
+        params,
+        obs,
+        initial_conditions=(None,),
+    )
+    assert log_w.shape == (pf.num_particles,)
+
+
+@pytest.mark.parametrize("filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter])
+def test_filters_poisson_ssm(filter_cls) -> None:
+    seq_len = 5
+
+    key = jrandom.PRNGKey(6)
+    target = PoissonSSM()
+    params = PoissonSSMParameters()
+    _, obs, _, _ = simulate.simulate(key, target, None, params, sequence_length=seq_len)
+    pf = filter_cls(target, num_particles=5)
+    log_w, _, _, _, _ = run_filter(
+        pf,
+        jrandom.PRNGKey(7),
         params,
         obs,
         initial_conditions=(None,),
