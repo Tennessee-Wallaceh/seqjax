@@ -1,21 +1,23 @@
 """Autoregressive variational inference utilities."""
 
 from .autoregressive_vi import (
-    Sampler,
+    AutoregressiveSampler,
     Autoregressor,
     RandomAutoregressor,
     AmortizedUnivariateAutoregressor,
-    AmortizedResidualUnivariateAutoregressor,
     AmortizedMultivariateAutoregressor,
     AmortizedMultivariateIsotropicAutoregressor,
+    AutoregressiveVIConfig,
+    run_autoregressive_vi,
 )
 
 __all__ = [
-    "Sampler",
+    "AutoregressiveSampler",
     "Autoregressor",
     "RandomAutoregressor",
     "AmortizedUnivariateAutoregressor",
-    "AmortizedResidualUnivariateAutoregressor",
     "AmortizedMultivariateAutoregressor",
     "AmortizedMultivariateIsotropicAutoregressor",
+    "AutoregressiveVIConfig",
+    "run_autoregressive_vi",
 ]
