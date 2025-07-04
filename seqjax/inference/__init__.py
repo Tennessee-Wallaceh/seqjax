@@ -19,7 +19,6 @@ from .autoregressive_vi import (
     Autoregressor,
     RandomAutoregressor,
     AmortizedUnivariateAutoregressor,
-    AmortizedResidualUnivariateAutoregressor,
     AmortizedMultivariateAutoregressor,
     AmortizedMultivariateIsotropicAutoregressor,
 )
@@ -29,7 +28,6 @@ __all__ += [
     "Autoregressor",
     "RandomAutoregressor",
     "AmortizedUnivariateAutoregressor",
-    "AmortizedResidualUnivariateAutoregressor",
     "AmortizedMultivariateAutoregressor",
     "AmortizedMultivariateIsotropicAutoregressor",
 ]
