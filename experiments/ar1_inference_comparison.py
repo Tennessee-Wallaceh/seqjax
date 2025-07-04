@@ -33,8 +33,8 @@ class AROnlyPrior(ParameterPrior[ARParameters, HyperParameters]):
     def sample(key: jrandom.PRNGKey, _hyper: HyperParameters) -> ARParameters:
         return ARParameters(
             ar=jrandom.uniform(key, minval=-1.0, maxval=1.0),
-            observation_std=jnp.array(0.05),
-            transition_std=jnp.array(0.01),
+            observation_std=jnp.array(0.02),  # known
+            transition_std=jnp.array(0.01),  # known
         )
 
     @staticmethod
@@ -45,7 +45,9 @@ class AROnlyPrior(ParameterPrior[ARParameters, HyperParameters]):
 if __name__ == "__main__":
     target = AR1Target()
     true_params = ARParameters(
-        ar=jnp.array(0.8), observation_std=jnp.array(0.05), transition_std=jnp.array(0.01)
+        ar=jnp.array(0.5),
+        observation_std=jnp.array(0.02),
+        transition_std=jnp.array(0.01),
     )
     key = jrandom.PRNGKey(0)
     latents, obs, _, _ = simulate.simulate(key, target, None, true_params, sequence_length=100)
@@ -86,8 +88,10 @@ if __name__ == "__main__":
 
     # Buffered SGMCMC
     sgld_cfg = BufferedSGLDConfig(
-        step_size=ARParameters(ar=jnp.array(5e-4), observation_std=0.0, transition_std=0.0),
-        num_iters=1000,
+        step_size=ARParameters(
+            ar=jnp.array(5e-3), observation_std=0.0, transition_std=0.0
+        ),
+        num_iters=5000,
         buffer_size=1,
         batch_size=10,
         particle_filter=pf,
@@ -145,7 +149,7 @@ if __name__ == "__main__":
         recorders=(quant_rec,),
     )
 
-    fig, axes = plt.subplots(4, 2, figsize=(10, 12), sharex="col")
+    fig, axes = plt.subplots(4, 2, figsize=(12, 12), sharex="col")
 
     axes[0, 0].hist(nuts_ar, bins=30, density=True)
     axes[0, 0].axvline(true_params.ar, color="r", linestyle="--")
@@ -163,6 +167,7 @@ if __name__ == "__main__":
     axes[3, 0].text(0.5, 0.5, "Autoregressive\nN/A", ha="center", va="center")
 
     axes[0, 1].plot(nuts_latents.x.T[:3].T, alpha=0.7)
+    axes[0, 1].plot(latents.x, color="k", linestyle="--", label="true")
     axes[0, 1].set_title("NUTS latent samples")
 
     axes[1, 1].fill_between(
@@ -172,6 +177,7 @@ if __name__ == "__main__":
         color="gray",
         alpha=0.5,
     )
+    axes[1, 1].plot(latents.x, color="k", linestyle="--")
     axes[1, 1].set_title("PMCMC particle quantiles")
 
     axes[2, 1].fill_between(
@@ -181,10 +187,12 @@ if __name__ == "__main__":
         color="gray",
         alpha=0.5,
     )
+    axes[2, 1].plot(latents.x, color="k", linestyle="--")
     axes[2, 1].set_title("SGLD particle quantiles")
 
-    axes[3, 1].plot(vi_latents.x[0], alpha=0.7)
-    axes[3, 1].set_title("Autoregressive sample")
+    axes[3, 1].plot(vi_latents.x.T[:3].T, alpha=0.7)
+    axes[3, 1].plot(latents.x, color="k", linestyle="--")
+    axes[3, 1].set_title("Autoregressive samples")
 
     for ax in axes[:, 0]:
         ax.set_xlim(-1, 1)
