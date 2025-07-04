@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TypeVar
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 
@@ -17,13 +16,10 @@ from seqjax.model.base import (
 )
 from seqjax.model.typing import Batched, SequenceAxis, HyperParametersType
 from seqjax.inference.particlefilter import SMCSampler, run_filter
-
-
-class RandomWalkConfig(eqx.Module):
-    """Configuration for the random walk proposal used in PMCMC."""
-
-    step_size: float = 0.1
-    num_samples: int = 100
+from seqjax.inference.mcmc.metropolis import (
+    RandomWalkConfig,
+    run_random_walk_metropolis,
+)
 
 
 class ParticleMCMCConfig(eqx.Module):
@@ -36,16 +32,6 @@ class ParticleMCMCConfig(eqx.Module):
 
 
 Parameters = TypeVar("Parameters", bound=ParametersType)
-
-
-def _propose_parameters(
-    key: jrandom.PRNGKey,
-    params: Parameters,
-    step_size: float,
-) -> Parameters:
-    flat, unravel = jax.flatten_util.ravel_pytree(params)  # type: ignore[attr-defined]
-    noise = step_size * jrandom.normal(key, flat.shape)
-    return unravel(flat + noise)
 
 
 def _log_density(
@@ -93,26 +79,10 @@ def run_particle_mcmc(
     pf = config.particle_filter
     mcmc_cfg = config.mcmc
 
-    init_key, *step_keys = jrandom.split(key, mcmc_cfg.num_samples + 1)
-    init_logp = _log_density(
-        initial_parameters,
-        init_key,
-        pf,
-        parameter_prior,
-        hyper_parameters,
-        observations,
-        condition_path,
-        initial_conditions,
-        observation_history,
-    )
-
-    def step(state, rng):
-        params, logp = state
-        prop_key, pf_key, accept_key = jrandom.split(rng, 3)
-        proposal = _propose_parameters(prop_key, params, mcmc_cfg.step_size)
-        proposal_logp = _log_density(
-            proposal,
-            pf_key,
+    def logdensity(params: Parameters, rng: jrandom.PRNGKey) -> jnp.ndarray:
+        return _log_density(
+            params,
+            rng,
             pf,
             parameter_prior,
             hyper_parameters,
@@ -121,15 +91,11 @@ def run_particle_mcmc(
             initial_conditions,
             observation_history,
         )
-        log_accept_ratio = proposal_logp - logp
-        accept = jrandom.uniform(accept_key) < jnp.exp(log_accept_ratio)
-        new_params = jax.tree_util.tree_map(
-            lambda p, q: jnp.where(accept, q, p), params, proposal
-        )
-        new_logp = jnp.where(accept, proposal_logp, logp)
-        return (new_params, new_logp), new_params
 
-    _, samples = jax.lax.scan(
-        step, (initial_parameters, init_logp), jnp.array(step_keys)
+    samples = run_random_walk_metropolis(
+        logdensity,
+        key,
+        initial_parameters,
+        mcmc_cfg,
     )
     return samples
