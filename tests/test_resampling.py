@@ -8,6 +8,9 @@ from seqjax.inference.particlefilter import (
     current_particle_mean,
     current_particle_quantiles,
     current_particle_variance,
+    systematic_resample_from_log_weights,
+    stratified_resample_from_log_weights,
+    multinomial_resample_from_log_weights,
 )
 
 
@@ -77,3 +80,31 @@ def test_particle_recorders_correctness() -> None:
     assert jnp.allclose(mean, exp_mean)
     assert jnp.allclose(quant, exp_quant)
     assert jnp.allclose(var, exp_var)
+
+
+def _check_statistical_resampler(resampler) -> None:
+    key = jrandom.PRNGKey(0)
+    log_w = jnp.log(jnp.array([0.2, 0.3, 0.5]))
+    particles = (jnp.arange(3),)
+
+    def _single(k):
+        resampled, _ = resampler(k, log_w, particles, 0.0)
+        return resampled[0]
+
+    keys = jrandom.split(key, 5000)
+    samples = jax.vmap(_single)(keys)
+    flat = samples.reshape(-1)
+    counts = jnp.bincount(flat, length=3) / flat.shape[0]
+    assert jnp.allclose(counts, jnp.array([0.2, 0.3, 0.5]), atol=0.02)
+
+
+def test_systematic_resampler_statistics() -> None:
+    _check_statistical_resampler(systematic_resample_from_log_weights)
+
+
+def test_stratified_resampler_statistics() -> None:
+    _check_statistical_resampler(stratified_resample_from_log_weights)
+
+
+def test_multinomial_resampler_statistics() -> None:
+    _check_statistical_resampler(multinomial_resample_from_log_weights)
