@@ -9,6 +9,9 @@ from .filter_definitions import BootstrapParticleFilter, AuxiliaryParticleFilter
 from .resampling import (
     Resampler,
     gumbel_resample_from_log_weights,
+    multinomial_resample_from_log_weights,
+    stratified_resample_from_log_weights,
+    systematic_resample_from_log_weights,
     conditional_resample,
 )
 from .metrics import compute_esse_from_log_weights
@@ -26,6 +29,9 @@ __all__ = [
     "vmapped_run_filter",
     "Resampler",
     "gumbel_resample_from_log_weights",
+    "multinomial_resample_from_log_weights",
+    "stratified_resample_from_log_weights",
+    "systematic_resample_from_log_weights",
     "conditional_resample",
     "compute_esse_from_log_weights",
     "BootstrapParticleFilter",
