@@ -14,16 +14,16 @@ from seqjax import (
     run_particle_mcmc,
     BufferedSGLDConfig,
     run_buffered_sgld,
-    current_particle_quantiles,
-    run_filter,
 )
+from seqjax.inference.particlefilter import current_particle_quantiles, run_filter
 from seqjax.inference.autoregressive_vi import (
     RandomAutoregressor,
     AutoregressiveVIConfig,
     run_autoregressive_vi,
 )
 from seqjax.inference.embedder import PassThroughEmbedder
-from seqjax.model.base import ParameterPrior, HyperParameters
+from seqjax.model.base import ParameterPrior
+from seqjax.model.typing import HyperParameters
 
 
 class AROnlyPrior(ParameterPrior[ARParameters, HyperParameters]):
