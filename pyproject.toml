@@ -55,3 +55,7 @@ python_version = "3.12"
 [[tool.mypy.overrides]]
 module = ["seqjax.model.*", "seqjax.inference.buffered.*", "seqjax.inference.pmcmc.pmmh"]
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["seqjax.inference.vi"]
+ignore_errors = true
