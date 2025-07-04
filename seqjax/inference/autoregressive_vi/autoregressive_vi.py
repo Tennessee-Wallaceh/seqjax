@@ -384,3 +384,7 @@ class AmortizedMultivariateIsotropicAutoregressor(Autoregressor):
         x = z * scale + loc
         log_q_x = jstats.norm.logpdf(x, loc, scale).sum()
         return x, log_q_x
+
+# Maintain backwards compatibility with older API where this class was
+# exported as ``Sampler``.
+Sampler = AutoregressiveSampler

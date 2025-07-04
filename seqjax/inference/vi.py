@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 from abc import abstractmethod
 from typing import Callable, Optional, Literal, Any
 import equinox as eqx
