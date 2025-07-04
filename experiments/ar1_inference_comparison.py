@@ -16,12 +16,6 @@ from seqjax import (
     run_buffered_sgld,
 )
 from seqjax.inference.particlefilter import current_particle_quantiles, run_filter
-from seqjax.inference.autoregressive_vi import (
-    RandomAutoregressor,
-    AutoregressiveVIConfig,
-    run_autoregressive_vi,
-)
-from seqjax.inference.embedder import PassThroughEmbedder
 from seqjax.model.base import ParameterPrior
 from seqjax.model.typing import HyperParameters
 
@@ -101,31 +95,6 @@ if __name__ == "__main__":
     sgld_params = run_buffered_sgld(target, sgld_key, true_params, obs, config=sgld_cfg)
     sgld_ar = jnp.asarray(sgld_params.ar)
 
-    # Autoregressive VI for latent paths
-    embedder = PassThroughEmbedder(sample_length=obs.y.shape[0], prev_window=0, post_window=0)
-    sampler = RandomAutoregressor(
-        sample_length=obs.y.shape[0],
-        x_dim=1,
-        context_dim=embedder.context_dimension,
-        parameter_dim=1,
-        lag_order=1,
-    )
-    vi_cfg = AutoregressiveVIConfig(
-        sampler=sampler,
-        embedder=embedder,
-        num_samples=1000,
-        return_parameters=True,
-        parameter_std=0.05,
-    )
-    vi_key = jrandom.PRNGKey(4)
-    vi_latents, vi_params = run_autoregressive_vi(
-        target,
-        vi_key,
-        obs,
-        parameters=true_params,
-        config=vi_cfg,
-    )
-    vi_ar = jnp.asarray(vi_params.ar)
 
     # Quantiles for PMCMC and SGLD
     quant_rec = current_particle_quantiles(lambda p: p.x, quantiles=(0.05, 0.95))
@@ -156,7 +125,7 @@ if __name__ == "__main__":
         recorders=(quant_rec,),
     )
 
-    fig, axes = plt.subplots(4, 2, figsize=(14, 12), sharex="col")
+    fig, axes = plt.subplots(3, 2, figsize=(14, 9), sharex="col")
     bins = jnp.arange(-1, 1.01, 0.01)
 
     axes[0, 0].hist(nuts_ar, bins=bins, density=True)
@@ -170,10 +139,6 @@ if __name__ == "__main__":
     axes[2, 0].hist(sgld_ar, bins=bins, density=True)
     axes[2, 0].axvline(true_params.ar, color="r", linestyle="--")
     axes[2, 0].set_title("SGLD AR posterior")
-
-    axes[3, 0].hist(vi_ar, bins=bins, density=True)
-    axes[3, 0].axvline(true_params.ar, color="r", linestyle="--")
-    axes[3, 0].set_title("Autoregressive AR posterior")
 
     axes[0, 1].plot(nuts_latents.x.T[:3].T, alpha=0.7)
     axes[0, 1].plot(latents.x, color="k", linestyle="--", label="true")
@@ -198,10 +163,6 @@ if __name__ == "__main__":
     )
     axes[2, 1].plot(latents.x, color="k", linestyle="--")
     axes[2, 1].set_title("SGLD particle quantiles")
-
-    axes[3, 1].plot(vi_latents.x.T[:3].T, alpha=0.7)
-    axes[3, 1].plot(latents.x, color="k", linestyle="--")
-    axes[3, 1].set_title("Autoregressive samples")
 
     for ax in axes[:, 0]:
         ax.set_xlim(-1, 1)
