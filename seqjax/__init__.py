@@ -51,19 +51,23 @@ __all__ = [
     "run_kalman_filter",
 ]
 from .inference.autoregressive_vi import (
-    Sampler,
+    AutoregressiveSampler,
     Autoregressor,
     RandomAutoregressor,
     AmortizedUnivariateAutoregressor,
     AmortizedMultivariateAutoregressor,
     AmortizedMultivariateIsotropicAutoregressor,
+    AutoregressiveVIConfig,
+    run_autoregressive_vi,
 )
 
 __all__ += [
-    "Sampler",
+    "AutoregressiveSampler",
     "Autoregressor",
     "RandomAutoregressor",
     "AmortizedUnivariateAutoregressor",
     "AmortizedMultivariateAutoregressor",
     "AmortizedMultivariateIsotropicAutoregressor",
+    "AutoregressiveVIConfig",
+    "run_autoregressive_vi",
 ]

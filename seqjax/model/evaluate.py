@@ -11,7 +11,12 @@ from seqjax.model.base import (
     SequentialModel,
 )
 from seqjax.model.typing import Batched, SequenceAxis
-from seqjax.util import index_pytree, pytree_shape, slice_pytree
+from seqjax.util import (
+    concat_pytree,
+    index_pytree,
+    pytree_shape,
+    slice_pytree,
+)
 
 
 def log_prob_x(
@@ -21,13 +26,22 @@ def log_prob_x(
     x_path: Batched[ParticleType, SequenceAxis],
     condition: Batched[ConditionType, SequenceAxis],
     parameters: ParametersType,
+    *,
+    x_history: Batched[ParticleType, SequenceAxis] | None = None,
 ) -> Scalar:
-    """Slice out particle histories for vectorised evaluation
-    trade off here is copy+vectorised vs no copy+sequential evaluation
-    for longer sequences expect copy+vector to be faster, but requires more memory
-    for very large sequences + order + batch sizes, this could trigger OOM, and
-    smarter implementation could be required
+    """Return ``log p(x)`` for a latent sequence.
+
+    ``x_path`` should contain only the ``t \geq 0`` portion of the latent
+    sequence.  If ``target.prior.order > 1`` then the required history prior to
+    ``t=0`` can be supplied via ``x_history``.
+
+    Internally the function slices out the latent histories for each time step to
+    allow a vectorised evaluation of the density.  This trades memory for speed
+    and may require a more memory-efficient implementation for long sequences.
     """
+    if x_history is not None:
+        x_path = concat_pytree(x_history, x_path)
+
     sequence_start = target.prior.order - 1
     x_shape = pytree_shape(x_path)[0]
     sequence_length = x_shape[0] - sequence_start
@@ -74,12 +88,22 @@ def log_prob_y_given_x(
     y_path: Batched[ObservationType, SequenceAxis],
     condition: Batched[ConditionType, SequenceAxis],
     parameters: ParametersType,
+    *,
+    x_history: Batched[ParticleType, SequenceAxis] | None = None,
 ) -> Scalar:
     """Return ``log p(y | x)`` for a sequence of observations.
 
-    The ``x_path`` and ``y_path`` arguments share the same leading ``Batch``
-    dimensions, matching the output of :func:`~seqjax.model.simulate.simulate`.
+    ``x_path`` should again only contain the latent states for ``t \geq 0``.  If
+    the model requires additional latent history this should be provided via
+    ``x_history``.  The observation path ``y_path`` is assumed to contain any
+    required observation history already.
+
+    ``x_path`` and ``y_path`` share the same leading ``Batch`` dimensions,
+    matching the output of :func:`~seqjax.model.simulate.simulate`.
     """
+    if x_history is not None:
+        x_path = concat_pytree(x_history, x_path)
+
     x_length = pytree_shape(x_path)[0][0]
 
     x_sequence_start = target.prior.order - 1
@@ -128,8 +152,14 @@ def log_prob_joint(
     y_path: Batched[ObservationType, SequenceAxis],
     condition: Batched[ConditionType, SequenceAxis],
     parameters,
+    *,
+    x_history: Batched[ParticleType, SequenceAxis] | None = None,
 ) -> Scalar:
     """Return ``log p(x, y)`` for a path and observations.
+
+    ``x_path`` should contain only the ``t \geq 0`` portion of the latent path.
+    Pass ``x_history`` to supply any earlier latent values required by
+    ``target.prior`` or the emission model.
 
     The latent and observation sequences share their ``Batch`` dimensions,
     reflecting the output of :func:`~seqjax.model.simulate.simulate`.
@@ -139,12 +169,14 @@ def log_prob_joint(
         x_path,
         condition,
         parameters,
+        x_history=x_history,
     ) + log_prob_y_given_x(
         target,
         x_path,
         y_path,
         condition,
         parameters,
+        x_history=x_history,
     )
 
 def get_log_prob_x_for_target(
@@ -158,8 +190,10 @@ def get_log_prob_x_for_target(
         x_path: Batched[ParticleType, SequenceAxis],
         condition: Batched[ConditionType, SequenceAxis],
         parameters: ParametersType,
+        *,
+        x_history: Batched[ParticleType, SequenceAxis] | None = None,
     ):
-        return log_prob_x(target, x_path, condition, parameters)
+        return log_prob_x(target, x_path, condition, parameters, x_history=x_history)
 
     return _log_prob_x
 
@@ -176,7 +210,16 @@ def get_log_prob_joint_for_target(
         y_path: Batched[ObservationType, SequenceAxis],
         condition: Batched[ConditionType, SequenceAxis],
         parameters,
+        *,
+        x_history: Batched[ParticleType, SequenceAxis] | None = None,
     ):
-        return log_prob_joint(target, x_path, y_path, condition, parameters)
+        return log_prob_joint(
+            target,
+            x_path,
+            y_path,
+            condition,
+            parameters,
+            x_history=x_history,
+        )
 
     return _log_prob_joint

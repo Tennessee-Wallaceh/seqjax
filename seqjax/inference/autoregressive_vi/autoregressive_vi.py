@@ -2,11 +2,22 @@ from __future__ import annotations
 
 from typing import Tuple
 
+from seqjax.inference.embedder import Embedder
+from seqjax.model.base import (
+    SequentialModel,
+    ParticleType,
+    ObservationType,
+    ConditionType,
+    ParametersType,
+)
+from seqjax.model.typing import Batched, SequenceAxis
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
+from jax import flatten_util
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
 
@@ -384,3 +395,46 @@ class AmortizedMultivariateIsotropicAutoregressor(Autoregressor):
         x = z * scale + loc
         log_q_x = jstats.norm.logpdf(x, loc, scale).sum()
         return x, log_q_x
+
+
+class AutoregressiveVIConfig(eqx.Module):
+    """Configuration for :func:`run_autoregressive_vi`."""
+
+    sampler: Autoregressor | None = None
+    embedder: Embedder | None = None
+    num_samples: int = 1
+
+
+def run_autoregressive_vi(
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ],
+    key: PRNGKeyArray,
+    observations: Batched[ObservationType, SequenceAxis],
+    *,
+    parameters: ParametersType,
+    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
+    config: AutoregressiveVIConfig,
+    initial_conditions: tuple[ConditionType, ...] | None = None,
+    observation_history: tuple[ObservationType, ...] | None = None,
+) -> Batched[ParticleType, SequenceAxis | int]:
+    """Sample latent paths using an autoregressive variational sampler."""
+
+    sampler = config.sampler
+    embedder = config.embedder
+    if sampler is None:
+        raise ValueError("sampler must be provided in config")
+    if embedder is None:
+        raise ValueError("embedder must be provided in config")
+
+    obs_array = jnp.squeeze(observations.as_array(), -1)  # type: ignore[attr-defined]
+    context = embedder.embed(obs_array)
+    theta_flat, _ = flatten_util.ravel_pytree(parameters)
+
+    keys = jrandom.split(key, config.num_samples)
+    xs, _ = jax.vmap(sampler.sample_single_path, in_axes=[0, None, None])(
+        keys, theta_flat, context
+    )
+    latents = target.particle_type.from_array(xs)  # type: ignore[attr-defined]
+    return latents

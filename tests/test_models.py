@@ -36,7 +36,14 @@ def test_ar1_target_simulate_length() -> None:
 
     assert latent.x.shape == (3,)
     assert obs.y.shape == (3,)
-    logp = evaluate.log_prob_joint(AR1Target, latent, obs, None, params)
+    logp = evaluate.log_prob_joint(
+        AR1Target,
+        latent,
+        obs,
+        None,
+        params,
+        x_history=x_hist,
+    )
     assert jnp.shape(logp) == ()
 
 
@@ -49,7 +56,14 @@ def test_linear_gaussian_simulate_length() -> None:
 
     assert latent.x.shape == (3, 2)
     assert obs.y.shape == (3, 2)
-    logp = evaluate.log_prob_joint(LinearGaussianSSM, latent, obs, None, params)
+    logp = evaluate.log_prob_joint(
+        LinearGaussianSSM,
+        latent,
+        obs,
+        None,
+        params,
+        x_history=x_hist,
+    )
     assert jnp.shape(logp) == ()
 
 
@@ -128,7 +142,14 @@ def test_hmm_simulate_length() -> None:
 
     assert latent.z.shape == (3,)
     assert obs.y.shape == (3,)
-    logp = evaluate.log_prob_joint(HiddenMarkovModel, latent, obs, None, params)
+    logp = evaluate.log_prob_joint(
+        HiddenMarkovModel,
+        latent,
+        obs,
+        None,
+        params,
+        x_history=x_hist,
+    )
 
     assert jnp.shape(logp) == ()
 
@@ -333,7 +354,7 @@ def test_ar1_joint_log_prob_closed_form() -> None:
         observation_std=jnp.array(1.0),
         transition_std=jnp.array(0.3),
     )
-    latents, observations, _, _ = simulate.simulate(
+    latents, observations, x_hist, _ = simulate.simulate(
         key, AR1Target, None, params, sequence_length=3
     )
 
@@ -349,5 +370,12 @@ def test_ar1_joint_log_prob_closed_form() -> None:
         jstats.norm.logpdf(y[1:], loc=x[1:], scale=params.observation_std)
     )
 
-    eval_logp = evaluate.log_prob_joint(AR1Target, latents, observations, None, params)
+    eval_logp = evaluate.log_prob_joint(
+        AR1Target,
+        latents,
+        observations,
+        None,
+        params,
+        x_history=x_hist,
+    )
     assert jnp.allclose(manual_logp, eval_logp)
