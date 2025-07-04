@@ -60,7 +60,3 @@ module = [
     "seqjax.inference.vi",
 ]
 ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = ["seqjax.inference.vi"]
-ignore_errors = true
