@@ -110,15 +110,22 @@ if __name__ == "__main__":
         parameter_dim=1,
         lag_order=1,
     )
-    vi_cfg = AutoregressiveVIConfig(sampler=sampler, embedder=embedder, num_samples=3)
+    vi_cfg = AutoregressiveVIConfig(
+        sampler=sampler,
+        embedder=embedder,
+        num_samples=1000,
+        return_parameters=True,
+        parameter_std=0.05,
+    )
     vi_key = jrandom.PRNGKey(4)
-    vi_latents = run_autoregressive_vi(
+    vi_latents, vi_params = run_autoregressive_vi(
         target,
         vi_key,
         obs,
         parameters=true_params,
         config=vi_cfg,
     )
+    vi_ar = jnp.asarray(vi_params.ar)
 
     # Quantiles for PMCMC and SGLD
     quant_rec = current_particle_quantiles(lambda p: p.x, quantiles=(0.05, 0.95))
@@ -149,22 +156,24 @@ if __name__ == "__main__":
         recorders=(quant_rec,),
     )
 
-    fig, axes = plt.subplots(4, 2, figsize=(12, 12), sharex="col")
+    fig, axes = plt.subplots(4, 2, figsize=(14, 12), sharex="col")
+    bins = jnp.arange(-1, 1.01, 0.01)
 
-    axes[0, 0].hist(nuts_ar, bins=30, density=True)
+    axes[0, 0].hist(nuts_ar, bins=bins, density=True)
     axes[0, 0].axvline(true_params.ar, color="r", linestyle="--")
     axes[0, 0].set_title("NUTS AR posterior")
 
-    axes[1, 0].hist(pmcmc_ar, bins=30, density=True)
+    axes[1, 0].hist(pmcmc_ar, bins=bins, density=True)
     axes[1, 0].axvline(true_params.ar, color="r", linestyle="--")
     axes[1, 0].set_title("PMCMC AR posterior")
 
-    axes[2, 0].hist(sgld_ar, bins=30, density=True)
+    axes[2, 0].hist(sgld_ar, bins=bins, density=True)
     axes[2, 0].axvline(true_params.ar, color="r", linestyle="--")
     axes[2, 0].set_title("SGLD AR posterior")
 
-    axes[3, 0].axis("off")
-    axes[3, 0].text(0.5, 0.5, "Autoregressive\nN/A", ha="center", va="center")
+    axes[3, 0].hist(vi_ar, bins=bins, density=True)
+    axes[3, 0].axvline(true_params.ar, color="r", linestyle="--")
+    axes[3, 0].set_title("Autoregressive AR posterior")
 
     axes[0, 1].plot(nuts_latents.x.T[:3].T, alpha=0.7)
     axes[0, 1].plot(latents.x, color="k", linestyle="--", label="true")

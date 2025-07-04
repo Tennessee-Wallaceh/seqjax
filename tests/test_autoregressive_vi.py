@@ -92,3 +92,41 @@ def test_run_autoregressive_vi_shape() -> None:
     )
 
     assert samples.x.shape == (config.num_samples, 5)
+
+
+def test_run_autoregressive_vi_return_parameters() -> None:
+    key = jrandom.PRNGKey(0)
+    target = AR1Target()
+    params = ARParameters()
+    _, observations, _, _ = simulate.simulate(
+        key, target, None, params, sequence_length=5
+    )
+
+    embedder = PassThroughEmbedder(
+        sample_length=5, prev_window=0, post_window=0, y_dimension=1
+    )
+    sampler = RandomAutoregressor(
+        sample_length=5,
+        x_dim=1,
+        context_dim=embedder.context_dimension,
+        parameter_dim=1,
+        lag_order=1,
+    )
+    config = AutoregressiveVIConfig(
+        sampler=sampler,
+        embedder=embedder,
+        num_samples=3,
+        return_parameters=True,
+        parameter_std=0.1,
+    )
+
+    latents, theta_samples = run_autoregressive_vi(
+        target,
+        jrandom.PRNGKey(2),
+        observations,
+        parameters=params,
+        config=config,
+    )
+
+    assert latents.x.shape == (config.num_samples, 5)
+    assert theta_samples.ar.shape == (config.num_samples,)
