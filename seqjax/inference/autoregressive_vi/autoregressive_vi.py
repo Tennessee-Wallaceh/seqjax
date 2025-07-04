@@ -396,7 +396,6 @@ class AmortizedMultivariateIsotropicAutoregressor(Autoregressor):
         log_q_x = jstats.norm.logpdf(x, loc, scale).sum()
         return x, log_q_x
 
-
 class AutoregressiveVIConfig(eqx.Module):
     """Configuration for :func:`run_autoregressive_vi`."""
 
