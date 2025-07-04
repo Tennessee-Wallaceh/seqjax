@@ -53,7 +53,12 @@ ignore = ["E501"]
 python_version = "3.12"
 
 [[tool.mypy.overrides]]
-module = ["seqjax.model.*", "seqjax.inference.buffered.*", "seqjax.inference.pmcmc.pmmh"]
+module = [
+    "seqjax.model.*",
+    "seqjax.inference.buffered.*",
+    "seqjax.inference.pmcmc.pmmh",
+    "seqjax.inference.vi",
+]
 ignore_errors = true
 
 [[tool.mypy.overrides]]

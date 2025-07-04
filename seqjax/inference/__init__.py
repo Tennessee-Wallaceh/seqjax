@@ -15,17 +15,23 @@ __all__ = [
     "run_buffered_sgld",
 ]
 from .autoregressive_vi import (
+    AutoregressiveSampler,
     Autoregressor,
     RandomAutoregressor,
     AmortizedUnivariateAutoregressor,
     AmortizedMultivariateAutoregressor,
     AmortizedMultivariateIsotropicAutoregressor,
+    AutoregressiveVIConfig,
+    run_autoregressive_vi,
 )
 
 __all__ += [
+    "AutoregressiveSampler",
     "Autoregressor",
     "RandomAutoregressor",
     "AmortizedUnivariateAutoregressor",
     "AmortizedMultivariateAutoregressor",
     "AmortizedMultivariateIsotropicAutoregressor",
+    "AutoregressiveVIConfig",
+    "run_autoregressive_vi",
 ]
