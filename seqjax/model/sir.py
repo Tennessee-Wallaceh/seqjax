@@ -56,7 +56,16 @@ class SIRPrior(Prior[SIRState, Condition, SIRParameters]):
         conditions: tuple[Condition, Condition],
         parameters: SIRParameters,
     ) -> Scalar:
-        return jnp.array(0.0)
+        s0 = parameters.population - 1
+        cond = (
+            (particle[0].s == s0)
+            & (particle[0].i == 1.0)
+            & (particle[0].r == 0.0)
+            & (particle[1].s == s0)
+            & (particle[1].i == 1.0)
+            & (particle[1].r == 0.0)
+        )
+        return jnp.where(cond, jnp.array(0.0), -jnp.inf)
 
 
 class SIRTransition(Transition[SIRState, Condition, SIRParameters]):

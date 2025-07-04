@@ -30,15 +30,21 @@ All values are in annualised terms.
 
 # Latent Particles
 class LatentVol(Particle):
+    """Latent state containing the log volatility."""
+
     log_vol: Scalar
 
 
 class Underlying(Observation):
+    """Observed underlying asset value."""
+
     underlying: Scalar
 
 
 # parameters
 class LogVolRW(Parameters):
+    """Parameters for a log-volatility random walk."""
+
     std_log_vol: Scalar
     mean_reversion: Scalar
     long_term_vol: Scalar
@@ -48,6 +54,8 @@ class LogVolRW(Parameters):
 
 
 class LogVolWithSkew(Parameters):
+    """Random-walk parameters including a skew term."""
+
     std_log_vol: Scalar
     mean_reversion: Scalar
     long_term_vol: Scalar
@@ -61,10 +69,12 @@ LogVolRandomWalks = Union[LogVolRW, LogVolWithSkew]
 
 
 class TimeIncrement(Condition):
+    """Time step between observations."""
+
     dt: Scalar  # time since last observation
 
 
-class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
+class StochVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
     @staticmethod
     def sample(key, hyperparameters):
         std_key, mr_key, ltv_key = jrandom.split(key, 3)
@@ -98,10 +108,10 @@ class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         )
 
     @staticmethod
-    def log_prob(parameteters, hyperparameters=None):
+    def log_prob(parameters, hyperparameters=None):
         mean = 3.0
         scale = 1.0
-        x = parameteters.std_log_vol
+        x = parameters.std_log_vol
         alpha = -mean / scale
         normalization = 1 - jstats.norm.cdf(alpha)
 
@@ -115,14 +125,14 @@ class SotchVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         )
 
         base_log_lpdf = jstats.norm.logpdf(
-            jnp.log(parameteters.long_term_vol),
+            jnp.log(parameters.long_term_vol),
             loc=jnp.array(-2.0),
             scale=jnp.array(0.5),
         )
 
         mean = 10
         scale = 10.0
-        x = parameteters.mean_reversion
+        x = parameters.mean_reversion
         alpha = -mean / scale
         normalization = 1 - jstats.norm.cdf(alpha)
 
@@ -354,6 +364,7 @@ class SkewStochasticVol(SequentialModel[LatentVol, Underlying, TimeIncrement, Lo
 
 @dataclass
 class StochasticVolConfig:
+    """Configuration for generating stochastic volatility data."""
     label: Literal["simple_stochastic_vol"] = field(
         init=False,
         default="simple_stochastic_vol",

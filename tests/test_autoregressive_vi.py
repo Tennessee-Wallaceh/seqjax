@@ -5,7 +5,12 @@ from seqjax.inference.autoregressive_vi import (
     RandomAutoregressor,
     AmortizedUnivariateAutoregressor,
     AmortizedMultivariateIsotropicAutoregressor,
+    AutoregressiveVIConfig,
+    run_autoregressive_vi,
 )
+from seqjax.inference.embedder import PassThroughEmbedder
+from seqjax.model.ar import AR1Target, ARParameters
+from seqjax.model import simulate
 
 
 def test_random_autoregressor_sample_shape() -> None:
@@ -56,3 +61,34 @@ def test_amortized_multivariate_isotropic_autoregressor_sample_shape() -> None:
     x, log_q = ar.sample_single_path(jrandom.PRNGKey(2), theta, context)
     assert x.shape == (5, 3)
     assert log_q.shape == ()
+
+
+def test_run_autoregressive_vi_shape() -> None:
+    key = jrandom.PRNGKey(0)
+    target = AR1Target()
+    params = ARParameters()
+    _, observations, _, _ = simulate.simulate(
+        key, target, None, params, sequence_length=5
+    )
+
+    embedder = PassThroughEmbedder(
+        sample_length=5, prev_window=0, post_window=0, y_dimension=1
+    )
+    sampler = RandomAutoregressor(
+        sample_length=5,
+        x_dim=1,
+        context_dim=embedder.context_dimension,
+        parameter_dim=3,
+        lag_order=1,
+    )
+    config = AutoregressiveVIConfig(sampler=sampler, embedder=embedder, num_samples=2)
+
+    samples = run_autoregressive_vi(
+        target,
+        jrandom.PRNGKey(1),
+        observations,
+        parameters=params,
+        config=config,
+    )
+
+    assert samples.x.shape == (config.num_samples, 5)

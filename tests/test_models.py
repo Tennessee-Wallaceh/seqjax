@@ -12,7 +12,7 @@ from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
 from seqjax.model.linear_gaussian import LinearGaussianSSM, LGSSMParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
-from seqjax.model.sir import SIRModel, SIRParameters
+from seqjax.model.sir import SIRModel, SIRParameters, SIRPrior, SIRState
 from seqjax.model.poisson_ssm import PoissonSSM, PoissonSSMParameters
 from seqjax.model.hmm import HiddenMarkovModel, HMMParameters
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
@@ -36,7 +36,14 @@ def test_ar1_target_simulate_length() -> None:
 
     assert latent.x.shape == (3,)
     assert obs.y.shape == (3,)
-    logp = evaluate.log_prob_joint(AR1Target, latent, obs, None, params)
+    logp = evaluate.log_prob_joint(
+        AR1Target,
+        latent,
+        obs,
+        None,
+        params,
+        x_history=x_hist,
+    )
     assert jnp.shape(logp) == ()
 
 
@@ -49,7 +56,14 @@ def test_linear_gaussian_simulate_length() -> None:
 
     assert latent.x.shape == (3, 2)
     assert obs.y.shape == (3, 2)
-    logp = evaluate.log_prob_joint(LinearGaussianSSM, latent, obs, None, params)
+    logp = evaluate.log_prob_joint(
+        LinearGaussianSSM,
+        latent,
+        obs,
+        None,
+        params,
+        x_history=x_hist,
+    )
     assert jnp.shape(logp) == ()
 
 
@@ -86,6 +100,25 @@ def test_sir_simulate_length() -> None:
     assert obs.new_cases.shape == (3,)
 
 
+def test_sir_prior_log_prob_checks_initial_state() -> None:
+    params = SIRParameters(
+        infection_rate=jnp.array(0.1),
+        recovery_rate=jnp.array(0.05),
+        population=jnp.array(100.0),
+    )
+    s0 = params.population - 1
+    correct = SIRState(s=s0, i=jnp.array(1.0), r=jnp.array(0.0))
+    wrong = SIRState(s=s0 - 1, i=jnp.array(2.0), r=jnp.array(0.0))
+
+    logp_ok = SIRPrior.log_prob((correct, correct), (None, None), params)
+    logp_bad_first = SIRPrior.log_prob((wrong, correct), (None, None), params)
+    logp_bad_second = SIRPrior.log_prob((correct, wrong), (None, None), params)
+
+    assert jnp.array_equal(logp_ok, jnp.array(0.0))
+    assert jnp.isneginf(logp_bad_first)
+    assert jnp.isneginf(logp_bad_second)
+
+
 def test_poisson_ssm_simulate_length() -> None:
     key = jax.random.PRNGKey(0)
     params = PoissonSSMParameters()
@@ -109,7 +142,14 @@ def test_hmm_simulate_length() -> None:
 
     assert latent.z.shape == (3,)
     assert obs.y.shape == (3,)
-    logp = evaluate.log_prob_joint(HiddenMarkovModel, latent, obs, None, params)
+    logp = evaluate.log_prob_joint(
+        HiddenMarkovModel,
+        latent,
+        obs,
+        None,
+        params,
+        x_history=x_hist,
+    )
 
     assert jnp.shape(logp) == ()
 
@@ -314,7 +354,7 @@ def test_ar1_joint_log_prob_closed_form() -> None:
         observation_std=jnp.array(1.0),
         transition_std=jnp.array(0.3),
     )
-    latents, observations, _, _ = simulate.simulate(
+    latents, observations, x_hist, _ = simulate.simulate(
         key, AR1Target, None, params, sequence_length=3
     )
 
@@ -330,5 +370,12 @@ def test_ar1_joint_log_prob_closed_form() -> None:
         jstats.norm.logpdf(y[1:], loc=x[1:], scale=params.observation_std)
     )
 
-    eval_logp = evaluate.log_prob_joint(AR1Target, latents, observations, None, params)
+    eval_logp = evaluate.log_prob_joint(
+        AR1Target,
+        latents,
+        observations,
+        None,
+        params,
+        x_history=x_hist,
+    )
     assert jnp.allclose(manual_logp, eval_logp)
