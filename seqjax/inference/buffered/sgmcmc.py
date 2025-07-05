@@ -15,7 +15,7 @@ from seqjax.model.base import (
     ParameterPrior,
     HyperParametersType,
 )
-from seqjax.model.typing import Batched, SequenceAxis
+from seqjax.model.typing import Batched, SequenceAxis, SampleAxis
 from seqjax.inference.particlefilter import SMCSampler
 from .buffered import _run_segment
 
@@ -53,7 +53,7 @@ def run_buffered_sgld(
     *,
     condition_path: Batched[ConditionType, SequenceAxis] | None = None,
     config: BufferedSGLDConfig,
-) -> Batched[ParametersType, SequenceAxis | int]:
+) -> Batched[ParametersType, SampleAxis | int]:
     """Run buffered SGLD updates over ``observations``."""
 
     smc = config.particle_filter

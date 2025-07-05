@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Tuple, Callable
 
 import equinox as eqx
 import jax
@@ -15,7 +15,7 @@ from seqjax.model.base import (
     SequentialModel,
     ParameterPrior,
 )
-from seqjax.model.typing import Batched, SequenceAxis, HyperParametersType
+from seqjax.model.typing import Batched, SequenceAxis, SampleAxis, HyperParametersType
 from seqjax.model import evaluate
 
 import blackjax  # type: ignore
@@ -99,7 +99,7 @@ def run_bayesian_nuts(
     parameters: ParametersType | None = None,
 ) -> Tuple[
     Batched[ParticleType, SequenceAxis | int],
-    Batched[ParametersType, SequenceAxis | int],
+    Batched[ParametersType, SampleAxis | int],
 ]:
     """Sample parameters and latent paths jointly using NUTS."""
 
@@ -124,6 +124,45 @@ def run_bayesian_nuts(
         logdensity, step_size=config.step_size, inverse_mass_matrix=inv_mass
     )
     state = nuts.init(init_state)
+
+    keys = jax.random.split(key, config.num_warmup + config.num_samples)
+
+    def warmup_step(state, key):
+        state, _ = nuts.step(key, state)
+        return state, None
+
+    state, _ = jax.lax.scan(warmup_step, state, keys[: config.num_warmup])
+
+    def sample_step(state, key):
+        state, _ = nuts.step(key, state)
+        return state, state.position
+
+    _, samples = jax.lax.scan(sample_step, state, keys[config.num_warmup :])
+    return samples
+
+
+def run_nuts_parameters(
+    logdensity: Callable[[ParametersType, PRNGKeyArray], jax.Array],
+    key: PRNGKeyArray,
+    initial_parameters: ParametersType,
+    config: NUTSConfig = NUTSConfig(),
+) -> Batched[ParametersType, SampleAxis | int]:
+    """Sample parameters using the NUTS algorithm from ``blackjax``."""
+
+    flat, _ = jax.flatten_util.ravel_pytree(initial_parameters)  # type: ignore[attr-defined]
+    dim = flat.shape[0]
+    inv_mass = (
+        jnp.ones(dim)
+        if config.inverse_mass_matrix is None
+        else config.inverse_mass_matrix
+    )
+
+    nuts = blackjax.nuts(
+        lambda p: logdensity(p, key),
+        step_size=config.step_size,
+        inverse_mass_matrix=inv_mass,
+    )
+    state = nuts.init(initial_parameters)
 
     keys = jax.random.split(key, config.num_warmup + config.num_samples)
 
