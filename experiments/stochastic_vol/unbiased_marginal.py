@@ -27,11 +27,12 @@ if __name__ == "__main__":
     )
 
     dt = jnp.array(1.0 / (256 * 8))
-    cond = TimeIncrement(dt * jnp.ones(steps + 2))
+    target = SkewStochasticVol()
+    cond = TimeIncrement(dt * jnp.ones(steps + target.prior.order))
     key = jrandom.key(0)
     latent, obs, *_ = simulate.simulate(
         key,
-        SkewStochasticVol(),
+        target,
         cond,
         params,
         sequence_length=steps,
@@ -40,9 +41,9 @@ if __name__ == "__main__":
     betas = jnp.array([-0.8, -0.5, -0.2, 0.0])
     num_repeats = 50
 
-    init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(2))
-    cond_path = TimeIncrement(cond.dt[2:])
-    bpf = BootstrapParticleFilter(SkewStochasticVol(), num_particles=500)
+    init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(target.prior.order))
+    cond_path = TimeIncrement(cond.dt[target.prior.order:])
+    bpf = BootstrapParticleFilter(target, num_particles=500)
 
     fig, axes = plt.subplots(1, betas.shape[0], figsize=(12, 3), sharey=True)
     base_key = jrandom.key(1)
@@ -81,7 +82,7 @@ if __name__ == "__main__":
             batched_obs,
             batched_cond,
             initial_conditions=init_conds,
-            observation_history=params.reference_emission,
+            observation_history=(),
         )
 
         mp_estimates = jnp.asarray(log_mp[:, -1])
