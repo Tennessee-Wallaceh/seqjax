@@ -80,9 +80,9 @@ def test_simple_stochastic_vol_simulate_length() -> None:
     )
 
     assert latent.log_vol.shape == (3,)
-    assert obs.underlying.shape == (3,)
-    assert pytree_shape(x_hist)[0][0] == 1
-    assert pytree_shape(y_hist)[0][0] == 1
+    assert obs.log_return.shape == (3,)
+    assert pytree_shape(x_hist)[0][0] == 0
+    assert pytree_shape(y_hist)[0][0] == 0
 
 
 def test_sir_simulate_length() -> None:

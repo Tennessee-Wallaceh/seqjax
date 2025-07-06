@@ -10,7 +10,7 @@ from seqjax.model.stochastic_vol import (
     SimpleStochasticVol,
     LogVolRW,
     TimeIncrement,
-    Underlying,
+    LogReturnObs,
 )
 from seqjax.model.poisson_ssm import PoissonSSM, PoissonSSMParameters
 
@@ -44,7 +44,7 @@ def test_filters_ar1_and_stochastic_vol(filter_cls) -> None:
         long_term_vol=jnp.array(1.0),
     )
     full_cond = TimeIncrement(jnp.ones(seq_len + sv_target.prior.order - 1))
-    _, sv_obs, _, y_hist = simulate.simulate(
+    _, sv_obs, _, _ = simulate.simulate(
         key, sv_target, full_cond, sv_params, sequence_length=seq_len
     )
     sv_pf = filter_cls(sv_target, num_particles=5)
@@ -57,7 +57,7 @@ def test_filters_ar1_and_stochastic_vol(filter_cls) -> None:
         initial_conditions=tuple(
             TimeIncrement(full_cond.dt[i]) for i in range(sv_target.prior.order)
         ),
-        observation_history=(Underlying(y_hist.underlying[0]),)
+        observation_history=()
     )
     assert log_w.shape == (sv_pf.num_particles,)
 
