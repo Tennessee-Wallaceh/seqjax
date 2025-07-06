@@ -5,6 +5,7 @@ from .buffered import (
     BufferedSGLDConfig,
     run_buffered_sgld,
 )
+from .sgld import SGLDConfig, run_sgld
 
 __all__ = [
     "InferenceMethod",
@@ -13,6 +14,8 @@ __all__ = [
     "run_buffered_filter",
     "BufferedSGLDConfig",
     "run_buffered_sgld",
+    "SGLDConfig",
+    "run_sgld",
 ]
 from .autoregressive_vi import (
     AutoregressiveSampler,

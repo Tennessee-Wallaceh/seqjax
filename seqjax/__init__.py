@@ -26,6 +26,8 @@ from .inference import (
     run_buffered_filter,
     BufferedSGLDConfig,
     run_buffered_sgld,
+    SGLDConfig,
+    run_sgld,
 )
 from .inference.pmcmc import RandomWalkConfig, ParticleMCMCConfig, run_particle_mcmc
 from .inference.kalman import run_kalman_filter
@@ -51,6 +53,8 @@ __all__ = [
     "run_buffered_filter",
     "BufferedSGLDConfig",
     "run_buffered_sgld",
+    "SGLDConfig",
+    "run_sgld",
     "RandomWalkConfig",
     "ParticleMCMCConfig",
     "run_particle_mcmc",
