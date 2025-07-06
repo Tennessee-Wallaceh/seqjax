@@ -49,7 +49,7 @@ if __name__ == "__main__":
     init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(2))
     cond_path = TimeIncrement(cond.dt[2:])
 
-    log_w, _, log_mp, ess, (filt_lv,filt_quant) = run_filter(
+    log_w, _, log_mp, ess, _, (filt_lv,filt_quant) = run_filter(
         bpf,
         filter_key,
         params,

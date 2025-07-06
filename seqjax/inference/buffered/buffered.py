@@ -78,7 +78,7 @@ def _run_segment(
     else:
         init_conds = ()
 
-    _, _, log_mp_hist, _, _ = run_filter(
+    _, _, log_mp_hist, _, _, _ = run_filter(
         smc,
         key,
         parameters,

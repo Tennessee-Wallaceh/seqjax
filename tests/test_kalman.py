@@ -23,7 +23,7 @@ def test_kalman_filter_matches_particle_filter() -> None:
     pf = BootstrapParticleFilter(target, num_particles=1000)
     mean_rec = current_particle_mean(lambda p: p.x)
     var_rec = current_particle_variance(lambda p: p.x)
-    log_w, _, _, _, (mean_hist, var_hist) = run_filter(
+    log_w, _, _, _, _, (mean_hist, var_hist) = run_filter(
         pf,
         jrandom.PRNGKey(1),
         params,

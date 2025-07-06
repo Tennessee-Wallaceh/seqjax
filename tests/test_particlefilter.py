@@ -24,7 +24,7 @@ def test_ar1_bootstrap_filter_runs() -> None:
     )
     filter_key = jrandom.PRNGKey(1)
     bpf = BootstrapParticleFilter(target, num_particles=10)
-    log_w, particles, log_mp, ess, rec = run_filter(
+    log_w, particles, log_mp, ess, anc, rec = run_filter(
         bpf,
         filter_key,
         parameters,
@@ -36,6 +36,7 @@ def test_ar1_bootstrap_filter_runs() -> None:
     assert log_mp.shape == (observations.y.shape[0],)
     assert ess.shape == (observations.y.shape[0],)
     assert rec == ()
+    assert anc.shape == (observations.y.shape[0], bpf.num_particles)
 
 
 def test_run_filter_requires_initial_conditions() -> None:
@@ -67,7 +68,7 @@ def test_particle_recorders_shapes() -> None:
     quant_rec = current_particle_quantiles(lambda p: p.x)
     var_rec = current_particle_variance(lambda p: p.x)
 
-    log_w, _, _, _, (quant_hist, var_hist) = run_filter(
+    log_w, _, _, _, _, (quant_hist, var_hist) = run_filter(
         bpf,
         filter_key,
         parameters,
@@ -91,7 +92,7 @@ def test_ar1_auxiliary_filter_runs() -> None:
     )
     filter_key = jrandom.PRNGKey(1)
     apf = AuxiliaryParticleFilter(target, num_particles=10)
-    log_w, particles, log_mp, ess, _ = run_filter(
+    log_w, particles, log_mp, ess, anc, _ = run_filter(
         apf,
         filter_key,
         parameters,
@@ -101,6 +102,7 @@ def test_ar1_auxiliary_filter_runs() -> None:
 
     assert log_w.shape == (apf.num_particles,)
     assert ess.shape == (observations.y.shape[0],)
+    assert anc.shape == (observations.y.shape[0], apf.num_particles)
 
 
 def test_sir_bootstrap_filter_runs() -> None:
@@ -117,7 +119,7 @@ def test_sir_bootstrap_filter_runs() -> None:
     )
     filter_key = jrandom.PRNGKey(1)
     bpf = BootstrapParticleFilter(target, num_particles=10)
-    log_w, _, _, ess, _ = run_filter(
+    log_w, _, _, ess, anc, _ = run_filter(
         bpf,
         filter_key,
         parameters,
@@ -127,6 +129,7 @@ def test_sir_bootstrap_filter_runs() -> None:
 
     assert log_w.shape == (bpf.num_particles,)
     assert ess.shape == (observations.new_cases.shape[0],)
+    assert anc.shape == (observations.new_cases.shape[0], bpf.num_particles)
 
 
 def test_vmapped_run_filter_shapes() -> None:
@@ -152,7 +155,7 @@ def test_vmapped_run_filter_shapes() -> None:
         observations,
     )
 
-    log_w, _, log_mp, _, _ = vmapped_run_filter(
+    log_w, _, log_mp, _, _, _ = vmapped_run_filter(
         bpf,
         keys,
         batched_params,

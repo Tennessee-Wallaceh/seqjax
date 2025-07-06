@@ -27,7 +27,7 @@ def test_logistic_smc_runs() -> None:
 
     model = LogisticRegressionSMC()
     pf = BootstrapParticleFilter(model, num_particles=20)
-    log_w, particles, log_mp, ess, _ = run_filter(
+    log_w, particles, log_mp, ess, anc, _ = run_filter(
         pf,
         jrandom.PRNGKey(1),
         data,
@@ -40,3 +40,4 @@ def test_logistic_smc_runs() -> None:
     seq_len = betas.shape[0] - 1
     assert log_mp.shape[0] == seq_len
     assert ess.shape[0] == seq_len
+    assert anc.shape == (seq_len, pf.num_particles)
