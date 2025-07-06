@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Tuple
 
 from seqjax.inference.embedder import Embedder
+from .. import AmortizedSampler
 from seqjax.model.base import (
     SequentialModel,
     ParticleType,
@@ -139,7 +140,7 @@ def flat_to_chol(flat: Array, dim: int) -> Tuple[Array, Array]:
     return tri, cov
 
 
-class AutoregressiveSampler(eqx.Module):
+class AutoregressiveSampler(AmortizedSampler):
     """Minimal base class for autoregressive samplers."""
 
     sample_length: int
