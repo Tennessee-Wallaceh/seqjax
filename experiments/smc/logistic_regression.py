@@ -41,7 +41,7 @@ if __name__ == "__main__":
     mean_rec = current_particle_mean(lambda p: p.theta)
     quant_rec = current_particle_quantiles(lambda p: p.theta, quantiles=(0.05, 0.95))
 
-    log_w, particles, _, ess, (theta_mean, theta_quant) = run_filter(
+    log_w, particles, _, ess, _, (theta_mean, theta_quant) = run_filter(
         pf,
         jrandom.key(1),
         data,

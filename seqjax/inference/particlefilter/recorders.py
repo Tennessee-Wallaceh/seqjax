@@ -10,10 +10,18 @@ from seqjax.model.base import ParticleType
 
 def current_particle_mean(
     extractor: Callable[[ParticleType], Array],
-) -> Callable[[Array, tuple[ParticleType, ...]], Array]:
+) -> Callable[[Array, tuple[ParticleType, ...], Array, object, object, tuple[ParticleType, ...], Array], Array]:
     """Return a recorder capturing the mean of ``extractor`` over particles."""
 
-    def _recorder(weights: Array, particles: tuple[ParticleType, ...]) -> Array:
+    def _recorder(
+        weights: Array,
+        particles: tuple[ParticleType, ...],
+        _ancestors: Array,
+        _obs: object,
+        _cond: object,
+        _last_particles: tuple[ParticleType, ...],
+        _last_log_w: Array,
+    ) -> Array:
         current = extractor(particles[-1])
         expanded = jnp.reshape(weights, weights.shape + (1,) * (current.ndim - 1))
         return jnp.sum(current * expanded, axis=0)
@@ -40,12 +48,20 @@ def _weighted_quantiles(values: Array, weights: Array, qs: Array) -> Array:
 def current_particle_quantiles(
     extractor: Callable[[ParticleType], Array],
     quantiles: Sequence[float] = (0.1, 0.9),
-) -> Callable[[Array, tuple[ParticleType, ...]], Array]:
+) -> Callable[[Array, tuple[ParticleType, ...], Array, object, object, tuple[ParticleType, ...], Array], Array]:
     """Return a recorder capturing ``quantiles`` of ``extractor`` over particles."""
 
     qs = jnp.array(quantiles)
 
-    def _recorder(weights: Array, particles: tuple[ParticleType, ...]) -> Array:
+    def _recorder(
+        weights: Array,
+        particles: tuple[ParticleType, ...],
+        _ancestors: Array,
+        _obs: object,
+        _cond: object,
+        _last_particles: tuple[ParticleType, ...],
+        _last_log_w: Array,
+    ) -> Array:
         current = extractor(particles[-1])
         flat = current.reshape(current.shape[0], -1)
         q_vals = _weighted_quantiles(flat, weights, qs)
@@ -56,10 +72,18 @@ def current_particle_quantiles(
 
 def current_particle_variance(
     extractor: Callable[[ParticleType], Array],
-) -> Callable[[Array, tuple[ParticleType, ...]], Array]:
+) -> Callable[[Array, tuple[ParticleType, ...], Array, object, object, tuple[ParticleType, ...], Array], Array]:
     """Return a recorder capturing the weighted variance of ``extractor``."""
 
-    def _recorder(weights: Array, particles: tuple[ParticleType, ...]) -> Array:
+    def _recorder(
+        weights: Array,
+        particles: tuple[ParticleType, ...],
+        _ancestors: Array,
+        _obs: object,
+        _cond: object,
+        _last_particles: tuple[ParticleType, ...],
+        _last_log_w: Array,
+    ) -> Array:
         current = extractor(particles[-1])
         expanded = jnp.reshape(weights, weights.shape + (1,) * (current.ndim - 1))
         mean = jnp.sum(current * expanded, axis=0)

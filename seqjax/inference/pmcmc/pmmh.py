@@ -55,7 +55,7 @@ def _log_density(
     initial_conditions: tuple[ConditionType, ...] | None,
     observation_history: tuple[ObservationType, ...] | None,
 ) -> jnp.ndarray:
-    _, _, log_mp, _, _ = run_filter(
+    _, _, log_mp, _, _, _ = run_filter(
         pf,
         key,
         params,

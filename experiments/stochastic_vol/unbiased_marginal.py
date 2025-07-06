@@ -75,7 +75,7 @@ if __name__ == "__main__":
             cond_path,
         )
 
-        _, _, log_mp, _, _ = vmapped_run_filter(
+        _, _, log_mp, _, _, _ = vmapped_run_filter(
             bpf,
             filter_keys,
             batched_params,

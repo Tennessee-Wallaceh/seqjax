@@ -93,8 +93,16 @@ def proposal_from_transition(
 
 class Recorder(Protocol):
     def __call__(
-        self, weights: Array, particles: tuple[ParticleType, ...]
-    ) -> PyTree: ...
+        self,
+        weights: Array,
+        particles: tuple[ParticleType, ...],
+        ancestors: Array,
+        observation: ObservationType,
+        condition: ConditionType,
+        last_particles: tuple[ParticleType, ...],
+        last_log_weights: Array,
+    ) -> PyTree:
+        ...
 
 
 class SMCSampler(
@@ -151,7 +159,13 @@ class SMCSampler(
         observation: ObservationType,
         condition: ConditionType,
         params: ParametersType,
-    ) -> tuple[Array, tuple[ParticleType, ...], tuple[ObservationType, ...], Scalar]:
+    ) -> tuple[
+        Array,
+        tuple[ParticleType, ...],
+        tuple[ObservationType, ...],
+        Scalar,
+        Array,
+    ]:
         """Advance the filter by one step and maintain particle history."""
 
         resample_key, proposal_key = jrandom.split(step_key)
@@ -168,7 +182,9 @@ class SMCSampler(
         ess_e = compute_esse_from_log_weights(log_w_resample)
 
 
-        particles, log_w = self.resampler(resample_key, log_w, particles, ess_e)
+        particles, log_w, ancestor_ix = self.resampler(
+            resample_key, log_w, particles, ess_e
+        )
 
         proposal_history = particles[-self.proposal.order :]
         transition_history = particles[-self.target.transition.order :]
@@ -219,7 +235,7 @@ class SMCSampler(
         else:
             observation_history = ()
 
-        return log_w, particles, observation_history, ess_e
+        return log_w, particles, observation_history, ess_e, ancestor_ix
 
 
 def run_filter(
@@ -235,6 +251,7 @@ def run_filter(
 ) -> tuple[
     Array,
     tuple[ParticleType, ...],
+    Array,
     Array,
     Array,
     tuple[PyTree, ...],
@@ -270,7 +287,9 @@ def run_filter(
     def body(state, inputs):
         step_key, observation, condition = inputs
         log_w, particles, obs_hist, log_mp_prev = state
-        log_w, particles, obs_hist, ess_e = smc.sample_step(
+        last_particles = particles
+        last_log_w = log_w
+        log_w, particles, obs_hist, ess_e, ancestor_ix = smc.sample_step(
             step_key,
             log_w,
             particles,
@@ -284,11 +303,32 @@ def run_filter(
         log_w = log_w - log_sum_w
         weights = jax.nn.softmax(log_w)
         recorder_vals = (
-            tuple(r(weights, particles) for r in recorders)
+            tuple(
+                r(
+                    weights,
+                    particles,
+                    ancestor_ix,
+                    observation,
+                    condition,
+                    last_particles,
+                    last_log_w,
+                )
+                for r in recorders
+            )
             if recorders is not None
             else ()
         )
-        return (log_w, particles, obs_hist, log_mp), (log_mp, ess_e, *recorder_vals)
+        return (
+            log_w,
+            particles,
+            obs_hist,
+            log_mp,
+        ), (
+            log_mp,
+            ess_e,
+            ancestor_ix,
+            *recorder_vals,
+        )
 
     if condition_path is None:
         cond_seq: Any = [None] * sequence_length
@@ -305,13 +345,15 @@ def run_filter(
 
     log_marginal_history = scan_hist[0]
     ess_history = scan_hist[1]
-    recorder_history = tuple(scan_hist[2:])
+    ancestor_history = scan_hist[2]
+    recorder_history = tuple(scan_hist[3:])
 
     return (
         log_weights,
         particles,
         log_marginal_history,
         ess_history,
+        ancestor_history,
         recorder_history,
     )
 
@@ -329,6 +371,7 @@ def vmapped_run_filter(
 ) -> tuple[
     Array,
     tuple[ParticleType, ...],
+    Array,
     Array,
     Array,
     tuple[PyTree, ...],
