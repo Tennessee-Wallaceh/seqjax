@@ -40,17 +40,19 @@ if __name__ == "__main__":
     target = AR1Target()
     true_params = ARParameters(
         ar=jnp.array(0.5),
-        observation_std=jnp.array(0.02),
-        transition_std=jnp.array(0.01),
+        observation_std=jnp.array(0.1),
+        transition_std=jnp.array(1.0),
     )
     key = jrandom.PRNGKey(0)
-    latents, obs, _, _ = simulate.simulate(key, target, None, true_params, sequence_length=100)
+    latents, obs, _, _ = simulate.simulate(
+        key, target, None, true_params, sequence_length=50
+    )
 
-    pf = BootstrapParticleFilter(target, num_particles=256)
     prior = AROnlyPrior()
 
     # MCMC using NUTS
-    nuts_cfg = NUTSConfig(num_warmup=500, num_samples=1000, step_size=0.03)
+    print("NUTS")
+    nuts_cfg = NUTSConfig(num_warmup=1000, num_samples=1000, step_size=1e-3)
     nuts_key = jrandom.PRNGKey(1)
     nuts_latents, nuts_params = run_bayesian_nuts(
         target,
@@ -63,9 +65,16 @@ if __name__ == "__main__":
     )
     nuts_ar = jnp.asarray(nuts_params.ar)
 
-    # Particle MCMC
+    plt.figure(figsize=(8, 3))
+    plt.title("NUTS ar trace")
+    plt.plot(nuts_params.ar)
+    plt.grid()
+
+    # # Particle MCMC
+    print("Particle MCMC")
+    pf = BootstrapParticleFilter(target, num_particles=256)
     pmcmc_cfg = ParticleMCMCConfig(
-        mcmc=RandomWalkConfig(step_size=0.005, num_samples=1000),
+        mcmc=NUTSConfig(step_size=1e-3, num_samples=1000),
         particle_filter=pf,
     )
     pmcmc_key = jrandom.PRNGKey(2)
@@ -80,23 +89,29 @@ if __name__ == "__main__":
     )
     pmcmc_ar = jnp.asarray(pmcmc_params.ar)
 
-    # Buffered SGMCMC
-    sgld_cfg = BufferedSGLDConfig(
-        step_size=ARParameters(
-            ar=jnp.array(5e-3), observation_std=0.0, transition_std=0.0
-        ),
-        num_iters=5000,
-        buffer_size=1,
-        batch_size=10,
-        particle_filter=pf,
-        parameter_prior=prior,
-    )
-    sgld_key = jrandom.PRNGKey(3)
-    sgld_params = run_buffered_sgld(target, sgld_key, true_params, obs, config=sgld_cfg)
-    sgld_ar = jnp.asarray(sgld_params.ar)
+    plt.figure(figsize=(8, 3))
+    plt.title("PMCMC ar trace")
+    plt.plot(pmcmc_ar)
+    plt.grid()
 
+    # Buffered SGMCMC
+    # print("buffered SGMCMC")
+    # sgld_cfg = BufferedSGLDConfig(
+    #     step_size=ARParameters(
+    #         ar=jnp.array(3e-4), observation_std=0.0, transition_std=0.0
+    #     ),
+    #     num_iters=20000,
+    #     buffer_size=5,
+    #     batch_size=5,
+    #     particle_filter=pf,
+    #     parameter_prior=prior,
+    # )
+    # sgld_key = jrandom.PRNGKey(3)
+    # sgld_params = run_buffered_sgld(target, sgld_key, true_params, obs, config=sgld_cfg)
+    # sgld_ar = jnp.asarray(sgld_params.ar)
 
     # Quantiles for PMCMC and SGLD
+    print("quantiles")
     quant_rec = current_particle_quantiles(lambda p: p.x, quantiles=(0.05, 0.95))
     pmcmc_mean = ARParameters(
         ar=jnp.mean(pmcmc_ar),
@@ -111,20 +126,21 @@ if __name__ == "__main__":
         initial_conditions=(None,),
         recorders=(quant_rec,),
     )
-    sgld_mean = ARParameters(
-        ar=jnp.mean(sgld_ar),
-        observation_std=true_params.observation_std,
-        transition_std=true_params.transition_std,
-    )
-    _, _, _, _, (sgld_quant,) = run_filter(
-        pf,
-        jrandom.PRNGKey(6),
-        sgld_mean,
-        obs,
-        initial_conditions=(None,),
-        recorders=(quant_rec,),
-    )
+    # sgld_mean = ARParameters(
+    #     ar=jnp.mean(sgld_ar),
+    #     observation_std=true_params.observation_std,
+    #     transition_std=true_params.transition_std,
+    # )
+    # _, _, _, _, (sgld_quant,) = run_filter(
+    #     pf,
+    #     jrandom.PRNGKey(6),
+    #     sgld_mean,
+    #     obs,
+    #     initial_conditions=(None,),
+    #     recorders=(quant_rec,),
+    # )
 
+    print("Plots")
     fig, axes = plt.subplots(3, 2, figsize=(14, 9), sharex="col")
     bins = jnp.arange(-1, 1.01, 0.01)
 
@@ -136,11 +152,11 @@ if __name__ == "__main__":
     axes[1, 0].axvline(true_params.ar, color="r", linestyle="--")
     axes[1, 0].set_title("PMCMC AR posterior")
 
-    axes[2, 0].hist(sgld_ar, bins=bins, density=True)
-    axes[2, 0].axvline(true_params.ar, color="r", linestyle="--")
-    axes[2, 0].set_title("SGLD AR posterior")
+    # axes[2, 0].hist(sgld_ar, bins=bins, density=True)
+    # axes[2, 0].axvline(true_params.ar, color="r", linestyle="--")
+    # axes[2, 0].set_title("SGLD AR posterior")
 
-    axes[0, 1].plot(nuts_latents.x.T[:3].T, alpha=0.7)
+    axes[0, 1].plot(nuts_latents.x[-3:, :].T, alpha=0.7)
     axes[0, 1].plot(latents.x, color="k", linestyle="--", label="true")
     axes[0, 1].set_title("NUTS latent samples")
 
@@ -154,15 +170,15 @@ if __name__ == "__main__":
     axes[1, 1].plot(latents.x, color="k", linestyle="--")
     axes[1, 1].set_title("PMCMC particle quantiles")
 
-    axes[2, 1].fill_between(
-        jnp.arange(obs.y.shape[0]),
-        sgld_quant[:, 0],
-        sgld_quant[:, 1],
-        color="gray",
-        alpha=0.5,
-    )
-    axes[2, 1].plot(latents.x, color="k", linestyle="--")
-    axes[2, 1].set_title("SGLD particle quantiles")
+    # axes[2, 1].fill_between(
+    #     jnp.arange(obs.y.shape[0]),
+    #     sgld_quant[:, 0],
+    #     sgld_quant[:, 1],
+    #     color="gray",
+    #     alpha=0.5,
+    # )
+    # axes[2, 1].plot(latents.x, color="k", linestyle="--")
+    # axes[2, 1].set_title("SGLD particle quantiles")
 
     for ax in axes[:, 0]:
         ax.set_xlim(-1, 1)
