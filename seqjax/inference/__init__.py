@@ -17,7 +17,7 @@ __all__ = [
     "SGLDConfig",
     "run_sgld",
 ]
-from .autoregressive_vi import (
+from .vi.autoregressive import (
     AutoregressiveSampler,
     Autoregressor,
     RandomAutoregressor,

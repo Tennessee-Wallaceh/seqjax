@@ -60,7 +60,7 @@ __all__ = [
     "run_particle_mcmc",
     "run_kalman_filter",
 ]
-from .inference.autoregressive_vi import (
+from .inference.vi.autoregressive import (
     AutoregressiveSampler,
     Autoregressor,
     RandomAutoregressor,
