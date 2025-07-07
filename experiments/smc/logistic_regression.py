@@ -8,6 +8,8 @@ from seqjax.inference.particlefilter import (
     current_particle_mean,
     current_particle_quantiles,
     run_filter,
+    log_marginal,
+    effective_sample_size,
 )
 from seqjax.model.logistic_smc import (
     LogisticRegressionSMC,
@@ -41,14 +43,16 @@ if __name__ == "__main__":
     mean_rec = current_particle_mean(lambda p: p.theta)
     quant_rec = current_particle_quantiles(lambda p: p.theta, quantiles=(0.05, 0.95))
 
-    log_w, particles, _, ess, (theta_mean, theta_quant) = run_filter(
+    lm_rec = log_marginal()
+    ess_rec = effective_sample_size()
+    log_w, particles, _, (log_mp, ess, theta_mean, theta_quant) = run_filter(
         pf,
         jrandom.key(1),
         data,
         obs_path,
         cond_path,
         initial_conditions=init_cond,
-        recorders=(mean_rec, quant_rec),
+        recorders=(lm_rec, ess_rec, mean_rec, quant_rec),
     )
 
     weights = jax.nn.softmax(log_w)

@@ -13,6 +13,7 @@ import jax
 from seqjax.inference.particlefilter import (
     BootstrapParticleFilter,
     vmapped_run_filter,
+    log_marginal,
 )
 
 
@@ -27,11 +28,12 @@ if __name__ == "__main__":
     )
 
     dt = jnp.array(1.0 / (256 * 8))
-    cond = TimeIncrement(dt * jnp.ones(steps + 2))
+    target = SkewStochasticVol()
+    cond = TimeIncrement(dt * jnp.ones(steps + target.prior.order))
     key = jrandom.key(0)
     latent, obs, *_ = simulate.simulate(
         key,
-        SkewStochasticVol(),
+        target,
         cond,
         params,
         sequence_length=steps,
@@ -40,9 +42,9 @@ if __name__ == "__main__":
     betas = jnp.array([-0.8, -0.5, -0.2, 0.0])
     num_repeats = 50
 
-    init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(2))
-    cond_path = TimeIncrement(cond.dt[2:])
-    bpf = BootstrapParticleFilter(SkewStochasticVol(), num_particles=500)
+    init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(target.prior.order))
+    cond_path = TimeIncrement(cond.dt[target.prior.order:])
+    bpf = BootstrapParticleFilter(target, num_particles=500)
 
     fig, axes = plt.subplots(1, betas.shape[0], figsize=(12, 3), sharey=True)
     base_key = jrandom.key(1)
@@ -74,16 +76,19 @@ if __name__ == "__main__":
             cond_path,
         )
 
-        _, _, log_mp, _, _ = vmapped_run_filter(
+        lm_rec = log_marginal()
+        _, _, _, (log_mp,) = vmapped_run_filter(
             bpf,
             filter_keys,
             batched_params,
             batched_obs,
             batched_cond,
             initial_conditions=init_conds,
-            observation_history=params.reference_emission,
+            observation_history=(),
+            recorders=(lm_rec,),
         )
 
+        log_mp = jnp.cumsum(log_mp, axis=1)
         mp_estimates = jnp.asarray(log_mp[:, -1])
 
         ax.hist(mp_estimates, bins=20, alpha=0.7)

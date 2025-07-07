@@ -12,6 +12,8 @@ from seqjax.inference.particlefilter import (
     BootstrapParticleFilter,
     current_particle_quantiles,
     run_filter,
+    log_marginal,
+    effective_sample_size,
 )
 
 
@@ -32,32 +34,35 @@ if __name__ == "__main__":
     dt = jnp.array(1.0 / (256 * 8))
     # condition array must include contexts for the prior as well as each
     # filtering step
-    cond = TimeIncrement(dt * jnp.ones(steps + 2))
+    target = SkewStochasticVol()
+    cond = TimeIncrement(dt * jnp.ones(steps + target.prior.order))
 
     key = jrandom.key(0)
     latent, obs, *_ = simulate.simulate(
         key,
-        SkewStochasticVol(),
+        target,
         cond,
         params,
         sequence_length=steps,
     )
 
-    bpf = BootstrapParticleFilter(SkewStochasticVol(), num_particles=500)
+    bpf = BootstrapParticleFilter(target, num_particles=500)
     filter_key = jrandom.key(1)
     quant_rec = current_particle_quantiles(lambda p: p.log_vol, quantiles=(0.05, 0.95))
-    init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(2))
-    cond_path = TimeIncrement(cond.dt[2:])
+    init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(target.prior.order))
+    cond_path = TimeIncrement(cond.dt[target.prior.order:])
 
-    log_w, _, log_mp, ess, (filt_lv,filt_quant) = run_filter(
+    lm_rec = log_marginal()
+    ess_rec = effective_sample_size()
+    log_w, _, _, (log_mp, ess, filt_lv, filt_quant) = run_filter(
         bpf,
         filter_key,
         params,
         obs,
         cond_path,
         initial_conditions=init_conds,
-        observation_history=params.reference_emission,
-        recorders=(mean_log_vol, quant_rec),
+        observation_history=(),
+        recorders=(lm_rec, ess_rec, mean_log_vol, quant_rec),
     )
 
     t = jnp.arange(filt_lv.shape[0])

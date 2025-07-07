@@ -20,18 +20,19 @@ def simulate_path(skew: float, steps: int = 10000, seed: int = 0):
     )
 
     dt = jnp.array(1.0 / (256 * 8))
-    cond = TimeIncrement(dt * jnp.ones(steps))
+    target = SkewStochasticVol()
+    cond = TimeIncrement(dt * jnp.ones(steps + target.prior.order - 1))
 
     key = jrandom.key(seed)
     latent, obs, *_ = simulate.simulate(
         key,
-        SkewStochasticVol,
+        target,
         cond,
         params,
         sequence_length=steps,
     )
 
-    returns = jnp.log(obs.underlying[1:]) - jnp.log(obs.underlying[:-1])
+    returns = obs.log_return
     realised_vol = jnp.sqrt(jnp.mean(returns**2) / dt)
     return returns, realised_vol
 

@@ -18,7 +18,7 @@ from seqjax.util import (
     dynamic_index_pytree_in_dim,
     dynamic_slice_pytree,
 )
-from seqjax.inference.particlefilter import SMCSampler, run_filter
+from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 
 
 def _pad_edges_pytree(tree: Any, pad: int) -> Any:
@@ -78,15 +78,18 @@ def _run_segment(
     else:
         init_conds = ()
 
-    _, _, log_mp_hist, _, _ = run_filter(
+    lm_rec = log_marginal()
+    _, _, _, (log_mp_hist,) = run_filter(
         smc,
         key,
         parameters,
         obs_slice,
         cond_slice,
         initial_conditions=init_conds,
+        recorders=(lm_rec,),
     )
 
+    log_mp_hist = jnp.cumsum(log_mp_hist)
     return log_mp_hist[buffer_size : buffer_size + batch_size]
 
 

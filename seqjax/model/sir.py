@@ -56,7 +56,16 @@ class SIRPrior(Prior[SIRState, Condition, SIRParameters]):
         conditions: tuple[Condition, Condition],
         parameters: SIRParameters,
     ) -> Scalar:
-        return jnp.array(0.0)
+        s0 = parameters.population - 1
+        cond = (
+            (particle[0].s == s0)
+            & (particle[0].i == 1.0)
+            & (particle[0].r == 0.0)
+            & (particle[1].s == s0)
+            & (particle[1].i == 1.0)
+            & (particle[1].r == 0.0)
+        )
+        return jnp.where(cond, jnp.array(0.0), -jnp.inf)
 
 
 class SIRTransition(Transition[SIRState, Condition, SIRParameters]):
@@ -98,8 +107,15 @@ class SIRTransition(Transition[SIRState, Condition, SIRParameters]):
         new_rec = particle.r - state.r
         lam_inf = parameters.infection_rate * state.s * state.i / parameters.population
         lam_rec = parameters.recovery_rate * i_temp
-        log_p_inf = jstats.poisson.logpmf(new_inf, lam_inf)
-        log_p_rec = jstats.poisson.logpmf(new_rec, lam_rec)
+        def truncated_poisson_logpmf(x: Scalar, lam: Scalar, max_x: Scalar) -> Scalar:
+            """Log-PMF for ``min(Poisson(lam), max_x)`` at value ``x``."""
+            cdf = jstats.poisson.cdf(max_x - 1, lam)
+            log_tail = jnp.log1p(-cdf)
+            log_p = jnp.where(x < max_x, jstats.poisson.logpmf(x, lam), log_tail)
+            return jnp.where(x > max_x, -jnp.inf, log_p)
+
+        log_p_inf = truncated_poisson_logpmf(new_inf, lam_inf, state.s)
+        log_p_rec = truncated_poisson_logpmf(new_rec, lam_rec, i_temp)
         return log_p_inf + log_p_rec
 
 

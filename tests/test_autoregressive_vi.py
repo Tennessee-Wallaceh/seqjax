@@ -1,7 +1,7 @@
 import jax.random as jrandom
 import jax.numpy as jnp
 
-from seqjax.inference.autoregressive_vi import (
+from seqjax.inference.vi.autoregressive import (
     RandomAutoregressor,
     AmortizedUnivariateAutoregressor,
     AmortizedMultivariateIsotropicAutoregressor,

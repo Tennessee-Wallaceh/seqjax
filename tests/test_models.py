@@ -12,7 +12,7 @@ from seqjax import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters
 from seqjax.model.linear_gaussian import LinearGaussianSSM, LGSSMParameters
 from seqjax.model.stochastic_vol import SimpleStochasticVol, LogVolRW, TimeIncrement
-from seqjax.model.sir import SIRModel, SIRParameters
+from seqjax.model.sir import SIRModel, SIRParameters, SIRPrior, SIRState
 from seqjax.model.poisson_ssm import PoissonSSM, PoissonSSMParameters
 from seqjax.model.hmm import HiddenMarkovModel, HMMParameters
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
@@ -80,9 +80,9 @@ def test_simple_stochastic_vol_simulate_length() -> None:
     )
 
     assert latent.log_vol.shape == (3,)
-    assert obs.underlying.shape == (3,)
-    assert pytree_shape(x_hist)[0][0] == 1
-    assert pytree_shape(y_hist)[0][0] == 1
+    assert obs.log_return.shape == (3,)
+    assert pytree_shape(x_hist)[0][0] == 0
+    assert pytree_shape(y_hist)[0][0] == 0
 
 
 def test_sir_simulate_length() -> None:
@@ -98,6 +98,25 @@ def test_sir_simulate_length() -> None:
 
     assert latent.s.shape == (3,)
     assert obs.new_cases.shape == (3,)
+
+
+def test_sir_prior_log_prob_checks_initial_state() -> None:
+    params = SIRParameters(
+        infection_rate=jnp.array(0.1),
+        recovery_rate=jnp.array(0.05),
+        population=jnp.array(100.0),
+    )
+    s0 = params.population - 1
+    correct = SIRState(s=s0, i=jnp.array(1.0), r=jnp.array(0.0))
+    wrong = SIRState(s=s0 - 1, i=jnp.array(2.0), r=jnp.array(0.0))
+
+    logp_ok = SIRPrior.log_prob((correct, correct), (None, None), params)
+    logp_bad_first = SIRPrior.log_prob((wrong, correct), (None, None), params)
+    logp_bad_second = SIRPrior.log_prob((correct, wrong), (None, None), params)
+
+    assert jnp.array_equal(logp_ok, jnp.array(0.0))
+    assert jnp.isneginf(logp_bad_first)
+    assert jnp.isneginf(logp_bad_second)
 
 
 def test_poisson_ssm_simulate_length() -> None:

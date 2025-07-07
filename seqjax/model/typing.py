@@ -70,6 +70,7 @@ HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters)
 
 Batch = TypeVarTuple("Batch")
 SequenceAxis = TypeVar("SequenceAxis", covariant=True)
+SampleAxis = TypeVar("SampleAxis", covariant=True)
 T_co = TypeVar("T_co", covariant=True)
 
 
@@ -77,8 +78,10 @@ class Batched(Protocol, Generic[T_co, Unpack[Batch], SequenceAxis]):
     """A :class:`~jaxtyping.PyTree` with arbitrary leading batch axes.
 
     ``Batch`` represents the shared leading dimensions while ``SequenceAxis``
-    denotes the trailing sequence length. Multiple return values can reuse the
-    same ``Batch`` tuple to indicate they are batched together.
+    denotes the trailing sequence length. ``SampleAxis`` can be used to
+    represent batches of independent samples that are not part of the
+    sequence dimension. Multiple return values can reuse the same ``Batch``
+    tuple to indicate they are batched together.
     """
 
 

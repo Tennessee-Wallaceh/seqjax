@@ -2,7 +2,12 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 
-from seqjax.inference.particlefilter import BootstrapParticleFilter, run_filter
+from seqjax.inference.particlefilter import (
+    BootstrapParticleFilter,
+    run_filter,
+    log_marginal,
+    effective_sample_size,
+)
 from seqjax.model.logistic_smc import (
     LogisticRegressionSMC,
     LogRegData,
@@ -27,16 +32,20 @@ def test_logistic_smc_runs() -> None:
 
     model = LogisticRegressionSMC()
     pf = BootstrapParticleFilter(model, num_particles=20)
-    log_w, particles, log_mp, ess, _ = run_filter(
+    lm_rec = log_marginal()
+    ess_rec = effective_sample_size()
+    log_w, particles, anc, (log_mp, ess) = run_filter(
         pf,
         jrandom.PRNGKey(1),
         data,
         observation_path=obs_path,
         condition_path=cond_path,
         initial_conditions=(AnnealCondition(beta=betas[0], beta_prev=betas[0]),),
+        recorders=(lm_rec, ess_rec),
     )
 
     assert log_w.shape == (pf.num_particles,)
     seq_len = betas.shape[0] - 1
     assert log_mp.shape[0] == seq_len
     assert ess.shape[0] == seq_len
+    assert anc.shape == (seq_len, pf.num_particles)
