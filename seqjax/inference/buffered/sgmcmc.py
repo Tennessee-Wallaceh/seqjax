@@ -17,8 +17,10 @@ from seqjax.model.base import (
 )
 from seqjax.model.typing import Batched, SequenceAxis, SampleAxis
 from seqjax.inference.particlefilter import SMCSampler
-from .buffered import _run_segment
+from .buffered import _pad_edges_pytree
+from seqjax.util import dynamic_slice_pytree, dynamic_index_pytree_in_dim
 from ..sgld import SGLDConfig, run_sgld
+from ..particlefilter.score_estimator import run_score_estimator
 
 
 class BufferedSGLDConfig(eqx.Module):
@@ -59,23 +61,58 @@ def _make_grad_estimator(
 
     start_max = seq_len - config.batch_size + 1
 
-    def log_post(params: ParametersType, start: jax.Array, pf_key: PRNGKeyArray) -> jax.Array:
-        log_mps = _run_segment(
-            start,
+    def _score_segment(
+        start: jax.Array,
+        pf_key: PRNGKeyArray,
+        params: ParametersType,
+    ) -> ParametersType:
+        slice_size = config.batch_size + 2 * config.buffer_size
+
+        obs_padded = _pad_edges_pytree(observations, config.buffer_size)
+        if condition_path is not None:
+            cond_padded = _pad_edges_pytree(condition_path, config.buffer_size)
+        else:
+            cond_padded = None
+
+        obs_slice = dynamic_slice_pytree(obs_padded, start, slice_size)
+        if condition_path is not None:
+            cond_slice = dynamic_slice_pytree(cond_padded, start, slice_size)
+        else:
+            cond_slice = None
+
+        if smc.target.prior.order > 0:
+            init_conds = tuple(
+                dynamic_index_pytree_in_dim(cond_padded, start + i, 0)
+                if cond_padded is not None
+                else None
+                for i in range(smc.target.prior.order)
+            )
+        else:
+            init_conds = ()
+
+        score, step_hist = run_score_estimator(
             smc,
             pf_key,
             params,
-            observations,
-            condition_path,
-            buffer_size=config.buffer_size,
-            batch_size=config.batch_size,
+            obs_slice,
+            cond_slice,
+            initial_conditions=init_conds,
         )
-        return prior.log_prob(params, config.hyperparameters) + jnp.sum(log_mps)
+
+        return jax.tree_util.tree_map(
+            lambda x: jnp.sum(
+                x[config.buffer_size : config.buffer_size + config.batch_size],
+                axis=0,
+            ),
+            step_hist,
+        )
 
     def grad_estimator(params: ParametersType, key: PRNGKeyArray) -> ParametersType:
         start_key, pf_key = jrandom.split(key)
         start = jrandom.randint(start_key, (), 0, start_max)
-        return jax.grad(lambda p: log_post(p, start, pf_key))(params)
+        like_grad = _score_segment(start, pf_key, params)
+        prior_grad = jax.grad(prior.log_prob)(params, config.hyperparameters)
+        return jax.tree_util.tree_map(lambda a, b: a + b, like_grad, prior_grad)
 
     return grad_estimator, start_max
 
