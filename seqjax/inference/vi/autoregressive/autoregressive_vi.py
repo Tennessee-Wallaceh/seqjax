@@ -404,6 +404,8 @@ class AutoregressiveVIConfig(eqx.Module):
     sampler: Autoregressor | None = None
     embedder: Embedder | None = None
     num_samples: int = 1
+    return_parameters: bool = False
+    parameter_std: float = 1.0
 
 
 def run_autoregressive_vi(
@@ -431,11 +433,20 @@ def run_autoregressive_vi(
 
     obs_array = jnp.squeeze(observations.as_array(), -1)  # type: ignore[attr-defined]
     context = embedder.embed(obs_array)
-    theta_flat, _ = flatten_util.ravel_pytree(parameters)
+    theta_flat, unravel_fn = flatten_util.ravel_pytree(parameters)
 
-    keys = jrandom.split(key, config.num_samples)
+    key_paths, key_params = jrandom.split(key)
+    path_keys = jrandom.split(key_paths, config.num_samples)
     xs, _ = jax.vmap(sampler.sample_single_path, in_axes=[0, None, None])(
-        keys, theta_flat, context
+        path_keys, theta_flat, context
     )
     latents = target.particle_type.from_array(xs)  # type: ignore[attr-defined]
-    return latents
+
+    if config.return_parameters:
+        param_keys = jrandom.split(key_params, config.num_samples)
+        noise = jax.vmap(lambda k: jrandom.normal(k, shape=theta_flat.shape))(param_keys)
+        theta_flat_samples = theta_flat + noise * config.parameter_std
+        theta_samples = jax.vmap(unravel_fn)(theta_flat_samples)
+        return latents, theta_samples
+    else:
+        return latents

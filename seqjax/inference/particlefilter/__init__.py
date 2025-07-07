@@ -22,6 +22,7 @@ from .recorders import (
     log_marginal,
     effective_sample_size,
 )
+from .score_estimator import run_score_estimator
 
 __all__ = [
     "SMCSampler",
@@ -43,4 +44,5 @@ __all__ = [
     "current_particle_variance",
     "log_marginal",
     "effective_sample_size",
+    "run_score_estimator",
 ]
