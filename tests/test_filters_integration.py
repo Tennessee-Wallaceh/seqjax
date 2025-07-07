@@ -26,7 +26,7 @@ def test_filters_ar1_and_stochastic_vol(filter_cls) -> None:
     _, ar_obs, _, _ = simulate.simulate(key, ar_target, None, ar_params, sequence_length=seq_len)
     filter_key = jrandom.PRNGKey(1)
     ar_pf = filter_cls(ar_target, num_particles=5)
-    log_w, _, _, _, _, _ = run_filter(
+    log_w, _, _, _ = run_filter(
         ar_pf,
         filter_key,
         ar_params,
@@ -48,7 +48,7 @@ def test_filters_ar1_and_stochastic_vol(filter_cls) -> None:
         key, sv_target, full_cond, sv_params, sequence_length=seq_len
     )
     sv_pf = filter_cls(sv_target, num_particles=5)
-    log_w, _, _, _, _, _ = run_filter(
+    log_w, _, _, _ = run_filter(
         sv_pf,
         jrandom.PRNGKey(3),
         sv_params,
@@ -71,7 +71,7 @@ def test_filters_linear_gaussian(filter_cls) -> None:
     params = LGSSMParameters()
     _, obs, _, _ = simulate.simulate(key, target, None, params, sequence_length=seq_len)
     pf = filter_cls(target, num_particles=5)
-    log_w, _, _, _, _, _ = run_filter(
+    log_w, _, _, _ = run_filter(
         pf,
         jrandom.PRNGKey(5),
         params,
@@ -90,7 +90,7 @@ def test_filters_poisson_ssm(filter_cls) -> None:
     params = PoissonSSMParameters()
     _, obs, _, _ = simulate.simulate(key, target, None, params, sequence_length=seq_len)
     pf = filter_cls(target, num_particles=5)
-    log_w, _, _, _, _, _ = run_filter(
+    log_w, _, _, _ = run_filter(
         pf,
         jrandom.PRNGKey(7),
         params,

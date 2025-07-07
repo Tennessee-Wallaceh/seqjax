@@ -13,6 +13,7 @@ import jax
 from seqjax.inference.particlefilter import (
     BootstrapParticleFilter,
     vmapped_run_filter,
+    log_marginal,
 )
 
 
@@ -75,7 +76,8 @@ if __name__ == "__main__":
             cond_path,
         )
 
-        _, _, log_mp, _, _, _ = vmapped_run_filter(
+        lm_rec = log_marginal()
+        _, _, _, (log_mp,) = vmapped_run_filter(
             bpf,
             filter_keys,
             batched_params,
@@ -83,8 +85,10 @@ if __name__ == "__main__":
             batched_cond,
             initial_conditions=init_conds,
             observation_history=(),
+            recorders=(lm_rec,),
         )
 
+        log_mp = jnp.cumsum(log_mp, axis=1)
         mp_estimates = jnp.asarray(log_mp[:, -1])
 
         ax.hist(mp_estimates, bins=20, alpha=0.7)

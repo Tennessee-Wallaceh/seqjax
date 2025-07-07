@@ -101,6 +101,8 @@ class Recorder(Protocol):
         condition: ConditionType,
         last_particles: tuple[ParticleType, ...],
         last_log_weights: Array,
+        log_weight_sum: Array,
+        ess: Array,
     ) -> PyTree:
         ...
 
@@ -252,8 +254,6 @@ def run_filter(
     Array,
     tuple[ParticleType, ...],
     Array,
-    Array,
-    Array,
     tuple[PyTree, ...],
 ]:
     """Run a filtering pass over ``observation_path``."""
@@ -286,7 +286,7 @@ def run_filter(
 
     def body(state, inputs):
         step_key, observation, condition = inputs
-        log_w, particles, obs_hist, log_mp_prev = state
+        log_w, particles, obs_hist = state
         last_particles = particles
         last_log_w = log_w
         log_w, particles, obs_hist, ess_e, ancestor_ix = smc.sample_step(
@@ -299,7 +299,6 @@ def run_filter(
             parameters,
         )
         log_sum_w = jax.scipy.special.logsumexp(log_w)
-        log_mp = log_mp_prev + log_sum_w - jnp.log(smc.num_particles)
         log_w = log_w - log_sum_w
         weights = jax.nn.softmax(log_w)
         recorder_vals = (
@@ -312,6 +311,8 @@ def run_filter(
                     condition,
                     last_particles,
                     last_log_w,
+                    log_sum_w,
+                    ess_e,
                 )
                 for r in recorders
             )
@@ -322,10 +323,7 @@ def run_filter(
             log_w,
             particles,
             obs_hist,
-            log_mp,
         ), (
-            log_mp,
-            ess_e,
             ancestor_ix,
             *recorder_vals,
         )
@@ -337,22 +335,18 @@ def run_filter(
 
     final_state, scan_hist = jax.lax.scan(
         body,
-        (log_weights, init_particles, observation_history, jnp.array(0.0)),
+        (log_weights, init_particles, observation_history),
         (jnp.array(step_keys), observation_path, cond_seq),
     )
 
-    log_weights, particles, _, log_marginal_final = final_state
+    log_weights, particles, _ = final_state
 
-    log_marginal_history = scan_hist[0]
-    ess_history = scan_hist[1]
-    ancestor_history = scan_hist[2]
-    recorder_history = tuple(scan_hist[3:])
+    ancestor_history = scan_hist[0]
+    recorder_history = tuple(scan_hist[1:])
 
     return (
         log_weights,
         particles,
-        log_marginal_history,
-        ess_history,
         ancestor_history,
         recorder_history,
     )
@@ -371,8 +365,6 @@ def vmapped_run_filter(
 ) -> tuple[
     Array,
     tuple[ParticleType, ...],
-    Array,
-    Array,
     Array,
     tuple[PyTree, ...],
 ]:

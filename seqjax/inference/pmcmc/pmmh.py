@@ -17,7 +17,7 @@ from seqjax.model.base import (
 from seqjax.model.typing import Batched, SequenceAxis, SampleAxis, HyperParametersType
 from functools import partial
 
-from seqjax.inference.particlefilter import SMCSampler, run_filter
+from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 from seqjax.inference.mcmc.metropolis import (
     RandomWalkConfig,
     run_random_walk_metropolis,
@@ -55,7 +55,8 @@ def _log_density(
     initial_conditions: tuple[ConditionType, ...] | None,
     observation_history: tuple[ObservationType, ...] | None,
 ) -> jnp.ndarray:
-    _, _, log_mp, _, _, _ = run_filter(
+    lm_rec = log_marginal()
+    _, _, _, (log_mp,) = run_filter(
         pf,
         key,
         params,
@@ -63,8 +64,9 @@ def _log_density(
         condition_path=condition_path,
         initial_conditions=initial_conditions,
         observation_history=observation_history,
+        recorders=(lm_rec,),
     )
-    log_like = log_mp[-1]
+    log_like = jnp.cumsum(log_mp)[-1]
     log_prior = prior.log_prob(params, hyper_params)
     return log_like + log_prior
 

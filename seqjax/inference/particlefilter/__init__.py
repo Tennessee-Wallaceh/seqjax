@@ -19,6 +19,8 @@ from .recorders import (
     current_particle_mean,
     current_particle_quantiles,
     current_particle_variance,
+    log_marginal,
+    effective_sample_size,
 )
 
 __all__ = [
@@ -39,4 +41,6 @@ __all__ = [
     "current_particle_mean",
     "current_particle_quantiles",
     "current_particle_variance",
+    "log_marginal",
+    "effective_sample_size",
 ]
