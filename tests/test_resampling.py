@@ -75,9 +75,39 @@ def test_particle_recorders_correctness() -> None:
     ancestors = jnp.arange(particles[0].shape[0])
     obs = jnp.array(0.0)
     cond = jnp.array(0.0)
-    mean = mean_rec(weights, particles, ancestors, obs, cond, particles, jnp.log(weights))
-    quant = quant_rec(weights, particles, ancestors, obs, cond, particles, jnp.log(weights))
-    var = var_rec(weights, particles, ancestors, obs, cond, particles, jnp.log(weights))
+    mean = mean_rec(
+        weights,
+        particles,
+        ancestors,
+        obs,
+        cond,
+        particles,
+        jnp.log(weights),
+        jnp.array(0.0),
+        jnp.array(0.0),
+    )
+    quant = quant_rec(
+        weights,
+        particles,
+        ancestors,
+        obs,
+        cond,
+        particles,
+        jnp.log(weights),
+        jnp.array(0.0),
+        jnp.array(0.0),
+    )
+    var = var_rec(
+        weights,
+        particles,
+        ancestors,
+        obs,
+        cond,
+        particles,
+        jnp.log(weights),
+        jnp.array(0.0),
+        jnp.array(0.0),
+    )
 
     exp_mean = jnp.sum(weights * particles[0])
     exp_quant = jnp.array([2.0])

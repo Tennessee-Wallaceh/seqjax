@@ -12,6 +12,8 @@ from seqjax.inference.particlefilter import (
     BootstrapParticleFilter,
     current_particle_quantiles,
     run_filter,
+    log_marginal,
+    effective_sample_size,
 )
 
 
@@ -50,7 +52,9 @@ if __name__ == "__main__":
     init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(target.prior.order))
     cond_path = TimeIncrement(cond.dt[target.prior.order:])
 
-    log_w, _, log_mp, ess, _, (filt_lv,filt_quant) = run_filter(
+    lm_rec = log_marginal()
+    ess_rec = effective_sample_size()
+    log_w, _, _, (log_mp, ess, filt_lv, filt_quant) = run_filter(
         bpf,
         filter_key,
         params,
@@ -58,7 +62,7 @@ if __name__ == "__main__":
         cond_path,
         initial_conditions=init_conds,
         observation_history=(),
-        recorders=(mean_log_vol, quant_rec),
+        recorders=(lm_rec, ess_rec, mean_log_vol, quant_rec),
     )
 
     t = jnp.arange(filt_lv.shape[0])
