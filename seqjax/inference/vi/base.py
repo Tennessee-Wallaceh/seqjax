@@ -5,14 +5,20 @@ import equinox as eqx
 import jax
 import jax.random as jrandom
 
-from seqjax.model.base import ParticleType, ParametersType
+from seqjax.model.base import (
+    ObservationType,
+    ConditionType,
+    ParticleType,
+    ParametersType,
+)
 from seqjax.model.typing import (
     Batched,
     SequenceAxis,
     SampleAxis,
-    ParamAxis,
     HyperParametersType,
 )
+from seqjax.inference.vi.parameter import VariationalParameterPosterior
+
 from typing import Generic, TypeVar
 
 from jaxtyping import Shaped, Array, Int, Float, PRNGKeyArray
@@ -21,13 +27,56 @@ ContextAxis = TypeVar("ContextAxis", covariant=True)
 SamplePathAxis = TypeVar("SamplePathAxis", covariant=True)
 
 
-class VariationalLatentPosterior(eqx.Module, Generic[ParticleType, ParametersType]):
-    # this indicates that the AmortizedSampler are equinox Modules (dataclass pytrees)
-    # and implement a sample_single_path method with the following interface
-    # from this we can define batched sampling operations
-    # the idea is that these samplers operate as functions of some context and
-    # a parameter set
-    sample_length: int  # length of batches
+class VariationalLatentPosterior(
+    eqx.Module, Generic[ObservationType, ConditionType, ParticleType, ParametersType]
+):
+    """
+    Amortised variational posterior **q(x | y, θ)** implemented as an
+    Equinox ``Module`` that *samples entire latent trajectories* rather
+    than isolated points.
+
+    The class is intentionally lightweight: it specifies the interface
+    (particularly :pymeth:`sample_single_path`) and stores only the
+    dimensions needed to sanity-check shapes at run-time.
+
+    ----------
+    Attributes
+    ----------
+    sample_length : int
+        Number of steps in each trajectory produced by :pymeth:`sample_single_path`.
+
+    x_dim : int
+        Dimensionality of each latent point *zₜ* returned.
+    context_dim : int
+        Dimensionality of the **conditioning context** *y* that drives
+        the amortisation network.
+    parameter_dim : int
+        Dimensionality of the parameter vector *θ* supplied in
+        ``p_context``.
+
+    ----------
+    Notes
+    -----
+    * **Stateless by design.**  All variability comes from the PRNG key
+      and the context tensors you pass in; the module’s own parameters
+      are fixed once initialised.
+    * The class is *generic* over ``ParticleType`` (dtype/structure of a
+      single latent particle) and ``ParametersType`` (dtype/structure of
+      θ).  This lets you plug in e.g. simple floats, PyTrees, or even
+      namedtuples without rewriting the sampler.
+
+
+    ----------
+    Examples
+    --------
+    >>> key = jax.random.PRNGKey(0)
+    >>> sampler = MyPosterior(sample_length=20, x_dim=4,
+    ...                       context_dim=3, parameter_dim=8)
+    >>> x_path, log_q = sampler.sample_single_path(
+    ...         key, θ, y_context)          # shapes: (20, 4), (20,)
+    """
+
+    sample_length: int  # length of batches, corresponds to the SamplePathAxis
     x_dim: int  # dimension of sampled x
     context_dim: int
     parameter_dim: int
@@ -37,45 +86,35 @@ class VariationalLatentPosterior(eqx.Module, Generic[ParticleType, ParametersTyp
         self,
         key: PRNGKeyArray,
         p_context: ParametersType,
-        y_context: Batched[ParticleType, SamplePathAxis],
+        y_context: Batched[ObservationType, SamplePathAxis],
+        c_context: Batched[ConditionType, SamplePathAxis],
     ) -> tuple[Batched[ParticleType, SamplePathAxis], Batched[Float, SamplePathAxis]]:
+        """ """
         pass
 
-    def sample_for_context(
-        self,
-        key: PRNGKeyArray,
-        p_context: Batched[ParticleType, ContextAxis],
-        y_context: Batched[ParticleType, ContextAxis, SamplePathAxis],
-        samples_per_context: int,
-    ) -> tuple[
-        Float[Array, "samples_per_context sample_length x_dim"],
-        Float[Array, "samples_per_context sample_length"],
-        Batched[ParticleType, SampleAxis, SamplePathAxis],
-    ]:
-        # leading axis of theta is the number of samples per context
-        # so for this context we sample matching the theta leading axis
-        keys = jrandom.split(key, samples_per_context)
-        x_approx, log_q_x = jax.vmap(self.sample_single_path, in_axes=[0, 0, None])(
-            keys, theta_context, context
-        )
-        return x_approx, log_q_x
 
-
-class VariationalJoint(eqx.Module, Generic[ParticleType, ParametersType]):
-    variational_latent: VariationalLatentPosterior[ParticleType, ParametersType]
+class VariationalJoint(
+    eqx.Module, Generic[ObservationType, ConditionType, ParticleType, ParametersType]
+):
+    variational_latent: VariationalLatentPosterior[
+        ObservationType, ConditionType, ParticleType, ParametersType
+    ]
     variational_parameter: VariationalParameterPosterior[ParametersType]
 
     # model knows about the target to automatically build structs
     target_particle: ParticleType
 
     # accept an array of keys corresponding to data
-    # sharding of keys should match leading axis of y_observations
+    # sharding of keys should match leading axis of y_observa
     def sample_and_log_prob(
         self,
-        y_observations: Any,
-        keys: Shaped[PRNGKeyArray, "num_context"],
+        y_context: Batched[ObservationType, ContextAxis, SamplePathAxis],
+        c_context: Batched[ConditionType, ContextAxis, SamplePathAxis],
+        keys: Batched[PRNGKeyArray, ContextAxis],
         samples_per_context: int,
     ) -> tuple[
+        Batched[ParticleType, ContextAxis, SampleAxis, SamplePathAxis],
+        Batched[Float, ContextAxis, SampleAxis],
         Float[Array, "num_context samples_per_context sample_length x_dim"],  # x_approx
         Float[Array, "num_context samples_per_context"],  # log_q_x
         Float[Array, "num_context samples_per_context parameter_dim"],  # theta_approx
@@ -83,9 +122,6 @@ class VariationalJoint(eqx.Module, Generic[ParticleType, ParametersType]):
     ]:
         split_k = jax.vmap(jrandom.split)(keys)
         theta_keys, x_keys = split_k[:, 0], split_k[:, 1]
-        context = jax.vmap(self.embedder.embed)(
-            y_observations.as_array()
-        )  # ["num_context sample_length context_dim"]
         theta_array, log_q_theta = jax.vmap(
             self.parameter_model.sample_array_and_log_prob, in_axes=[0, None]
         )(theta_keys, samples_per_context)
