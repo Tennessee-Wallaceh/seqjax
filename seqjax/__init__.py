@@ -16,7 +16,7 @@ from .inference.particlefilter import Proposal
 from .inference.particlefilter import BootstrapParticleFilter, AuxiliaryParticleFilter
 from .inference.mcmc import (
     NUTSConfig,
-    run_nuts,
+    run_latent_nuts,
     run_bayesian_nuts,
     run_nuts_parameters,
 )
@@ -44,7 +44,7 @@ __all__ = [
     "BootstrapParticleFilter",
     "AuxiliaryParticleFilter",
     "NUTSConfig",
-    "run_nuts",
+    "run_latent_nuts",
     "run_bayesian_nuts",
     "run_nuts_parameters",
     "InferenceMethod",

@@ -63,10 +63,9 @@ class HyperParameters(eqx.Module): ...
 ParticleType = TypeVar("ParticleType", bound=Particle)
 ObservationType = TypeVar("ObservationType", bound=Observation)
 ConditionType = TypeVar("ConditionType", bound=Condition)
-ParametersType = TypeVar("ParametersType", bound=Parameters, contravariant=True)
+ParametersType = TypeVar("ParametersType", bound=Parameters)
+InferenceParametersType = TypeVar("InferenceParametersType", bound=Parameters)
 HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters)
-
-# Generic helpers -----------------------------------------------------------
 
 Batch = TypeVarTuple("Batch")
 SequenceAxis = TypeVar("SequenceAxis", covariant=True)
@@ -83,7 +82,6 @@ class Batched(Protocol, Generic[T_co, Unpack[Batch], SequenceAxis]):
     sequence dimension. Multiple return values can reuse the same ``Batch``
     tuple to indicate they are batched together.
     """
-
 
 
 def resolve_annotation(annotation, type_mapping, class_vars):

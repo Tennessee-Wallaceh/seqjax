@@ -9,7 +9,7 @@ provide additional structure and are typically paired in use.
 """
 
 from abc import abstractmethod
-from typing import Generic
+from typing import Generic, Callable
 
 import equinox as eqx
 from jaxtyping import PRNGKeyArray, Scalar
@@ -20,27 +20,13 @@ from seqjax.model.typing import (
     HyperParametersType,
     ObservationType,
     ParametersType,
+    InferenceParametersType,
     ParticleType,
 )
-
-"""
-Use equinox for eqx.Module as pytree + dataclass, providing struct of array definitions.
-Also use eqx.Module to group pure functions expressed as static methods.
-
-Notes:
-- order refers to the length of the history of the latent.
-
-"""
 
 
 class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
     """Parameter prior specified as utility for specifying Bayesian models."""
-
-    # @staticmethod
-    # @abstractmethod
-    # def sample(
-    #     key: PRNGKeyArray, hyperparameters: ParametersType
-    # ) -> ParametersType: ...
 
     @staticmethod
     @abstractmethod
@@ -48,6 +34,13 @@ class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
         parameters: ParametersType,
         hyperparameters: HyperParametersType,
     ) -> Scalar: ...
+
+    @staticmethod
+    @abstractmethod
+    def sample(
+        key: PRNGKeyArray,
+        hyperparameters: HyperParametersType,
+    ) -> ParametersType: ...
 
 
 class Prior(
@@ -139,7 +132,32 @@ class Emission(
     ) -> Scalar: ...
 
 
-class SequentialModel(Generic[ParticleType, ObservationType, ConditionType, ParametersType]):
+class SequentialModel(
+    Generic[ParticleType, ObservationType, ConditionType, ParametersType]
+):
     prior: Prior[ParticleType, ConditionType, ParametersType]
     transition: Transition[ParticleType, ConditionType, ParametersType]
     emission: Emission[ParticleType, ObservationType, ConditionType, ParametersType]
+
+
+"""
+There are different usage patterns to support here
+- run inference for latent with fixed 
+"""
+
+
+class BayesianSequentialModel(
+    Generic[
+        ParticleType,
+        ObservationType,
+        ConditionType,
+        ParametersType,
+        InferenceParametersType,
+        HyperParametersType,
+    ]
+):
+    target: SequentialModel[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ]
+    parameter_prior: ParameterPrior[InferenceParametersType, HyperParametersType]
+    target_parameter: Callable[[InferenceParametersType], ParametersType]

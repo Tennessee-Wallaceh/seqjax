@@ -12,7 +12,7 @@ if __name__ == "__main__":
     target = AR1Target()
     true_params = ARParameters(
         ar=jnp.array(0.5),
-        observation_std=jnp.array(0.01),
+        observation_std=jnp.array(0.05),
         transition_std=jnp.array(1.0),
     )
     sequence_length = 50

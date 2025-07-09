@@ -26,10 +26,11 @@ if __name__ == "__main__":
         key, AR1Target(), None, true_params, sequence_length=seq_len
     )
 
-    pf = BootstrapParticleFilter(AR1Target(), num_particles=256)
+    pf = BootstrapParticleFilter(AR1Target(), num_particles=500)
     prior = HalfCauchyStds()
 
     # NUTS posterior (baseline)
+    print("NUTS")
     nuts_latents, nuts_params = run_bayesian_nuts(
         AR1Target(),
         jrandom.PRNGKey(1),
@@ -37,10 +38,11 @@ if __name__ == "__main__":
         parameter_prior=prior,
         initial_latents=latents,
         initial_parameters=true_params,
-        config=NUTSConfig(step_size=0.01, num_warmup=500, num_samples=1000),
+        config=NUTSConfig(step_size=0.005, num_warmup=1000, num_samples=10000),
     )
 
     # Full sequence score SGLD
+    print("SGLD full")
     sgld_full = run_buffered_sgld(
         AR1Target(),
         jrandom.PRNGKey(2),
@@ -53,11 +55,12 @@ if __name__ == "__main__":
             parameter_prior=prior,
         ),
         sgld_config=SGLDConfig(
-            step_size=ARParameters(ar=jnp.array(5e-3)), num_iters=3000
+            step_size=ARParameters(ar=jnp.array(1e-4)), num_iters=10000
         ),
     )
 
     # Small buffer SGLD
+    print("SGLD small")
     sgld_small = run_buffered_sgld(
         AR1Target(),
         jrandom.PRNGKey(3),
@@ -65,36 +68,47 @@ if __name__ == "__main__":
         obs,
         config=BufferedSGLDConfig(
             buffer_size=1,
-            batch_size=20,
+            batch_size=10,
             particle_filter=pf,
             parameter_prior=prior,
         ),
         sgld_config=SGLDConfig(
-            step_size=ARParameters(ar=jnp.array(1e-2)), num_iters=3000
+            step_size=ARParameters(ar=jnp.array(1e-4)), num_iters=10000
         ),
     )
 
     # Large buffer SGLD
-    sgld_large = run_buffered_sgld(
-        AR1Target(),
-        jrandom.PRNGKey(4),
-        ARParameters(ar=jnp.array(0.0)),
-        obs,
-        config=BufferedSGLDConfig(
-            buffer_size=10,
-            batch_size=20,
-            particle_filter=pf,
-            parameter_prior=prior,
-        ),
-        sgld_config=SGLDConfig(
-            step_size=ARParameters(ar=jnp.array(1e-2)), num_iters=3000
-        ),
-    )
+    # print("SGLD large")
+    # sgld_large = run_buffered_sgld(
+    #     AR1Target(),
+    #     jrandom.PRNGKey(4),
+    #     ARParameters(ar=jnp.array(0.0)),
+    #     obs,
+    #     config=BufferedSGLDConfig(
+    #         buffer_size=10,
+    #         batch_size=10,
+    #         particle_filter=pf,
+    #         parameter_prior=prior,
+    #     ),
+    #     sgld_config=SGLDConfig(
+    #         step_size=ARParameters(ar=jnp.array(1e-4)), num_iters=10000
+    #     ),
+    # )
 
     nuts_ar = nuts_params.ar
     full_ar = sgld_full.ar
     small_ar = sgld_small.ar
     large_ar = sgld_large.ar
+
+    sample_sets = [
+        ("NUTS", nuts_ar),
+        # ("FULL SGLD", full_ar),
+        # ("SMALL SGLD", small_ar),
+        # ("LARGE SGLD", large_ar),
+    ]
+    for label, ar_set in sample_sets:
+        q05, q95 = jnp.quantile(ar_set, jnp.array([0.05, 0.95]))
+        print(f"{label}: {jnp.mean(ar_set):.2f} ({q05:.2f}, {q95:.2f})")
 
     # histogram comparison
     all_samples = jnp.concatenate([nuts_ar, full_ar, small_ar, large_ar])
@@ -144,8 +158,12 @@ if __name__ == "__main__":
     nuts_mean = jnp.mean(nuts_latents.x, axis=0)
     nuts_q = jnp.quantile(nuts_latents.x, jnp.array([0.05, 0.95]), axis=0)
     full_mean, full_q = latent_summary(ARParameters(ar=full_ar[-1]), jrandom.PRNGKey(5))
-    small_mean, small_q = latent_summary(ARParameters(ar=small_ar[-1]), jrandom.PRNGKey(6))
-    large_mean, large_q = latent_summary(ARParameters(ar=large_ar[-1]), jrandom.PRNGKey(7))
+    small_mean, small_q = latent_summary(
+        ARParameters(ar=small_ar[-1]), jrandom.PRNGKey(6)
+    )
+    large_mean, large_q = latent_summary(
+        ARParameters(ar=large_ar[-1]), jrandom.PRNGKey(7)
+    )
 
     t = jnp.arange(seq_len)
     plt.figure(figsize=(8, 4))
@@ -163,4 +181,3 @@ if __name__ == "__main__":
     plt.legend()
     plt.tight_layout()
     plt.show()
-
