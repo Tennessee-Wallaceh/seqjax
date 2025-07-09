@@ -1,4 +1,13 @@
-"""Graphviz based visualisation utilities for sequential models."""
+"""Graphviz based visualisation utilities for sequential models.
+
+The :func:`graph_model` helper produces a :class:`graphviz.Digraph` describing
+the dependencies in a :class:`~seqjax.model.base.SequentialModel`.
+
+Example
+-------
+>>> from seqjax.model.visualise import graph_model
+>>> dot = graph_model(my_model)
+"""
 
 from __future__ import annotations
 

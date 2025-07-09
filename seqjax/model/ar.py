@@ -1,4 +1,13 @@
-"""AR(1) example model implementations."""
+"""AR(1) example model implementations.
+
+The :class:`AR1Target` demonstrates a minimal autoregressive model.
+
+Example
+-------
+>>> from seqjax.model.ar import AR1Target, ARParameters
+>>> model = AR1Target()
+>>> params = ARParameters()
+"""
 
 from dataclasses import field
 from typing import ClassVar

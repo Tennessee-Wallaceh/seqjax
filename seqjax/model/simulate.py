@@ -1,4 +1,12 @@
-"""Utilities for simulating sequences from a target model."""
+"""Utilities for simulating sequences from a target model.
+
+Use :func:`simulate` to generate example data from any
+:class:`~seqjax.model.base.SequentialModel`.
+
+Example
+-------
+>>> simulate.simulate(key, model, condition, parameters, sequence_length=10)
+"""
 
 from functools import partial
 

@@ -1,4 +1,15 @@
-"""Stochastic volatility models."""
+"""Stochastic volatility models.
+
+This module includes a simple log-volatility random walk and related emission
+models.  The :class:`SimpleStochasticVol` and :class:`SkewStochasticVol` classes
+are provided for experimentation.
+
+Example
+-------
+>>> from seqjax.model.stochastic_vol import SimpleStochasticVol, SVParameters
+>>> model = SimpleStochasticVol()
+>>> params = SVParameters()
+"""
 
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Union

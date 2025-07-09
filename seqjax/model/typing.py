@@ -1,4 +1,13 @@
-"""Runtime type checking utilities for model interfaces."""
+"""Runtime type checking utilities for model interfaces.
+
+The helpers in this module enforce that subclasses implement the required
+methods with matching signatures.
+
+Example
+-------
+>>> class MyParticle(Particle):
+...     value: int
+"""
 
 import inspect
 from typing import Generic, Protocol, TypeVar, TypeVarTuple, Unpack

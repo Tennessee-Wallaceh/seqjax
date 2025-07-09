@@ -1,4 +1,14 @@
-"""Simple stochastic SIR model."""
+"""Simple stochastic SIR model.
+
+The components in this module define a discrete time susceptible--infected--
+recovered (SIR) process.
+
+Example
+-------
+>>> from seqjax.model.sir import SIRModel, SIRParameters
+>>> model = SIRModel()
+>>> params = SIRParameters()
+"""
 
 from dataclasses import field
 from typing import ClassVar
