@@ -1,11 +1,14 @@
-"""Abstract base classes for sequential models.
+"""Base interfaces for constructing sequential probabilistic models.
 
-Condition and Parameters are separated. Parameters remain static over time while
-conditions vary.
+These definitions separate ``Condition`` (time varying) from ``Parameters``
+(static) and group the pure functions operating on ``Particle`` objects into
+``Prior``, ``Transition`` and ``Emission`` components.
 
-Use ``SequentialModel`` to group pure functions that operate on the same
-``Particle`` and ``Emission`` types. ``Prior``, ``Transition`` and ``Emission``
-provide additional structure and are typically paired in use.
+Example
+-------
+>>> from seqjax.model.base import SequentialModel
+>>> class MyModel(SequentialModel):
+...     pass
 """
 
 from abc import abstractmethod

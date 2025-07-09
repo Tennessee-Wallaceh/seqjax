@@ -1,4 +1,13 @@
-"""Model evaluation utilities for computing log probabilities."""
+"""Model evaluation utilities for computing log probabilities.
+
+These helper functions operate on any
+:class:`~seqjax.model.base.SequentialModel`.
+
+Example
+-------
+>>> from seqjax.model.evaluate import log_prob_joint
+>>> log_prob_joint(model, observations, conditions, params)
+"""
 
 import jax
 from jaxtyping import Scalar
