@@ -62,7 +62,7 @@ def step(
     # only pass on necessary information
     # # read off histories of appropriate order
     max_latent_order = max(target.transition.order, target.emission.order)
-    particle_history = (*particles, next_particle)[-max_latent_order:]
+    particle_history = particles[-max_latent_order:]
     emission_history = (*emissions, emission)
     emission_history = emission_history[
         len(emission_history) - target.emission.observation_dependency :
