@@ -1,10 +1,11 @@
-from __future__ import annotations
+from typing import TypeVar, Callable
 
-from typing import TypeVar
+from jaxtyping import PRNGKeyArray
 
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jrandom
+import jax
 
 from seqjax.model.base import (
     ConditionType,
@@ -13,8 +14,15 @@ from seqjax.model.base import (
     ParticleType,
     ParameterPrior,
     SequentialModel,
+    BayesianSequentialModel,
 )
-from seqjax.model.typing import Batched, SequenceAxis, SampleAxis, HyperParametersType
+from seqjax.model.typing import (
+    Batched,
+    SequenceAxis,
+    SampleAxis,
+    HyperParametersType,
+    InferenceParametersType,
+)
 from functools import partial
 
 from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
@@ -22,6 +30,7 @@ from seqjax.inference.mcmc.metropolis import (
     RandomWalkConfig,
     run_random_walk_metropolis,
 )
+from seqjax import util
 
 
 class ParticleMCMCConfig(eqx.Module):
@@ -34,79 +43,56 @@ class ParticleMCMCConfig(eqx.Module):
             ParametersType,
         ],
         Batched[ParametersType, SampleAxis | int],
-    ] = partial(run_random_walk_metropolis, config=RandomWalkConfig())
-    particle_filter: (
-        SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType]
-        | None
-    ) = None
-
-
-Parameters = TypeVar("Parameters", bound=ParametersType)
-
-
-def _log_density(
-    params: Parameters,
-    key: jrandom.PRNGKey,
-    pf: SMCSampler[ParticleType, ObservationType, ConditionType, Parameters],
-    prior: ParameterPrior[Parameters, HyperParametersType],
-    hyper_params: HyperParametersType | None,
-    observations: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None,
-    initial_conditions: tuple[ConditionType, ...] | None,
-    observation_history: tuple[ObservationType, ...] | None,
-) -> jnp.ndarray:
-    lm_rec = log_marginal()
-    _, _, _, (log_mp,) = run_filter(
-        pf,
-        key,
-        params,
-        observations,
-        condition_path=condition_path,
-        initial_conditions=initial_conditions,
-        observation_history=observation_history,
-        recorders=(lm_rec,),
-    )
-    log_like = jnp.cumsum(log_mp)[-1]
-    log_prior = prior.log_prob(params, hyper_params)
-    return log_like + log_prior
+    ]
+    particle_filter: SMCSampler[
+        ParticleType, ObservationType, ConditionType, ParametersType
+    ]
+    initial_parameter_guesses: int = 10
 
 
 def run_particle_mcmc(
-    target: SequentialModel[ParticleType, ObservationType, ConditionType, Parameters],
-    key: jrandom.PRNGKey,
-    observations: Batched[ObservationType, SequenceAxis],
-    *,
-    parameter_prior: ParameterPrior[Parameters, HyperParametersType],
+    target_posterior: BayesianSequentialModel[
+        ParticleType,
+        ObservationType,
+        ConditionType,
+        ParametersType,
+        InferenceParametersType,
+        HyperParametersType,
+    ],
+    hyperparameters: HyperParametersType,
+    key: PRNGKeyArray,
     config: ParticleMCMCConfig,
-    initial_parameters: Parameters,
+    observation_path: Batched[ObservationType, SequenceAxis],
     condition_path: Batched[ConditionType, SequenceAxis] | None = None,
-    hyper_parameters: HyperParametersType | None = None,
-    initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
-    parameters: Parameters | None = None,
-    initial_conditions: tuple[ConditionType, ...] | None = None,
-    observation_history: tuple[ObservationType, ...] | None = None,
-) -> Batched[Parameters, SampleAxis | int]:
+) -> Batched[ParametersType, SampleAxis]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
-    pf = config.particle_filter
-    if pf is None:
-        raise ValueError("particle_filter must be provided in config")
-    if pf.target is not target:
-        pf = eqx.tree_at(lambda m: m.target, pf, target)
-    sampler = config.mcmc
-
-    def logdensity(params: Parameters, rng: jrandom.PRNGKey) -> jnp.ndarray:
-        return _log_density(
-            params,
-            rng,
-            pf,
-            parameter_prior,
-            hyper_parameters,
-            observations,
-            condition_path,
-            initial_conditions,
-            observation_history,
+    def estimate_log_joint(params, key):
+        model_params = target_posterior.target_parameter(params)
+        _, _, _, (log_marginal_increments,) = run_filter(
+            config.particle_filter,
+            key,
+            model_params,
+            observation_path,
+            recorders=(log_marginal(),),
         )
+        log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
+        return jnp.sum(log_marginal_increments) + log_prior
 
-    samples = sampler(logdensity, key, initial_parameters)
-    return samples
+    init_key, sample_key = jrandom.split(key)
+    initial_parameter_samples = jax.vmap(
+        target_posterior.parameter_prior.sample, in_axes=[0, None]
+    )(jrandom.split(init_key, config.initial_parameter_guesses), hyperparameters)
+    parameter_init_marginals = jax.vmap(jax.jit(estimate_log_joint), in_axes=[0, None])(
+        initial_parameter_samples,
+        key,
+    )
+
+    initial_parameters = util.index_pytree(
+        initial_parameter_samples, jnp.argmax(parameter_init_marginals).item()
+    )
+
+    samples = run_random_walk_metropolis(
+        estimate_log_joint, sample_key, initial_parameters, config=config.mcmc
+    )
+    return None, samples

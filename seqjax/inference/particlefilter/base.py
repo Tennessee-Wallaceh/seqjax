@@ -94,17 +94,15 @@ def proposal_from_transition(
 class Recorder(Protocol):
     def __call__(
         self,
-        weights: Array,
+        log_weights: Array,
         particles: tuple[ParticleType, ...],
         ancestors: Array,
         observation: ObservationType,
         condition: ConditionType,
-        last_particles: tuple[ParticleType, ...],
         last_log_weights: Array,
-        log_weight_sum: Array,
-        ess: Array,
-    ) -> PyTree:
-        ...
+        last_particles: tuple[ParticleType, ...],
+        ess_e: Array,
+    ) -> PyTree: ...
 
 
 class SMCSampler(
@@ -183,7 +181,6 @@ class SMCSampler(
 
         ess_e = compute_esse_from_log_weights(log_w_resample)
 
-
         particles, log_w, ancestor_ix = self.resampler(
             resample_key, log_w, particles, ess_e
         )
@@ -237,7 +234,7 @@ class SMCSampler(
         else:
             observation_history = ()
 
-        return log_w, particles, observation_history, ess_e, ancestor_ix
+        return (log_w, particles, observation_history, ess_e, ancestor_ix, inc_weight)
 
 
 def run_filter(
@@ -261,7 +258,7 @@ def run_filter(
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
 
     if initial_conditions is None:
-        if smc.target.prior.order > 0:
+        if smc.target.prior.order > 1:
             raise ValueError(
                 "initial_conditions must be provided when the prior has order > 0"
             )
@@ -286,33 +283,32 @@ def run_filter(
 
     def body(state, inputs):
         step_key, observation, condition = inputs
-        log_w, particles, obs_hist = state
+        last_log_w, particles, obs_hist = state
         last_particles = particles
-        last_log_w = log_w
-        log_w, particles, obs_hist, ess_e, ancestor_ix = smc.sample_step(
+
+        log_w, particles, obs_hist, ess_e, ancestor_ix, inc_weight = smc.sample_step(
             step_key,
-            log_w,
+            last_log_w,
             particles,
             obs_hist,
             observation,
             condition,
             parameters,
         )
-        log_sum_w = jax.scipy.special.logsumexp(log_w)
-        log_w = log_w - log_sum_w
-        weights = jax.nn.softmax(log_w)
         recorder_vals = (
             tuple(
                 r(
-                    weights,
+                    log_w,
                     particles,
                     ancestor_ix,
                     observation,
+                    obs_hist,
                     condition,
-                    last_particles,
                     last_log_w,
-                    log_sum_w,
+                    last_particles,
                     ess_e,
+                    inc_weight,
+                    parameters,
                 )
                 for r in recorders
             )
@@ -392,4 +388,3 @@ def vmapped_run_filter(
         observation_path,
         condition_path,
     )
-

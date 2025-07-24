@@ -49,5 +49,7 @@ def run_random_walk_metropolis(
         new_logp = jnp.where(do_accept, prop_logp, logp)
         return (new_params, new_logp), new_params
 
-    _, samples = jax.lax.scan(step, (initial_parameters, init_logp), jnp.array(step_keys))
+    _, samples = jax.lax.scan(
+        step, (initial_parameters, init_logp), jnp.array(step_keys)
+    )
     return samples

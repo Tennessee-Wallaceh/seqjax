@@ -36,20 +36,21 @@ def gumbel_resample_from_log_weights(
 
 def multinomial_resample_from_log_weights(
     key: PRNGKeyArray,
-    log_weights: Array,
+    raw_log_weights: Array,
     particles: tuple[ParticleType, ...],
     _ess_e: Scalar,
 ) -> tuple[tuple[ParticleType, ...], Array, Array]:
     """Resample particles using standard multinomial sampling."""
+    # norm_weights = jax.nn.softmax(log_w)
     particle_ix = jrandom.categorical(
-        key, log_weights, shape=(log_weights.shape[0],)
+        key, raw_log_weights, shape=(raw_log_weights.shape[0],)
     )
     resampled_particles = jax.vmap(index_tree, in_axes=[None, 0, None])(
         particles,
         particle_ix,  # type: ignore[arg-type]
         0,
     )
-    new_log_weights = jnp.full_like(log_weights, -jnp.log(log_weights.shape[0]))
+    new_log_weights = jnp.full_like(raw_log_weights, -jnp.log(raw_log_weights.shape[0]))
     return resampled_particles, new_log_weights, particle_ix
 
 
@@ -107,11 +108,11 @@ def conditional_resample(
     esse_threshold: float,
 ) -> tuple[tuple[ParticleType, ...], Array, Array]:
     """Resample only when the ESS efficiency falls below ``esse_threshold``."""
+
     def _resample(p):
         return resampler(key, log_weights, p, ess_e)
 
     def _noresample(p):
-        num = log_weights.shape[0]
-        return p, log_weights, jnp.arange(num)
+        return p, log_weights, jnp.arange(log_weights.shape[0])
 
     return jax.lax.cond(ess_e < esse_threshold, _resample, _noresample, particles)

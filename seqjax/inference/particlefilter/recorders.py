@@ -105,17 +105,23 @@ def log_marginal() -> Recorder:
     """Record the log marginal likelihood estimate at each step."""
 
     def _recorder(
-        _weights: Array,
-        _particles: tuple[ParticleType, ...],
-        _ancestors: Array,
-        _obs: object,
-        _cond: object,
-        _last_particles: tuple[ParticleType, ...],
-        _last_log_w: Array,
-        log_weight_sum: Array,
-        _ess: Array,
+        log_w,
+        particles,
+        ancestor_ix,
+        observation,
+        obs_hist,
+        condition,
+        last_log_w,
+        last_particles,
+        ess_e,
+        log_w_increment,
+        parameters,
     ) -> PyTree:
-        return log_weight_sum - jnp.log(_weights.shape[0])
+        lw_max = jnp.max(log_w_increment)
+        w = jnp.exp(log_w_increment - lw_max)
+        w_sum = jnp.sum(w)
+        log_marg_inc = jnp.log(w_sum) + lw_max - jnp.log(ancestor_ix.shape[0])
+        return log_marg_inc
 
     return cast(Recorder, _recorder)
 

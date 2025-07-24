@@ -13,7 +13,11 @@ from seqjax.model.base import (
 )
 
 from .base import SMCSampler, proposal_from_transition
-from .resampling import conditional_resample, gumbel_resample_from_log_weights
+from .resampling import (
+    conditional_resample,
+    multinomial_resample_from_log_weights,
+    gumbel_resample_from_log_weights,
+)
 
 
 class BootstrapParticleFilter(
@@ -27,14 +31,15 @@ class BootstrapParticleFilter(
             ParticleType, ObservationType, ConditionType, ParametersType
         ],
         num_particles: int,
+        ess_threshold: float = 0.5,
     ) -> None:
         super().__init__(
             target=target,
             proposal=proposal_from_transition(target.transition),  # type: ignore[arg-type]
             resampler=partial(
                 conditional_resample,
-                resampler=gumbel_resample_from_log_weights,
-                esse_threshold=0.5,
+                resampler=multinomial_resample_from_log_weights,
+                esse_threshold=ess_threshold,
             ),
             num_particles=num_particles,
         )

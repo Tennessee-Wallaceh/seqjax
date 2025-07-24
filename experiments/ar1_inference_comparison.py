@@ -14,6 +14,8 @@ from seqjax.inference.particlefilter import (
     log_marginal,
 )
 
+from seqjax.inference import pmcmc, mcmc, particlefilter
+
 # from seqjax.inference.buffered import BufferedSGLDConfig, run_buffered_sgld
 # from seqjax.inference.sgld import SGLDConfig
 from seqjax.model import ar
@@ -33,7 +35,7 @@ if __name__ == "__main__":
     model = ar.AR1Bayesian(true_params)
 
     # generate data
-    sequence_length = 50
+    sequence_length = 100
 
     key = jrandom.PRNGKey(0)
     x_path, y_path, _, _ = simulate.simulate(
@@ -50,10 +52,23 @@ if __name__ == "__main__":
         ),
     )
 
+    inference_procedures["PMH"] = partial(
+        pmcmc.run_particle_mcmc,
+        config=pmcmc.ParticleMCMCConfig(
+            mcmc=mcmc.RandomWalkConfig(5e-3, 10000),
+            particle_filter=particlefilter.BootstrapParticleFilter(
+                model.target,
+                num_particles=250,
+                ess_threshold=0.5,
+            ),
+            initial_parameter_guesses=20,
+        ),
+    )
+
     ar_sample_sets = {}
     for label, procedure in inference_procedures.items():
         print(f"Running: {label}")
-        latent_samples, param_samples = procedure(
+        _, param_samples = procedure(
             model,
             hyperparameters=None,
             key=jrandom.key(100),
@@ -64,7 +79,7 @@ if __name__ == "__main__":
 
     min_ar = 1
     max_ar = -1
-    print(f"TRUE: {true_param.ar}")
+    print(f"TRUE: {true_params.ar:.2f}")
     for label, ar_set in ar_sample_sets.items():
         q05, q95 = jnp.quantile(ar_set, jnp.array([0.05, 0.95]))
         print(f"{label}: {jnp.mean(ar_set):.2f} ({q05:.2f}, {q95:.2f})")
@@ -76,7 +91,7 @@ if __name__ == "__main__":
     for label, ar_set in ar_sample_sets.items():
         plt.hist(ar_set, bins=bins, density=True, alpha=0.5, label=label)
 
-    plt.axvline(true_params.ar, color="k", linestyle="--", label="true")
+    plt.axvline(true_params.ar, color="black", linestyle="--", label="true")
     plt.xlabel("ar parameter")
     plt.ylabel("density")
     plt.legend()
