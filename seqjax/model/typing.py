@@ -73,7 +73,7 @@ SampleAxis = TypeVar("SampleAxis", covariant=True)
 T_co = TypeVar("T_co", covariant=True)
 
 
-class Batched(Protocol, Generic[T_co, Unpack[Batch], SequenceAxis]):
+class Batched(Protocol, Generic[T_co, Unpack[Batch]]):
     """A :class:`~jaxtyping.PyTree` with arbitrary leading batch axes.
 
     ``Batch`` represents the shared leading dimensions while ``SequenceAxis``

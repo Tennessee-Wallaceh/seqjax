@@ -2,7 +2,7 @@ from __future__ import annotations
 from functools import partial
 
 from typing import Any, Tuple, Callable
-
+import time
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -31,7 +31,7 @@ import blackjax  # type: ignore
 def inference_loop_multiple_chains(
     rng_key, kernel, initial_state, num_samples, num_chains
 ):
-    @jax.jit
+
     def one_step(states, rng_key):
         keys = jax.random.split(rng_key, num_chains)
         states, _ = jax.vmap(kernel)(keys, states)
@@ -102,14 +102,26 @@ def run_latent_nuts(
         state, _ = nuts.step(key, state)
         return state, None
 
+    start_warmup_time = time.time()
     state, _ = jax.lax.scan(warmup_step, state, keys[: config.num_warmup])
+    jax.block_until_ready(state)
+    end_warmup_time = time.time()
+    warmup_time = end_warmup_time - start_warmup_time
 
     def sample_step(state, key):
         state, _ = nuts.step(key, state)
         return state, state.position
 
+    start_time = time.time()
     _, samples = jax.lax.scan(sample_step, state, keys[config.num_warmup :])
-    return samples
+    jax.block_until_ready(samples)
+    end_time = time.time()
+    sample_time = end_time - start_time
+    time_array_s = (
+        warmup_time
+        + jnp.ones(config.num_samples) * (sample_time / config.num_samples) * 60
+    )
+    return time_array_s, samples
 
 
 def run_bayesian_nuts(
@@ -158,6 +170,8 @@ def run_bayesian_nuts(
         return (initial_latents, initial_parameters)
 
     warmup_key, init_key, sample_key = jrandom.split(key, 3)
+
+    start_warmup_time = time.time()
     warmup = blackjax.window_adaptation(
         blackjax.nuts, logdensity, initial_step_size=config.step_size
     )
@@ -181,7 +195,11 @@ def run_bayesian_nuts(
         num_samples=config.num_warmup,
         num_chains=config.num_chains,
     )
+    jax.block_until_ready(warmup_states)
+    end_warmup_time = time.time()
+    warmup_time = end_warmup_time - start_warmup_time
 
+    start_time = time.time()
     _, paths = inference_loop_multiple_chains(
         sample_key,
         nuts.step,
@@ -192,7 +210,15 @@ def run_bayesian_nuts(
     latent_samples, param_samples = jax.tree_util.tree_map(
         partial(jnp.concatenate, axis=-1), paths.position
     )
-    return latent_samples, param_samples
+
+    end_time = time.time()
+    sample_time = end_time - start_time
+    time_array_s = warmup_time + (
+        jnp.repeat(jnp.arange(config.num_samples), config.num_chains)
+        * (sample_time / config.num_samples)
+    )
+
+    return time_array_s, latent_samples, param_samples
 
 
 def run_nuts_parameters(

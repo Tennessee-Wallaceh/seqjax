@@ -290,9 +290,7 @@ class AmortizedUnivariateAutoregressor(Autoregressor):
             key=key,
         )
 
-    def conditional(
-        self, key, prev_x, previous_available_flag, theta_context, context
-    ):  # noqa: D401, ANN001
+    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):
         inputs = jnp.concatenate(
             [*prev_x, previous_available_flag, theta_context, context]
         )
@@ -396,6 +394,7 @@ class AmortizedMultivariateIsotropicAutoregressor(Autoregressor):
         x = z * scale + loc
         log_q_x = jstats.norm.logpdf(x, loc, scale).sum()
         return x, log_q_x
+
 
 class AutoregressiveVIConfig(eqx.Module):
     """Configuration for :func:`run_autoregressive_vi`."""

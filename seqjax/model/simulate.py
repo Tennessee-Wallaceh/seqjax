@@ -87,8 +87,8 @@ def simulate(
 ]:
     """Simulate a path of length ``sequence_length`` from ``target``.
 
-    The returned latent and observation arrays contain only ``x_0 \u2192 x_{T-1}``
-    and ``y_0 \u2192 y_{T-1}`` for ``T = sequence_length``.  Any additional
+    The returned latent and observation arrays contain only ``x_0 -> x_{T-1}``
+    and ``y_0 -> y_{T-1}`` for ``T = sequence_length``.  Any additional
     history required by the transition or emission is handled internally:
 
     * The :class:`~seqjax.model.base.Prior` supplies the latent states for
@@ -185,7 +185,9 @@ def simulate(
 
     latent_start = target.prior.order - 1
     obs_start = target.emission.observation_dependency
-    latent_path = slice_pytree(latent_full, latent_start, latent_start + sequence_length)
+    latent_path = slice_pytree(
+        latent_full, latent_start, latent_start + sequence_length
+    )
     observed_path = slice_pytree(
         observed_full,
         obs_start,
@@ -193,8 +195,6 @@ def simulate(
     )
 
     latent_history = slice_pytree(latent_full, 0, latent_start)
-    observation_history = slice_pytree(
-        observed_full, 0, obs_start
-    )
+    observation_history = slice_pytree(observed_full, 0, obs_start)
 
     return latent_path, observed_path, latent_history, observation_history

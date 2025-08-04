@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 from jaxtyping import PRNGKeyArray
 import blackjax  # type: ignore
+from jax_tqdm import scan_tqdm
 
 Parameters = TypeVar("Parameters")
 
@@ -35,8 +36,10 @@ def run_random_walk_metropolis(
 
     random_step = blackjax.random_walk.normal(config.step_size)
 
-    def step(state, rng):
-        params, logp = state
+    @scan_tqdm(config.num_samples)
+    def step(state, inputs):
+        ix, params, logp = state
+        _, rng = inputs
         prop_key, ld_key, accept_key = jrandom.split(rng, 3)
         move = random_step(prop_key, params)
         proposal = jax.tree_util.tree_map(jnp.add, params, move)
@@ -47,9 +50,11 @@ def run_random_walk_metropolis(
         )
         do_accept, _, _ = info
         new_logp = jnp.where(do_accept, prop_logp, logp)
-        return (new_params, new_logp), new_params
+        return (ix + 1, new_params, new_logp), new_params
 
     _, samples = jax.lax.scan(
-        step, (initial_parameters, init_logp), jnp.array(step_keys)
+        step,
+        (0, initial_parameters, init_logp),
+        (jnp.arange(config.num_samples), jnp.array(step_keys)),
     )
     return samples

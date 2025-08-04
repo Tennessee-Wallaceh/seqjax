@@ -248,7 +248,7 @@ class ParameterModel(eqx.Module):
 
 
 class Variational(eqx.Module):
-    sampler: AmortizedSampler
+    latent_sampler: AmortizedSampler
     parameter_model: ParameterModel
     embedder: Embedder
 
@@ -276,9 +276,9 @@ class Variational(eqx.Module):
         theta_array, log_q_theta = jax.vmap(
             self.parameter_model.sample_array_and_log_prob, in_axes=[0, None]
         )(theta_keys, samples_per_context)
-        x, log_q_x = jax.vmap(self.sampler.sample_for_context, in_axes=[0, 0, 0, None])(
-            x_keys, jax.lax.stop_gradient(theta_array), context, samples_per_context
-        )
+        x, log_q_x = jax.vmap(
+            self.latent_sampler.sample_for_context, in_axes=[0, 0, 0, None]
+        )(x_keys, jax.lax.stop_gradient(theta_array), context, samples_per_context)
 
         # convert to struct
         x_struct = self.target_particle.from_array(x)

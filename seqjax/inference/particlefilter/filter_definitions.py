@@ -1,8 +1,8 @@
-from __future__ import annotations
-
 from functools import partial
 
 from jaxtyping import Array
+
+from typing import Callable
 
 from seqjax.model.base import (
     ConditionType,
@@ -32,10 +32,12 @@ class BootstrapParticleFilter(
         ],
         num_particles: int,
         ess_threshold: float = 0.5,
+        target_parameters: Callable = lambda x: x,
     ) -> None:
+
         super().__init__(
             target=target,
-            proposal=proposal_from_transition(target.transition),  # type: ignore[arg-type]
+            proposal=proposal_from_transition(target.transition, target_parameters),  # type: ignore[arg-type]
             resampler=partial(
                 conditional_resample,
                 resampler=multinomial_resample_from_log_weights,

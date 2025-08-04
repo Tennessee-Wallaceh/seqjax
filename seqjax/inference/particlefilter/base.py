@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
-
+from jax_tqdm import scan_tqdm
 from seqjax.model.base import (
     ConditionType,
     ObservationType,
@@ -19,8 +19,27 @@ from seqjax.model.base import (
     Transition,
 )
 from seqjax.model.typing import Batched, SequenceAxis, EnforceInterface
+from seqjax import util
 from .resampling import Resampler
 from .metrics import compute_esse_from_log_weights
+
+
+class FilterData(eqx.Module):
+    """
+    Encapsulates the data arising from a filter step
+    """
+
+    log_w: Array
+    particles: Array
+    ancestor_ix: Array
+    observation: Array
+    obs_hist: Array
+    condition: Array
+    last_log_w: Array
+    last_particles: Array
+    ess_e: Array
+    log_weight_increment: Array
+    parameters: Array
 
 
 class Proposal(
@@ -61,6 +80,7 @@ class TransitionProposal(
 
     transition: Transition[ParticleType, ConditionType, ParametersType]
     order: int
+    target_parameters: Callable = lambda x: x
 
     def sample(
         self,
@@ -70,7 +90,9 @@ class TransitionProposal(
         condition: ConditionType,
         parameters: ParametersType,
     ) -> ParticleType:
-        return self.transition.sample(key, particle_history, condition, parameters)
+        return self.transition.sample(
+            key, particle_history, condition, self.target_parameters(parameters)
+        )
 
     def log_prob(
         self,
@@ -81,14 +103,19 @@ class TransitionProposal(
         parameters: ParametersType,
     ) -> Scalar:
         return self.transition.log_prob(
-            particle_history, particle, condition, parameters
+            particle_history, particle, condition, self.target_parameters(parameters)
         )
 
 
 def proposal_from_transition(
     transition: Transition[ParticleType, ConditionType, ParametersType],
+    target_parameters: Callable = lambda x: x,
 ) -> TransitionProposal[ParticleType, ObservationType, ConditionType, ParametersType]:
-    return TransitionProposal(transition=transition, order=transition.order)
+    return TransitionProposal(
+        transition=transition,
+        order=transition.order,
+        target_parameters=target_parameters,
+    )
 
 
 class Recorder(Protocol):
@@ -137,19 +164,6 @@ class SMCSampler(
             in_axes=[0, None, None, None, None],
         )
 
-    def _resample_log_weights(
-        self,
-        log_w: Array,
-        particles: tuple[ParticleType, ...],
-        observation_history: tuple[ObservationType, ...],
-        observation: ObservationType,
-        condition: ConditionType,
-        params: ParametersType,
-    ) -> Array:
-        """Return the log-weights used for resampling."""
-
-        return log_w
-
     def sample_step(
         self,
         step_key: PRNGKeyArray,
@@ -159,30 +173,20 @@ class SMCSampler(
         observation: ObservationType,
         condition: ConditionType,
         params: ParametersType,
+        target_parameters: Callable = lambda x: x,
     ) -> tuple[
         Array,
         tuple[ParticleType, ...],
         tuple[ObservationType, ...],
         Scalar,
+        Scalar,
         Array,
     ]:
-        """Advance the filter by one step and maintain particle history."""
-
         resample_key, proposal_key = jrandom.split(step_key)
 
-        log_w_resample = self._resample_log_weights(
-            log_w,
-            particles,
-            observation_history,
-            observation,
-            condition,
-            params,
-        )
-
-        ess_e = compute_esse_from_log_weights(log_w_resample)
-
+        ess_e = compute_esse_from_log_weights(log_w)
         particles, log_w, ancestor_ix = self.resampler(
-            resample_key, log_w, particles, ess_e
+            resample_key, log_w, particles, ess_e, self.num_particles
         )
 
         proposal_history = particles[-self.proposal.order :]
@@ -210,13 +214,15 @@ class SMCSampler(
         )
 
         inc_weight = (
-            self.transition_logp(transition_history, next_particles, condition, params)
+            self.transition_logp(
+                transition_history, next_particles, condition, target_parameters(params)
+            )
             + self.emission_logp(
                 emission_particles,
                 obs_history,
                 observation,
                 condition,
-                params,
+                target_parameters(params),
             )
             - self.proposal_logp(
                 proposal_history, observation, next_particles, condition, params
@@ -247,13 +253,17 @@ def run_filter(
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
     recorders: tuple[Recorder, ...] | None = None,
+    target_parameters: Callable = lambda x: x,
 ) -> tuple[
     Array,
     tuple[ParticleType, ...],
-    Array,
     tuple[PyTree, ...],
 ]:
-    """Run a filtering pass over ``observation_path``."""
+    """
+    Run a filtering pass over ``observation_path``.
+    The first entry of observation_path corresponds to time step 0.
+    Optional observation_history provides necessary history for the first evaluation.
+    """
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
 
@@ -271,79 +281,110 @@ def run_filter(
             )
         observation_history = ()
 
-    init_key, *step_keys = jrandom.split(key, sequence_length + 1)
+    if condition_path is None:
+        condition_path: Any = [None] * sequence_length
+    else:
+        condition_path = condition_path
 
+    init_key, *step_keys = jrandom.split(key, sequence_length)
+
+    # Run initial step, this needs special handling because we sample from prior
+    # rather than the proposal.
     init_particles = jax.vmap(smc.target.prior.sample, in_axes=[0, None, None])(
         jrandom.split(init_key, smc.num_particles),
         initial_conditions,
-        parameters,
+        target_parameters(parameters),
+    )
+    log_weights = smc.emission_logp(
+        init_particles,
+        observation_history,
+        util.index_pytree(observation_path, 0),
+        util.index_pytree(condition_path, 0),
+        target_parameters(parameters),
+    )
+    if smc.target.emission.observation_dependency > 0:
+        observation_history = (
+            *observation_history,
+            util.index_pytree(observation_path, 0),
+        )
+
+    filter_data = FilterData(
+        log_w=log_weights,
+        particles=init_particles,
+        ancestor_ix=jnp.full((smc.num_particles,), -1, dtype=jnp.int32),
+        observation=util.index_pytree(observation_path, 0),
+        obs_hist=observation_history,
+        condition=util.index_pytree(condition_path, 0),
+        last_log_w=jnp.zeros(smc.num_particles),
+        last_particles=jax.tree_util.tree_map(
+            lambda x: jnp.full_like(x, fill_value=-1.0), init_particles
+        ),
+        ess_e=compute_esse_from_log_weights(log_weights),
+        log_weight_increment=log_weights,
+        parameters=parameters,
+    )
+    intial_record = (
+        tuple(r(filter_data) for r in recorders) if recorders is not None else ()
     )
 
-    log_weights = jnp.full((smc.num_particles,), -jnp.log(smc.num_particles))
-
+    # Define the main body
     def body(state, inputs):
         step_key, observation, condition = inputs
-        last_log_w, particles, obs_hist = state
-        last_particles = particles
+        last_log_w, last_particles, obs_hist = state
 
-        log_w, particles, obs_hist, ess_e, ancestor_ix, inc_weight = smc.sample_step(
+        log_w, particles, obs_hist, ess_e, ancestor_ix, weight_inc = smc.sample_step(
             step_key,
             last_log_w,
-            particles,
+            last_particles,
             obs_hist,
             observation,
             condition,
             parameters,
+            target_parameters,
+        )
+        filter_data = FilterData(
+            log_w=log_w,
+            particles=particles,
+            ancestor_ix=ancestor_ix,
+            observation=observation,
+            obs_hist=obs_hist,
+            condition=condition,
+            last_log_w=last_log_w,
+            last_particles=last_particles,
+            ess_e=ess_e,
+            log_weight_increment=weight_inc,
+            parameters=parameters,
         )
         recorder_vals = (
-            tuple(
-                r(
-                    log_w,
-                    particles,
-                    ancestor_ix,
-                    observation,
-                    obs_hist,
-                    condition,
-                    last_log_w,
-                    last_particles,
-                    ess_e,
-                    inc_weight,
-                    parameters,
-                )
-                for r in recorders
-            )
-            if recorders is not None
-            else ()
+            tuple(r(filter_data) for r in recorders) if recorders is not None else ()
         )
         return (
             log_w,
             particles,
             obs_hist,
-        ), (
-            ancestor_ix,
-            *recorder_vals,
-        )
+        ), recorder_vals
 
-    if condition_path is None:
-        cond_seq: Any = [None] * sequence_length
-    else:
-        cond_seq = condition_path
+    observation_path = util.slice_pytree(observation_path, 1, sequence_length)
+    condition_path = util.slice_pytree(condition_path, 1, sequence_length)
 
-    final_state, scan_hist = jax.lax.scan(
+    final_state, recorder_history = jax.lax.scan(
         body,
         (log_weights, init_particles, observation_history),
-        (jnp.array(step_keys), observation_path, cond_seq),
+        (jnp.array(step_keys), observation_path, condition_path),
+    )
+
+    def expand_concat(value, array):
+        return jnp.concatenate([jnp.expand_dims(value, axis=0), array], axis=0)
+
+    recorder_history = jax.tree_util.tree_map(
+        expand_concat, intial_record, recorder_history
     )
 
     log_weights, particles, _ = final_state
 
-    ancestor_history = scan_hist[0]
-    recorder_history = tuple(scan_hist[1:])
-
     return (
         log_weights,
         particles,
-        ancestor_history,
         recorder_history,
     )
 
