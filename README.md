@@ -39,3 +39,19 @@ print(observation_path)
 ```
 
 SeqJAX will check at runtime that `AR1Target` and its components implement the required interface. When extending the library, these checks help catch mistakes such as missing `sample` or `log_prob` implementations.
+
+## Documentation
+
+The library's API reference can be built using [MkDocs](https://www.mkdocs.org/) together with the [mkdocstrings](https://mkdocstrings.github.io/) plugin. After installing the optional dependencies
+
+```bash
+pip install mkdocs mkdocstrings[python]
+```
+
+add ``mkdocstrings`` to your ``mkdocs.yml`` and include objects with the ``:::`` syntax:
+
+```markdown
+::: seqjax.model.LinearGaussianSSM
+```
+
+Run ``mkdocs serve`` to preview the documentation locally or ``mkdocs build`` to generate a site.

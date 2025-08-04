@@ -1,4 +1,13 @@
-"""Discrete Hidden Markov Model components."""
+"""Discrete Hidden Markov Model components.
+
+This module implements a tiny categorical HMM suitable for demonstrations.
+
+Example
+-------
+>>> from seqjax.model.hmm import HiddenMarkovModel, HMMParameters
+>>> model = HiddenMarkovModel()
+>>> params = HMMParameters()
+"""
 
 from dataclasses import field
 from typing import ClassVar

@@ -1,4 +1,16 @@
-"""Multidimensional linear Gaussian state space model."""
+"""Multidimensional linear Gaussian state space model.
+
+The classes defined here implement a simple linear Gaussian state space model
+useful for demonstrations and testing.  The implementation mirrors the
+``Kalman`` filter setup and can be simulated using
+:func:`seqjax.model.simulate.simulate`.
+
+Example
+-------
+>>> from seqjax.model.linear_gaussian import LinearGaussianSSM, LGSSMParameters
+>>> model = LinearGaussianSSM()
+>>> params = LGSSMParameters()
+"""
 
 from dataclasses import field
 from typing import ClassVar

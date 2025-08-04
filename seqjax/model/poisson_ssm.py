@@ -1,4 +1,14 @@
-"""Simple Poisson state space model."""
+"""Simple Poisson state space model.
+
+The :class:`PoissonSSM` defined here is a minimal example of a non-Gaussian
+state space model.
+
+Example
+-------
+>>> from seqjax.model.poisson_ssm import PoissonSSM, PoissonSSMParameters
+>>> model = PoissonSSM()
+>>> params = PoissonSSMParameters()
+"""
 
 from dataclasses import field
 from typing import ClassVar

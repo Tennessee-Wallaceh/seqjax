@@ -1,4 +1,13 @@
-"""Logistic regression SMC sampler example."""
+"""Logistic regression SMC sampler example.
+
+This module shows how an annealed sequential Monte Carlo sampler can be built
+using the :class:`~seqjax.model.base.SequentialModel` interfaces.
+
+Example
+-------
+>>> from seqjax.model.logistic_smc import LogisticRegressionSMC
+>>> smc = LogisticRegressionSMC()
+"""
 
 from dataclasses import field
 from typing import ClassVar
