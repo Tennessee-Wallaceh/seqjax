@@ -6,18 +6,28 @@ import equinox as eqx
 
 from seqjax.model import simulate, evaluate
 from seqjax.model.ar import AR1Target, ARParameters, NoisyEmission
-from seqjax.inference.vi.autoregressive.autoregressive_vi import RandomAutoregressor
-from seqjax.inference.vi import Variational, ParameterModel, MeanField, Constraint, Identity
+from seqjax.inference.vi.autoregressive.autoregressive import RandomAutoregressor
+from seqjax.inference.vi import (
+    Variational,
+    ParameterModel,
+    MeanField,
+    Constraint,
+    Identity,
+)
 from seqjax.inference.embedder import PassThroughEmbedder
 
 
 if __name__ == "__main__":
     true_params = ARParameters(ar=jnp.array(0.8))
     key = jrandom.PRNGKey(0)
-    _, obs, _, _ = simulate.simulate(key, AR1Target(), None, true_params, sequence_length=25)
+    _, obs, _, _ = simulate.simulate(
+        key, AR1Target(), None, true_params, sequence_length=25
+    )
     obs_batched = NoisyEmission(y=jnp.expand_dims(obs.y, 0))
 
-    embedder = PassThroughEmbedder(sample_length=25, prev_window=0, post_window=0, y_dimension=1)
+    embedder = PassThroughEmbedder(
+        sample_length=25, prev_window=0, post_window=0, y_dimension=1
+    )
     sampler = RandomAutoregressor(
         sample_length=25,
         x_dim=1,
@@ -85,9 +95,7 @@ if __name__ == "__main__":
         )[0],
         jnp.array(0.0),
     )
-    nuts = blackjax.nuts(
-        logdensity, step_size=0.005, inverse_mass_matrix=jnp.ones(26)
-    )
+    nuts = blackjax.nuts(logdensity, step_size=0.005, inverse_mass_matrix=jnp.ones(26))
     state = nuts.init(init_state)
 
     keys = jrandom.split(key, 60)
@@ -125,8 +133,12 @@ if __name__ == "__main__":
     latent_vi = latent_vi.x.squeeze(0)[:, :, 0]
     latent_nuts = latent_samples[:5, :, 0]
     for i in range(5):
-        axes[1].plot(latent_nuts[i], color="C0", alpha=0.6, label="NUTS" if i == 0 else None)
-        axes[1].plot(latent_vi[i], color="C1", alpha=0.6, label="VI" if i == 0 else None)
+        axes[1].plot(
+            latent_nuts[i], color="C0", alpha=0.6, label="NUTS" if i == 0 else None
+        )
+        axes[1].plot(
+            latent_vi[i], color="C1", alpha=0.6, label="VI" if i == 0 else None
+        )
     axes[1].set_title("Latent state samples")
     axes[1].legend()
 

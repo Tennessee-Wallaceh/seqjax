@@ -3,8 +3,14 @@ import jax.numpy as jnp
 
 from seqjax.model import simulate
 from seqjax.model.ar import AR1Target, ARParameters, NoisyEmission
-from seqjax.inference.vi.autoregressive.autoregressive_vi import RandomAutoregressor
-from seqjax.inference.vi import Variational, ParameterModel, MeanField, Constraint, Identity
+from seqjax.inference.vi.autoregressive.autoregressive import RandomAutoregressor
+from seqjax.inference.vi import (
+    Variational,
+    ParameterModel,
+    MeanField,
+    Constraint,
+    Identity,
+)
 from seqjax.inference.embedder import PassThroughEmbedder
 
 
@@ -17,7 +23,9 @@ def test_vi_sample_shape() -> None:
     # add a single context axis
     obs_batched = NoisyEmission(y=jnp.expand_dims(obs.y, 0))
 
-    embedder = PassThroughEmbedder(sample_length=5, prev_window=0, post_window=0, y_dimension=1)
+    embedder = PassThroughEmbedder(
+        sample_length=5, prev_window=0, post_window=0, y_dimension=1
+    )
     sampler = RandomAutoregressor(
         sample_length=5,
         x_dim=1,

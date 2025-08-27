@@ -99,7 +99,7 @@ def run_particle_mcmc(
 
     sample_time_start = time.time()
     samples = run_random_walk_metropolis(
-        estimate_log_joint, sample_key, initial_parameters, config=config.mcmc
+        jax.jit(estimate_log_joint), sample_key, initial_parameters, config=config.mcmc
     )
     sample_time_end = time.time()
     sample_time_s = sample_time_end - sample_time_start
@@ -107,4 +107,4 @@ def run_particle_mcmc(
         jnp.arange(config.mcmc.num_samples) * (sample_time_s / config.mcmc.num_samples)
     )
 
-    return time_array_s, None, samples
+    return time_array_s, None, samples, None

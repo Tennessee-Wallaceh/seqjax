@@ -10,6 +10,8 @@ from seqjax.model.base import (
     ConditionType,
     ParametersType,
     ParameterPrior,
+    BayesianSequentialModel,
+    InferenceParametersType,
 )
 from seqjax.model.typing import Batched, SequenceAxis, HyperParametersType
 
@@ -26,20 +28,23 @@ class InferenceMethod(Protocol):
 
     def __call__(
         self,
-        target: SequentialModel[
-            ParticleType, ObservationType, ConditionType, ParametersType
+        target: BayesianSequentialModel[
+            ParticleType,
+            ObservationType,
+            ConditionType,
+            ParametersType,
+            InferenceParametersType,
+            HyperParametersType,
         ],
         key: PRNGKeyArray,
-        observations: Batched[ObservationType, SequenceAxis],
+        observation_path: Batched[ObservationType, SequenceAxis],
         *,
-        parameter_prior: (
-            ParameterPrior[ParametersType, HyperParametersType] | None
-        ) = None,
         condition_path: Batched[ConditionType, SequenceAxis] | None = None,
         initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
-        hyper_parameters: HyperParametersType | None = None,
+        hyperparameters: HyperParametersType | None = None,
         initial_conditions: tuple[ConditionType, ...] | None = None,
         observation_history: tuple[ObservationType, ...] | None = None,
+        test_samples: int = 1000,
     ) -> Any: ...
 
 

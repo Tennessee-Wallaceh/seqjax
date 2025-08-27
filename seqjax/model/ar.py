@@ -4,6 +4,7 @@ from dataclasses import field
 from typing import ClassVar
 from functools import partial
 
+import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
@@ -31,6 +32,10 @@ class LatentValue(Particle):
 
     x: Scalar
 
+    _shape_template: ClassVar = {
+        "x": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    }
+
 
 class ARParameters(Parameters):
     """Parameters of the AR(1) model."""
@@ -39,17 +44,31 @@ class ARParameters(Parameters):
     observation_std: Scalar = field(default_factory=lambda: jnp.array(1.0))
     transition_std: Scalar = field(default_factory=lambda: jnp.array(0.5))
 
+    _shape_template: ClassVar = {
+        "ar": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        "observation_std": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        "transition_std": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    }
+
 
 class AROnlyParameters(Parameters):
     """Just the AR parameter of the AR(1) model."""
 
     ar: Scalar = field(default_factory=lambda: jnp.array(0.5))
 
+    _shape_template: ClassVar = {
+        "ar": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    }
+
 
 class NoisyEmission(Observation):
     """Observation wrapping a scalar value."""
 
     y: Scalar
+
+    _shape_template: ClassVar = {
+        "y": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    }
 
 
 class HalfCauchyStds(ParameterPrior[ARParameters, HyperParameters]):
@@ -107,7 +126,10 @@ class InitialValue(Prior[LatentValue, Condition, ARParameters]):
         parameters: ARParameters,
     ) -> tuple[LatentValue]:
         """Sample the initial latent value."""
-        x0 = parameters.transition_std * jrandom.normal(
+        stationary_scale = jnp.sqrt(
+            jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
+        )
+        x0 = stationary_scale * jrandom.normal(
             key,
         )
         return (LatentValue(x=x0),)
@@ -119,7 +141,10 @@ class InitialValue(Prior[LatentValue, Condition, ARParameters]):
         parameters: ARParameters,
     ) -> Scalar:
         """Evaluate the prior log-density."""
-        return jstats.norm.logpdf(particle[0].x, scale=parameters.transition_std)
+        stationary_scale = jnp.sqrt(
+            jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
+        )
+        return jstats.norm.logpdf(particle[0].x, scale=stationary_scale)
 
 
 class ARRandomWalk(Transition[LatentValue, Condition, ARParameters]):
@@ -204,8 +229,8 @@ class AR1Target(SequentialModel[LatentValue, NoisyEmission, Condition, ARParamet
 def fill_parameter(ar_only: AROnlyParameters, ref_params: ARParameters) -> ARParameters:
     return ARParameters(
         ar_only.ar,
-        observation_std=ref_params.observation_std,
-        transition_std=ref_params.transition_std,
+        observation_std=jnp.ones_like(ar_only.ar) * ref_params.observation_std,
+        transition_std=jnp.ones_like(ar_only.ar) * ref_params.transition_std,
     )
 
 

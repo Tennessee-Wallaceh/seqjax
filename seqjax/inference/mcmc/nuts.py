@@ -47,7 +47,6 @@ class NUTSConfig(eqx.Module):
     step_size: float = 1e-3
     num_adaptation: int = 1000
     num_warmup: int = 1000
-    num_samples: int = 2000
     inverse_mass_matrix: Any | None = None
     num_chains: int = 1
 
@@ -138,6 +137,7 @@ def run_bayesian_nuts(
     observation_path: Batched[ObservationType, SequenceAxis],
     condition_path: Batched[ConditionType, SequenceAxis] | None = None,
     config: NUTSConfig = NUTSConfig(),
+    test_samples: int = 1000,
 ) -> Tuple[
     Batched[ParticleType, SampleAxis, SequenceAxis | int],
     Batched[ParametersType, SampleAxis | int],
@@ -200,11 +200,12 @@ def run_bayesian_nuts(
     warmup_time = end_warmup_time - start_warmup_time
 
     start_time = time.time()
+    samples_per_chain = int(test_samples / config.num_chains)
     _, paths = inference_loop_multiple_chains(
         sample_key,
         nuts.step,
         warmup_states,
-        num_samples=config.num_samples,
+        num_samples=samples_per_chain,
         num_chains=config.num_chains,
     )
     latent_samples, param_samples = jax.tree_util.tree_map(
@@ -214,47 +215,8 @@ def run_bayesian_nuts(
     end_time = time.time()
     sample_time = end_time - start_time
     time_array_s = warmup_time + (
-        jnp.repeat(jnp.arange(config.num_samples), config.num_chains)
-        * (sample_time / config.num_samples)
+        jnp.repeat(jnp.arange(samples_per_chain), config.num_chains)
+        * (sample_time / samples_per_chain)
     )
 
-    return time_array_s, latent_samples, param_samples
-
-
-def run_nuts_parameters(
-    logdensity: Callable[[ParametersType, PRNGKeyArray], jax.Array],
-    key: PRNGKeyArray,
-    initial_parameters: ParametersType,
-    config: NUTSConfig = NUTSConfig(),
-) -> Batched[ParametersType, SampleAxis | int]:
-    """Sample parameters using the NUTS algorithm from ``blackjax``."""
-
-    flat, _ = jax.flatten_util.ravel_pytree(initial_parameters)  # type: ignore[attr-defined]
-    dim = flat.shape[0]
-    inv_mass = (
-        jnp.ones(dim)
-        if config.inverse_mass_matrix is None
-        else config.inverse_mass_matrix
-    )
-
-    nuts = blackjax.nuts(
-        lambda p: logdensity(p, key),
-        step_size=config.step_size,
-        inverse_mass_matrix=inv_mass,
-    )
-    state = nuts.init(initial_parameters)
-
-    keys = jax.random.split(key, config.num_warmup + config.num_samples)
-
-    def warmup_step(state, key):
-        state, _ = nuts.step(key, state)
-        return state, None
-
-    state, _ = jax.lax.scan(warmup_step, state, keys[: config.num_warmup])
-
-    def sample_step(state, key):
-        state, _ = nuts.step(key, state)
-        return state, state.position
-
-    _, samples = jax.lax.scan(sample_step, state, keys[config.num_warmup :])
-    return samples
+    return time_array_s, latent_samples, param_samples, None

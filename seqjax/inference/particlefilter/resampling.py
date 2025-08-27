@@ -11,27 +11,9 @@ from seqjax.util import dynamic_index_pytree_in_dim as index_tree
 from seqjax.model.base import ParticleType
 
 Resampler = Callable[
-    [PRNGKeyArray, Array, tuple[ParticleType, ...], Scalar],
+    [PRNGKeyArray, Array, tuple[ParticleType, ...], Scalar, int],
     tuple[tuple[ParticleType, ...], Array, Array],
 ]
-
-
-def gumbel_resample_from_log_weights(
-    key: PRNGKeyArray,
-    log_weights: Array,
-    particles: tuple[ParticleType, ...],
-    _ess_e: Scalar,
-) -> tuple[tuple[ParticleType, ...], Array, Array]:
-    """Resample particles using the Gumbel-max trick."""
-    gumbels = -jnp.log(
-        -jnp.log(jrandom.uniform(key, (log_weights.shape[0], log_weights.shape[0])))
-    )
-    particle_ix = jnp.argmax(log_weights + gumbels, axis=1).reshape(-1)
-    resampled_particles = jax.vmap(index_tree, in_axes=[None, 0, None])(
-        particles, particle_ix, 0  # type: ignore[arg-type]
-    )
-    new_log_weights = jnp.full_like(log_weights, -jnp.log(log_weights.shape[0]))
-    return resampled_particles, new_log_weights, particle_ix
 
 
 def multinomial_resample_from_log_weights(
@@ -54,50 +36,6 @@ def multinomial_resample_from_log_weights(
         particle_ix,  # type: ignore[arg-type]
         0,
     )
-    return resampled_particles, new_log_weights, particle_ix
-
-
-def stratified_resample_from_log_weights(
-    key: PRNGKeyArray,
-    log_weights: Array,
-    particles: tuple[ParticleType, ...],
-    _ess_e: Scalar,
-) -> tuple[tuple[ParticleType, ...], Array, Array]:
-    """Resample particles using stratified resampling."""
-    weights = jax.nn.softmax(log_weights)
-    n = weights.shape[0]
-    u = jrandom.uniform(key, shape=(n,))
-    positions = (jnp.arange(n) + u) / n
-    cumulative = jnp.cumsum(weights)
-    particle_ix = jnp.searchsorted(cumulative, positions, side="right")
-    resampled_particles = jax.vmap(index_tree, in_axes=[None, 0, None])(
-        particles,
-        particle_ix,  # type: ignore[arg-type]
-        0,
-    )
-    new_log_weights = jnp.full_like(log_weights, -jnp.log(n))
-    return resampled_particles, new_log_weights, particle_ix
-
-
-def systematic_resample_from_log_weights(
-    key: PRNGKeyArray,
-    log_weights: Array,
-    particles: tuple[ParticleType, ...],
-    _ess_e: Scalar,
-) -> tuple[tuple[ParticleType, ...], Array, Array]:
-    """Resample particles using systematic resampling."""
-    weights = jax.nn.softmax(log_weights)
-    n = weights.shape[0]
-    u0 = jrandom.uniform(key, minval=0.0, maxval=1.0 / n)
-    positions = u0 + jnp.arange(n) / n
-    cumulative = jnp.cumsum(weights)
-    particle_ix = jnp.searchsorted(cumulative, positions, side="right")
-    resampled_particles = jax.vmap(index_tree, in_axes=[None, 0, None])(
-        particles,
-        particle_ix,  # type: ignore[arg-type]
-        0,
-    )
-    new_log_weights = jnp.full_like(log_weights, -jnp.log(n))
     return resampled_particles, new_log_weights, particle_ix
 
 

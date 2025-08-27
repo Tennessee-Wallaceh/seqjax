@@ -1,10 +1,13 @@
 import matplotlib.pyplot as plt
 import jax
+from dataclasses import dataclass, asdict, field
 import jax.numpy as jnp
 import jax.random as jrandom
 from functools import partial
-from dataclasses import asdict
 import arviz as az
+import equinox as eqx
+import wandb
+
 from seqjax.model import simulate
 from seqjax.model.ar import AR1Target, ARParameters, HalfCauchyStds
 from seqjax.inference.particlefilter import (
@@ -15,14 +18,29 @@ from seqjax.inference.particlefilter import (
     log_marginal,
 )
 
-from seqjax.inference import pmcmc, mcmc, particlefilter, sgld
+from seqjax.inference import pmcmc, mcmc, particlefilter, sgld, registry
 
 # from seqjax.inference.buffered import BufferedSGLDConfig, run_buffered_sgld
 # from seqjax.inference.sgld import SGLDConfig
 from seqjax.model import ar
 from seqjax.model.typing import HyperParameters, Condition
 from seqjax.model.base import BayesianSequentialModel
-from seqjax.inference import mcmc
+from seqjax.inference import mcmc, InferenceMethod
+
+
+def cumulative_quantiles_masked(samples, quantiles):
+    # High memory quantile computation
+    n = samples.shape[0]
+
+    # Pad samples to (n, n) matrix of prefixes
+    full_samples = jnp.broadcast_to(samples, (n, n))
+    mask = jnp.tril(jnp.ones((n, n)))  # Lower-triangular mask
+
+    def compute_row(row, mask_row):
+        valid = jnp.where(mask_row == 1, row, jnp.nan)
+        return jnp.nanquantile(valid, quantiles, axis=-1)
+
+    return jax.vmap(compute_row)(full_samples, mask)
 
 
 def analytic_log_marginal(target_posterior, params, y_path):
@@ -61,98 +79,118 @@ def analytic_log_marginal(target_posterior, params, y_path):
     return log_marginal(params)
 
 
-def numerical_cdf(log_marginal):
-    pdf = jnp.exp(log_marginal - jnp.max(log_marginal))  # stabilize
-    pdf = pdf / jax.scipy.integrate.trapezoid(pdf, candidate_ar)
-    F_nodes = jnp.concatenate(
-        [
-            jnp.array([0.0]),
-            jnp.cumsum(
-                0.5 * (pdf[:-1] + pdf[1:]) * (candidate_ar[1:] - candidate_ar[:-1])
-            ),
-        ]
-    )
-    F_nodes = F_nodes / F_nodes[-1]
-    return F_nodes
-
-
-@jax.jit
-def cvm_stat(samples, xgrid, cdf_nodes, *, eps=0.0):
-    def F(x):
-        u = jnp.interp(x, xgrid, cdf_nodes)
-        # optional safety if grid truncates tails
-        if eps > 0:
-            u = jnp.clip(u, eps, 1.0 - eps)
-        return u
-
-    s = jnp.sort(samples)
-    n = s.size
-    u = F(s)
-    i = jnp.arange(1, n + 1)
-    W2 = (1.0 / (12.0 * n)) + jnp.sum((u - (2 * i - 1) / (2.0 * n)) ** 2)
-    return W2
-
-
-@jax.jit
-def ks_stat(samples, xgrid, F_nodes):
-    s = jnp.sort(samples)
-    n = s.size
-
-    # Interpolate F at sample points. jnp.interp clamps outside [xgrid[0], xgrid[-1]].
-    F_s = jnp.interp(s, xgrid, F_nodes)
-
-    # KS components
-    i = jnp.arange(1, n + 1)
-    D_plus = jnp.max(i / n - F_s)
-    D_minus = jnp.max(F_s - (i - 1) / n)
-    D = jnp.maximum(D_plus, D_minus)
-
-    return D
-
-
-if __name__ == "__main__":
-    # define model
-    true_params = ar.ARParameters(
+parameter_settings = {
+    "base": ar.ARParameters(
         ar=jnp.array(0.8),
         observation_std=jnp.array(0.1),
         transition_std=jnp.array(0.5),
     )
+}
 
-    samples = 5000
 
-    model = ar.AR1Bayesian(true_params)
+@dataclass
+class ARExperimentConfig:
+    parameter_setting: str
+    sequence_length: int
+    data_seed: int
+
+    test_samples: int
+    fit_seed: int
+    inference: registry.InferenceConfig
+
+
+def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
+    # track run data
+    wandb_run = wandb.init(
+        project=experiment_name,
+        config=asdict(experiment_config),
+    )
+
+    # define target model
+    target_params = parameter_settings[experiment_config.parameter_setting]
+    model = ar.AR1Bayesian(target_params)
 
     # generate data
-    sequence_length = 50
-
-    key = jrandom.PRNGKey(0)
+    data_key = jrandom.PRNGKey(experiment_config.data_seed)
     x_path, y_path, _, _ = simulate.simulate(
-        key, model.target, None, true_params, sequence_length=sequence_length
+        data_key,
+        model.target,
+        None,
+        target_params,
+        sequence_length=experiment_config.sequence_length,
     )
+
+    # inference init
+    inference = registry.build_inference(experiment_config.inference, model)
+
+    elapsed_time_s, _, param_samples, extra_data = inference(
+        model,
+        hyperparameters=None,
+        key=jrandom.key(experiment_config.fit_seed),
+        observation_path=y_path,
+        condition_path=None,
+        test_samples=experiment_config.test_samples,
+    )
+
+    artifact = wandb.Artifact(
+        name=f"{experiment_config.inference.method}_samples", type="dataset"
+    )
+    eqx.tree_serialise_leaves("some_filename.eqx", model)
+
+    artifact.add_file(
+        local_path=f"./{experiment_config.inference.method}_samples.dat",
+        name="training_dataset",
+    )
+    artifact.save()
+
+    return param_samples
+
+    # ar_sample_sets[label] = param_samples.ar
+    # sample_sets[label] = param_samples
+    # inference_time[label] = time_s
+
+
+inference_methods = {
+    "NUTS": registry.NUTSInference(
+        "NUTS", mcmc.NUTSConfig(step_size=1e-3, num_warmup=100, num_chains=2)
+    )
+}
+
+
+if __name__ == "__main__":
+    data_repeats = 2
+    experiment_name = "seq_rough"
+    for data_seed in range(data_repeats):
+        for label, inference_config in inference_methods.items():
+            experiment_config = ARExperimentConfig(
+                parameter_setting="base",
+                sequence_length=100,
+                test_samples=100,
+                data_seed=data_seed,
+                fit_seed=1000,
+                inference=inference_config,
+            )
+            run_experiment(experiment_name, experiment_config)
 
     # define inference procedures
-    inference_procedures = {}
+    # inference_procedures = {}
+    # mcmc_samplers = ["NUTS", "PMMH", "full_SGLD"]
 
-    inference_procedures["NUTS"] = partial(
-        mcmc.run_bayesian_nuts,
-        config=mcmc.NUTSConfig(
-            step_size=1e-3, num_warmup=100, num_samples=int(samples / 2), num_chains=2
-        ),
-    )
+    # inference_procedures["NUTS"] =
 
-    inference_procedures["PMMH"] = partial(
-        pmcmc.run_particle_mcmc,
-        config=pmcmc.ParticleMCMCConfig(
-            mcmc=mcmc.RandomWalkConfig(5e-2, samples),
-            particle_filter=particlefilter.BootstrapParticleFilter(
-                model.target,
-                num_particles=10000,
-                ess_threshold=1.5,
-                target_parameters=model.target_parameter,
-            ),
-            initial_parameter_guesses=20,
-        ),
-    )
+    # inference_procedures["PMMH"] = partial(
+    #     pmcmc.run_particle_mcmc,
+    #     config=pmcmc.ParticleMCMCConfig(
+    #         mcmc=mcmc.RandomWalkConfig(5e-2, samples),
+    #         particle_filter=particlefilter.BootstrapParticleFilter(
+    #             model.target,
+    #             num_particles=10000,
+    #             ess_threshold=1.5,
+    #             target_parameters=model.target_parameter,
+    #         ),
+    #         initial_parameter_guesses=20,
+    #     ),
+    # )
 
     # inference_procedures["full_SGLD"] = partial(
     #     sgld.run_full_sgld_mcmc,
@@ -169,131 +207,106 @@ if __name__ == "__main__":
     #     ),
     # )
 
-    ar_sample_sets = {}
-    sample_sets = {}
-    inference_time = {}
-    for label, procedure in inference_procedures.items():
-        print(f"Running: {label}")
-        time_s, _, param_samples = procedure(
-            model,
-            hyperparameters=None,
-            key=jrandom.key(100),
-            observation_path=y_path,
-            condition_path=None,
-        )
-        ar_sample_sets[label] = param_samples.ar
-        sample_sets[label] = param_samples
-        inference_time[label] = time_s
+    # ar_sample_sets = {}
+    # sample_sets = {}
+    # inference_time = {}
+    # for label, procedure in inference_procedures.items():
+    #     print(f"Running: {label}")
+    #     time_s, _, param_samples = procedure(
+    #         model,
+    #         hyperparameters=None,
+    #         key=jrandom.key(100),
+    #         observation_path=y_path,
+    #         condition_path=None,
+    #     )
+    #     ar_sample_sets[label] = param_samples.ar
+    #     sample_sets[label] = param_samples
+    #     inference_time[label] = time_s
 
-    min_ar = 1
-    max_ar = -1
-    print(f"TRUE: {true_params.ar:.2f}")
-    for label, ar_set in ar_sample_sets.items():
-        q05, q95 = jnp.quantile(ar_set, jnp.array([0.05, 0.95]))
-        print(f"{label}: {jnp.mean(ar_set):.2f} ({q05:.2f}, {q95:.2f})")
-        min_ar = min(min_ar, jnp.min(ar_set))
-        max_ar = max(max_ar, jnp.max(ar_set))
+    # min_ar = 1
+    # max_ar = -1
+    # print(f"TRUE: {true_params.ar:.2f}")
+    # for label, ar_set in ar_sample_sets.items():
+    #     q05, q95 = jnp.quantile(ar_set, jnp.array([0.05, 0.95]))
+    #     print(f"{label}: {jnp.mean(ar_set):.2f} ({q05:.2f}, {q95:.2f})")
+    #     min_ar = min(min_ar, jnp.min(ar_set))
+    #     max_ar = max(max_ar, jnp.max(ar_set))
 
-    plt.figure(figsize=(6, 3))
-    bins = jnp.linspace(min_ar, max_ar, 100)
+    # plt.figure(figsize=(6, 3))
+    # bins = jnp.linspace(min_ar, max_ar, 100)
 
-    candidate_ar = jnp.linspace(-1, 1, 1000)
+    # candidate_ar = jnp.linspace(-1, 1, 1000)
 
-    inspect_p = jax.vmap(
-        lambda x: ar.AROnlyParameters(
-            ar=x,
-        )
-    )(candidate_ar)
+    # inspect_p = jax.vmap(
+    #     lambda x: ar.AROnlyParameters(
+    #         ar=x,
+    #     )
+    # )(candidate_ar)
 
-    log_marginal = jax.vmap(analytic_log_marginal, in_axes=[None, 0, None])(
-        model, inspect_p, y_path
-    )
+    # log_marginal = jax.vmap(analytic_log_marginal, in_axes=[None, 0, None])(
+    #     model, inspect_p, y_path
+    # )
 
-    plt.plot(
-        candidate_ar,
-        jnp.exp(log_marginal)
-        / jax.scipy.integrate.trapezoid(jnp.exp(log_marginal), candidate_ar),
-    )
+    # plt.plot(
+    #     candidate_ar,
+    #     jnp.exp(log_marginal)
+    #     / jax.scipy.integrate.trapezoid(jnp.exp(log_marginal), candidate_ar),
+    # )
 
-    for label, ar_set in ar_sample_sets.items():
-        plt.hist(ar_set, bins=bins, density=True, alpha=0.5, label=label)
+    # for label, ar_set in ar_sample_sets.items():
+    #     plt.hist(ar_set, bins=bins, density=True, alpha=0.5, label=label)
 
-    plt.xlim([min_ar, max_ar])
-    plt.axvline(true_params.ar, color="black", linestyle="--", label="true")
-    plt.xlabel("ar parameter")
-    plt.ylabel("density")
-    plt.legend()
-    plt.grid()
-    plt.tight_layout()
-    plt.savefig("approximate_posterior_comparison.png")
-    plt.show()
+    # plt.xlim([min_ar, max_ar])
+    # plt.axvline(true_params.ar, color="black", linestyle="--", label="true")
+    # plt.xlabel("ar parameter")
+    # plt.ylabel("density")
+    # plt.legend()
+    # plt.grid()
+    # plt.tight_layout()
+    # plt.savefig("approximate_posterior_comparison.png")
+    # plt.show()
 
-    plt.figure(figsize=(8, 8))
-    plt.title("MSE vs Inference time")
-    for label in ar_sample_sets:
-        ar_samples = ar_sample_sets[label]
-        time_s = inference_time[label]
-        plt.plot(
-            time_s,
-            jnp.cumsum(jnp.square(ar_samples - true_params.ar))
-            / jnp.arange(1, 1 + len(ar_samples)),
-            label=label,
-        )
-    plt.legend()
-    plt.xlabel("Inference Time (s)")
-    plt.ylabel("Parameter MSE")
-    plt.grid()
-    plt.savefig("parameter_mse_path_comparison.png")
-    plt.show()
+    # plt.figure(figsize=(8, 8))
+    # plt.title("MSE vs Inference time")
+    # for label in ar_sample_sets:
+    #     ar_samples = ar_sample_sets[label]
+    #     time_s = inference_time[label]
+    #     plt.plot(
+    #         time_s,
+    #         jnp.cumsum(jnp.square(ar_samples - true_params.ar))
+    #         / jnp.arange(1, 1 + len(ar_samples)),
+    #         label=label,
+    #     )
+    # plt.legend()
+    # plt.xlabel("Inference Time (s)")
+    # plt.ylabel("Parameter MSE")
+    # plt.grid()
+    # plt.savefig("parameter_mse_path_comparison.png")
+    # plt.show()
 
-    plt.figure(figsize=(8, 8))
-    plt.title("Posterior fit vs Inference time")
+    # for mcmc_sampler in mcmc_samplers:
+    #     if mcmc_sampler in ar_sample_sets:
+    #         plt.figure(figsize=(8, 3))
+    #         plt.title(f"{mcmc_sampler} path")
 
-    cdf_nodes = numerical_cdf(log_marginal)
-    downsamples = 50
-    for label in ar_sample_sets:
-        ar_samples = ar_sample_sets[label]
-        time_s = inference_time[label]
-        posterior_dists = []
-        time_slices = []
-        for ds in range(1, downsamples + 1):
-            slice_ix = int(ds * len(ar_samples) / downsamples)
-            posterior_dists.append(
-                ks_stat(ar_samples[:slice_ix], candidate_ar, cdf_nodes)
-            )
-            time_slices.append(time_s[slice_ix])
-        plt.plot(time_slices, posterior_dists, label=label)
-    plt.legend()
-    plt.xlabel("Inference Time (s)")
-    plt.ylabel("KS distance")
-    plt.grid()
-    plt.savefig("posterior_fit_path_comparison.png")
-    plt.show()
+    #         nuts_ar1_samples = sample_sets[mcmc_sampler]
+    #         time_s = inference_time[mcmc_sampler]
 
-    mcmc_samplers = ["NUTS", "PMMH", "full_SGLD"]
-    for mcmc_sampler in mcmc_samplers:
-        if mcmc_sampler in ar_sample_sets:
-            plt.figure(figsize=(8, 3))
-            plt.title(f"{mcmc_sampler} path")
+    #         plt.plot(
+    #             time_s,
+    #             nuts_ar1_samples.ar,
+    #             label=label,
+    #         )
 
-            nuts_ar1_samples = sample_sets[mcmc_sampler]
-            time_s = inference_time[mcmc_sampler]
+    #         plt.legend()
+    #         plt.xlabel("Inference Time (s)")
+    #         plt.ylabel("AR1")
+    #         plt.grid()
+    #         plt.savefig(f"{mcmc_sampler}_sample_path.png")
+    #         plt.show()
 
-            plt.plot(
-                time_s,
-                nuts_ar1_samples.ar,
-                label=label,
-            )
-
-            plt.legend()
-            plt.xlabel("Inference Time (s)")
-            plt.ylabel("AR1")
-            plt.grid()
-            plt.savefig(f"{mcmc_sampler}_sample_path.png")
-            plt.show()
-
-            plt.figure(figsize=(8, 3))
-            az.plot_autocorr(asdict(nuts_ar1_samples))
-            plt.grid()
-            plt.savefig(f"{mcmc_sampler}_acf.png")
-            plt.show()
+    #         plt.figure(figsize=(8, 3))
+    #         az.plot_autocorr(asdict(nuts_ar1_samples))
+    #         plt.grid()
+    #         plt.savefig(f"{mcmc_sampler}_acf.png")
+    #         plt.show()

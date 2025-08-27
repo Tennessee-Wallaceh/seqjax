@@ -1,7 +1,17 @@
 """Runtime type checking utilities for model interfaces."""
 
 import inspect
-from typing import Generic, Protocol, TypeVar, TypeVarTuple, Unpack
+from functools import lru_cache
+import math
+from typing import (
+    TYPE_CHECKING,
+    ClassVar,
+    Generic,
+    Protocol,
+    TypeVar,
+    TypeVarTuple,
+    Unpack,
+)
 import typing
 
 import equinox as eqx
@@ -20,46 +30,138 @@ We can do this by making the base classes metaclasses, using __init__subclass__ 
 """
 
 
-class Particle(eqx.Module):
-    def as_array(self):
-        return jnp.dstack(
-            [jnp.expand_dims(leaf, -1) for leaf in jax.tree_util.tree_leaves(self)],
+class Packable(eqx.Module):
+    """
+    Mix-in that flattens only the *feature* axis, leaving any leading batch
+    axes intact.  Sub-classes provide `_shape_template`, a dict whose values
+    are `jax.ShapeDtypeStruct`s **without** batch dims (scalars use shape=()).
+    """
+
+    _shape_template: eqx.AbstractClassVar[dict[str, jax.ShapeDtypeStruct]]
+    flat_dim: ClassVar[int]
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if cls is Packable:
+            return
+
+        # ensure subclass provided a template
+        template = getattr(cls, "_shape_template", None)
+        if not template:
+            return
+
+        # compute the flat dim
+        cls.flat_dim = sum(
+            int(math.prod(spec.shape or (1,))) for spec in template.values()
         )
+
+    # ------------------------------------------------------------------ #
+    # Build & cache a (ravel, unravel) pair once per concrete subclass
+    # ------------------------------------------------------------------ #
+    @classmethod
+    @lru_cache(maxsize=None)
+    def _ravel_pair(
+        cls,
+    ) -> typing.Tuple[
+        typing.Callable[["Packable"], jnp.ndarray],
+        typing.Callable[[jnp.ndarray], "Packable"],
+    ]:
+        if cls is Packable or not cls._shape_template:
+            raise TypeError(f"{cls.__name__} must define a non-empty _shape_template")
+
+        # -- 1.  Dummy instance (compile-time only; tiny) -----------------
+        zeros = {
+            name: jnp.zeros(spec.shape or (1,), spec.dtype)
+            for name, spec in cls._shape_template.items()
+        }
+        dummy = cls(**zeros)
+        leaves, treedef = jax.tree_util.tree_flatten(dummy)
+
+        # -- 2.  Static per-leaf metadata --------------------------------
+        feat_shapes: typing.Tuple[typing.Tuple[int, ...], ...] = tuple(
+            spec.shape if spec.shape else (1,)  # scalar becomes (1,)
+            for spec in cls._shape_template.values()
+        )
+        is_scalar: typing.Tuple[bool, ...] = tuple(
+            spec.shape == () for spec in cls._shape_template.values()
+        )
+
+        flat_sizes = [math.prod(s) for s in feat_shapes]  # python ints
+        split_idx = tuple(sum(flat_sizes[: i + 1]) for i in range(len(flat_sizes) - 1))
+
+        # -- 3.  JIT-friendly helpers ------------------------------------
+        def ravel(obj: "Packable") -> jnp.ndarray:
+            parts = []
+            for leaf, shape, scalar in zip(
+                jax.tree_util.tree_leaves(obj), feat_shapes, is_scalar
+            ):
+                if scalar:
+                    leaf = leaf[..., None]  # add size-1 axis
+                batch = leaf.shape[: -len(shape)]  # any leading dims
+                parts.append(jnp.reshape(leaf, batch + (-1,)))
+            return jnp.concatenate(parts, axis=-1)
+
+        def unravel(vec: jnp.ndarray) -> "Packable":
+            batch = vec.shape[:-1]
+            chunks = jnp.split(vec, split_idx, axis=-1) if split_idx else (vec,)
+            new_leaves = []
+            for chunk, shape, scalar in zip(chunks, feat_shapes, is_scalar):
+                leaf = jnp.reshape(chunk, batch + shape)
+                if scalar:
+                    leaf = jnp.squeeze(leaf, -1)
+                new_leaves.append(leaf)
+            return treedef.unflatten(new_leaves)
+
+        return ravel, unravel
 
     @classmethod
-    def from_array(cls, x):
-        x_dims = (
-            jnp.squeeze(x_dim, -1) for x_dim in jnp.split(x, x.shape[-1], axis=-1)
-        )
-        return cls(*x_dims)
+    def ravel(cls, obj: "Packable") -> jnp.ndarray:
+        return cls._ravel_pair()[0](obj)
+
+    @classmethod
+    def unravel(cls, vec: jnp.ndarray) -> "Packable":
+        return cls._ravel_pair()[1](vec)
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        # choose the first entry in the template to know feature rank
+        first_field = next(iter(self._shape_template))
+        feat_rank = len(self._shape_template[first_field].shape)
+        leaf = getattr(self, first_field)
+        if feat_rank == 0:  # scalar leaf → keep entire shape
+            return leaf.shape
+        else:
+            return leaf.shape[:-feat_rank]
+
+    @classmethod
+    def fields(cls):
+        return list(cls._shape_template.keys())
 
 
-class Observation(eqx.Module):
-    def as_array(self):
-        return jnp.dstack(
-            [jnp.expand_dims(leaf, -1) for leaf in jax.tree_util.tree_leaves(self)],
-        )
+class Particle(Packable): ...
 
 
-class Condition(eqx.Module):
-    def as_array(self):
-        return jnp.dstack(
-            [jnp.expand_dims(leaf, -1) for leaf in jax.tree_util.tree_leaves(self)],
-        )
+class Observation(Packable): ...
 
 
-class Parameters(eqx.Module):
+class Condition(Packable): ...
+
+
+class Parameters(Packable):
     reference_emission = ()
 
-    def as_array(self):
-        return jnp.dstack(
-            [jnp.expand_dims(leaf, -1) for leaf in jax.tree_util.tree_leaves(self)],
-        )
+
+class HyperParameters(Packable): ...
 
 
-class HyperParameters(eqx.Module): ...
-
-
+"""
+These are the Type Variable versions of the Packable classes
+For use in tying input + output types e.g. 
+def transition(p: ParticleType) -> ParticleType:
+produces the same ParticleType, 
+def transition(p: Particle) -> Particle:
+could produce any Particle
+"""
 ParticleType = TypeVar("ParticleType", bound=Particle)
 ObservationType = TypeVar("ObservationType", bound=Observation)
 ConditionType = TypeVar("ConditionType", bound=Condition)

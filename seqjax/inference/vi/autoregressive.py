@@ -1,9 +1,8 @@
-from __future__ import annotations
-
-from typing import Tuple
+from typing import Tuple, Type
+import typing
 
 from seqjax.inference.embedder import Embedder
-from .. import AmortizedSampler
+from seqjax.inference.vi.base import AmortizedVariationalApproximation
 from seqjax.model.base import (
     SequentialModel,
     ParticleType,
@@ -11,8 +10,7 @@ from seqjax.model.base import (
     ConditionType,
     ParametersType,
 )
-from seqjax.model.typing import Batched, SequenceAxis
-
+import seqjax.model.typing
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -116,6 +114,7 @@ class AmortizerMLP(eqx.Module):
     def __call__(self, x: Array, theta: Array, context: Array, missing: Array) -> Array:
         p_x = self.proj_x(x)
         p_theta = self.proj_theta(theta)
+
         p_context = self.proj_context(context)
         p_missing = self.proj_missing(missing)
         combined = p_x + p_theta + p_context + p_missing
@@ -140,45 +139,33 @@ def flat_to_chol(flat: Array, dim: int) -> Tuple[Array, Array]:
     return tri, cov
 
 
-class AutoregressiveSampler(AmortizedSampler):
-    """Minimal base class for autoregressive samplers."""
-
-    sample_length: int
-    x_dim: int
-    context_dim: int
-    parameter_dim: int
-
-    def __init__(
-        self, *, sample_length: int, x_dim: int, context_dim: int, parameter_dim: int
-    ) -> None:
-        self.sample_length = sample_length
-        self.x_dim = x_dim
-        self.context_dim = context_dim
-        self.parameter_dim = parameter_dim
-
-
-class Autoregressor(AutoregressiveSampler):
+class AutoregressiveApproximation(AmortizedVariationalApproximation):
     """Base class for autoregressive variational samplers."""
 
+    target_struct_cls: Type[seqjax.model.typing.Packable]
+    buffer_length: int
+    batch_length: int
+    context_dim: int
+    parameter_dim: int
     lag_order: int
 
     def __init__(
         self,
+        target_struct_cls,
         *,
-        sample_length: int,
-        x_dim: int,
+        buffer_length: int,
+        batch_length: int,
         context_dim: int,
         parameter_dim: int,
-        lag_order: int = 1,
+        lag_order: int,
     ) -> None:
-        super().__init__(
-            sample_length=sample_length,
-            x_dim=x_dim,
-            context_dim=context_dim,
-            parameter_dim=parameter_dim,
-        )
+        sample_length = 2 * buffer_length + batch_length
+        super().__init__(target_struct_cls, (sample_length, target_struct_cls.flat_dim))
+        self.context_dim = context_dim
+        self.parameter_dim = parameter_dim
         self.lag_order = lag_order
-        assert lag_order > 0, "lag must be > 0"
+        self.buffer_length = buffer_length
+        self.batch_length = batch_length
 
     def conditional(
         self,
@@ -198,7 +185,7 @@ class Autoregressor(AutoregressiveSampler):
         num_steps: int,
         offset: int,
         init: tuple[Array, ...],
-    ) -> tuple[Float[Array, "sample_length x_dim"], Float[Array, "sample_length"]]:
+    ) -> tuple[seqjax.model.typing.Packable, Float[Array, "sample_length"]]:
         def update(carry, key_context):
             key, ctx = key_context
             ix, prev_x = carry
@@ -217,55 +204,41 @@ class Autoregressor(AutoregressiveSampler):
         _, (x_path, log_q_x_path) = jax.lax.scan(
             update, init_state, (keys, subpath_context)
         )
-        return x_path, jnp.sum(log_q_x_path, axis=-1)
+        return self.target_struct_cls.unravel(x_path), jnp.sum(log_q_x_path, axis=-1)
 
-    def sample_single_path(
+    def sample_and_log_prob(
         self,
         key: PRNGKeyArray,
-        theta_context: Float[Array, "param_dim"],
-        context: Float[Array, "sample_length context_dim"],
-    ) -> tuple[Float[Array, "sample_length x_dim"], Float[Array, "sample_length"]]:
-        return self.sample_sub_path(
+        condition: typing.Any,
+    ) -> tuple[seqjax.model.typing.Packable, Float[Array, "sample_length"]]:
+        parameter_context, observation_context = condition
+        x_path, log_q_x_path = self.sample_sub_path(
             key,
-            theta_context,
-            context,
-            self.sample_length,
+            jax.lax.stop_gradient(parameter_context),
+            jax.lax.stop_gradient(observation_context),
+            self.shape[0],
             0,
-            tuple(jnp.zeros(self.x_dim) for _ in range(self.lag_order)),
+            tuple(jnp.zeros(self.shape[1]) for _ in range(self.lag_order)),
         )
-
-    def sample_initial_state(
-        self,
-        key: PRNGKeyArray,
-        theta_context: Float[Array, "param_dim"],
-        context: Float[Array, "sample_length context_dim"],
-    ) -> tuple[Float[Array, "sample_length x_dim"], Float[Array, "sample_length"]]:
-        return self.sample_sub_path(
-            key,
-            theta_context,
-            context,
-            2,
-            0,
-            tuple(jnp.zeros(self.x_dim) for _ in range(self.lag_order)),
-        )
+        return x_path, log_q_x_path
 
 
-class RandomAutoregressor(Autoregressor):
+class RandomAutoregressor(AutoregressiveApproximation):
     """Autoregressor that samples from standard normal regardless of context."""
 
-    def conditional(
-        self, key, prev_x, previous_available_flag, theta_context, context
-    ):  # noqa: D401, ANN001
-        return jrandom.normal(key, (self.x_dim,)), jrandom.normal(key, ())
+    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):
+        return jrandom.normal(key, (self.shape[1],)), jrandom.normal(key, ())
 
 
-class AmortizedUnivariateAutoregressor(Autoregressor):
+class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
     amortizer_mlp: eqx.nn.MLP | ResNetMLP
 
     def __init__(
         self,
+        target_struct_cls,
         *,
-        sample_length: int,
+        buffer_length: int,
+        batch_length: int,
         context_dim: int,
         parameter_dim: int,
         lag_order: int,
@@ -274,8 +247,9 @@ class AmortizedUnivariateAutoregressor(Autoregressor):
         key: PRNGKeyArray,
     ) -> None:
         super().__init__(
-            sample_length=sample_length,
-            x_dim=1,
+            target_struct_cls,
+            buffer_length=buffer_length,
+            batch_length=batch_length,
             context_dim=context_dim,
             parameter_dim=parameter_dim,
             lag_order=lag_order,
@@ -302,7 +276,7 @@ class AmortizedUnivariateAutoregressor(Autoregressor):
         return x, log_q_x
 
 
-class AmortizedMultivariateAutoregressor(Autoregressor):
+class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
     amortizer_mlp: eqx.nn.MLP
 
     def __init__(
@@ -350,7 +324,7 @@ class AmortizedMultivariateAutoregressor(Autoregressor):
         return x, log_q_x
 
 
-class AmortizedMultivariateIsotropicAutoregressor(Autoregressor):
+class AmortizedMultivariateIsotropicAutoregressor(AutoregressiveApproximation):
     amortizer_mlp: eqx.nn.MLP
 
     def __init__(
@@ -394,46 +368,3 @@ class AmortizedMultivariateIsotropicAutoregressor(Autoregressor):
         x = z * scale + loc
         log_q_x = jstats.norm.logpdf(x, loc, scale).sum()
         return x, log_q_x
-
-
-class AutoregressiveVIConfig(eqx.Module):
-    """Configuration for :func:`run_autoregressive_vi`."""
-
-    sampler: Autoregressor | None = None
-    embedder: Embedder | None = None
-    num_samples: int = 1
-
-
-def run_autoregressive_vi(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
-    key: PRNGKeyArray,
-    observations: Batched[ObservationType, SequenceAxis],
-    *,
-    parameters: ParametersType,
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
-    initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
-    config: AutoregressiveVIConfig,
-    initial_conditions: tuple[ConditionType, ...] | None = None,
-    observation_history: tuple[ObservationType, ...] | None = None,
-) -> Batched[ParticleType, SequenceAxis | int]:
-    """Sample latent paths using an autoregressive variational sampler."""
-
-    sampler = config.sampler
-    embedder = config.embedder
-    if sampler is None:
-        raise ValueError("sampler must be provided in config")
-    if embedder is None:
-        raise ValueError("embedder must be provided in config")
-
-    obs_array = jnp.squeeze(observations.as_array(), -1)  # type: ignore[attr-defined]
-    context = embedder.embed(obs_array)
-    theta_flat, _ = flatten_util.ravel_pytree(parameters)
-
-    keys = jrandom.split(key, config.num_samples)
-    xs, _ = jax.vmap(sampler.sample_single_path, in_axes=[0, None, None])(
-        keys, theta_flat, context
-    )
-    latents = target.particle_type.from_array(xs)  # type: ignore[attr-defined]
-    return latents

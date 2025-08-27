@@ -16,7 +16,6 @@ from .base import SMCSampler, proposal_from_transition
 from .resampling import (
     conditional_resample,
     multinomial_resample_from_log_weights,
-    gumbel_resample_from_log_weights,
 )
 
 
@@ -64,7 +63,7 @@ class AuxiliaryParticleFilter(
             proposal=proposal_from_transition(target.transition),  # type: ignore[arg-type]
             resampler=partial(
                 conditional_resample,
-                resampler=gumbel_resample_from_log_weights,
+                resampler=multinomial_resample_from_log_weights,
                 esse_threshold=0.5,
             ),
             num_particles=num_particles,

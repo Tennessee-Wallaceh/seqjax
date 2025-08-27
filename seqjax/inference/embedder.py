@@ -2,24 +2,39 @@ import equinox as eqx
 from jaxtyping import Array, Int, Float, Scalar, PRNGKeyArray
 import jax.numpy as jnp
 import jax
-from jax.experimental import checkify
 from abc import abstractmethod
+
+import seqjax.model.typing
 
 
 class Embedder(eqx.Module):
+    """
+    Maps observation sequence to a context vector for
+    each point in the batch
+    """
+
     context_dimension: int
-    """
-    Maps some information to a context vector
-    """
 
     @abstractmethod
     def embed(
-        self, observations: Float[Array, "batch_length y_dimension"]
-    ) -> Float[Array, "batch_length context_dimension"]:
-        pass
+        self, observations: seqjax.model.typing.Batched[seqjax.model.typing.Observation]
+    ) -> Float[Array, "batch_length context_dimension"]: ...
 
 
-class PassThroughEmbedder(Embedder):
+class NullEmbedder(Embedder):
+    """
+    Throw away input observations
+    """
+
+    context_dimension = 0
+
+    def embed(
+        self, observations: seqjax.model.typing.Batched[seqjax.model.typing.Observation]
+    ):
+        return jnp.broadcast_to(jnp.array(()), (90, 0))
+
+
+class WindowEmbedder(Embedder):
     """
     Reshapes observation information to a context of appropriate size for
     each step in the batch
@@ -66,9 +81,10 @@ class PassThroughEmbedder(Embedder):
         ]
 
     def embed(
-        self, observations: Float[Array, "batch_length y_dimension"]
+        self, observations: seqjax.model.typing.Observation
     ) -> Float[Array, "batch_length x_dimension context_length"]:
-        per_dim_context = jax.vmap(self._pad, in_axes=[1])(observations)
+        observation_array = observations.ravel(observations)
+        per_dim_context = jax.vmap(self._pad, in_axes=[1])(observation_array)
         # flip so leading dim is step index, and flatten each step
         return jax.vmap(jnp.ravel)(jnp.transpose(per_dim_context, (1, 0, 2)))
 
@@ -110,7 +126,7 @@ class NoReshapeEmbedder(Embedder):
         return jnp.ravel(observations)
 
 
-class SquareDiffEmbedder(PassThroughEmbedder):
+class SquareDiffEmbedder(WindowEmbedder):
     """
     Idenditcal to pass through, but square the difference in observations
     Useful for latent vol.
@@ -186,26 +202,28 @@ class LogReturnEmbedder(Embedder):
 
 
 class RNNEmbedder(Embedder):
-    cell: eqx.nn.GRUCell
+    cell_fwd: eqx.nn.GRUCell
+    cell_rev: eqx.nn.GRUCell
 
-    def __init__(
-        self,
-        batch_length: int,
-        hidden_size: int,
-        y_dimension: int,
-        *,
-        key: PRNGKeyArray,
-    ):
-        self.cell = eqx.nn.GRUCell(y_dimension, hidden_size, key=key)
-        self.context_dimension = hidden_size
+    def __init__(self, hidden: int, y_dim: int, *, key):
+        k1, k2 = jax.random.split(key)
+        self.cell_fwd = eqx.nn.GRUCell(y_dim, hidden, key=k1)
+        self.cell_rev = eqx.nn.GRUCell(y_dim, hidden, key=k2)
+        self.context_dimension = 2 * hidden  # fwd ⊕ rev
+
+    def _scan(self, cell, seq):
+        def step(carry, x):
+            new_carry = cell(x, carry)
+            return new_carry, new_carry  # output the hidden itself
+
+        h0 = jnp.zeros((cell.hidden_size,))
+        _, hs = jax.lax.scan(step, h0, seq)
+        return hs  # shape (T, hidden)
 
     def embed(
-        self, observations: Float[Array, "batch_length y_dimension"]
-    ) -> Float[Array, "batch_step x_dimension context_length"]:
-
-        def f(carry, inp):
-            return self.cell(inp, carry), carry
-
-        hidden_init = jnp.zeros((self.cell.hidden_size,))
-        out, h = jax.lax.scan(f, hidden_init, observations)
-        return jnp.vstack([h[1:], out])
+        self, obs: seqjax.model.typing.Packable
+    ) -> Float[Array, "batch_length context_dimension"]:
+        seq = obs.ravel(obs)  # (T, y_dim)
+        h_fwd = self._scan(self.cell_fwd, seq)
+        h_rev = self._scan(self.cell_rev, seq[::-1])[::-1]
+        return jnp.concatenate([h_fwd, h_rev], axis=-1)  # (T, 2*hidden)
