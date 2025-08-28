@@ -4,7 +4,6 @@ import inspect
 from functools import lru_cache
 import math
 from typing import (
-    TYPE_CHECKING,
     ClassVar,
     Generic,
     Protocol,
@@ -13,6 +12,7 @@ from typing import (
     Unpack,
 )
 import typing
+from collections import OrderedDict
 
 import equinox as eqx
 import jax
@@ -37,7 +37,7 @@ class Packable(eqx.Module):
     are `jax.ShapeDtypeStruct`s **without** batch dims (scalars use shape=()).
     """
 
-    _shape_template: eqx.AbstractClassVar[dict[str, jax.ShapeDtypeStruct]]
+    _shape_template: ClassVar[OrderedDict[str, jax.ShapeDtypeStruct]]
     flat_dim: ClassVar[int]
 
     def __init_subclass__(cls, **kwargs):
@@ -55,9 +55,6 @@ class Packable(eqx.Module):
             int(math.prod(spec.shape or (1,))) for spec in template.values()
         )
 
-    # ------------------------------------------------------------------ #
-    # Build & cache a (ravel, unravel) pair once per concrete subclass
-    # ------------------------------------------------------------------ #
     @classmethod
     @lru_cache(maxsize=None)
     def _ravel_pair(
@@ -69,48 +66,36 @@ class Packable(eqx.Module):
         if cls is Packable or not cls._shape_template:
             raise TypeError(f"{cls.__name__} must define a non-empty _shape_template")
 
-        # -- 1.  Dummy instance (compile-time only; tiny) -----------------
-        zeros = {
-            name: jnp.zeros(spec.shape or (1,), spec.dtype)
-            for name, spec in cls._shape_template.items()
-        }
-        dummy = cls(**zeros)
-        leaves, treedef = jax.tree_util.tree_flatten(dummy)
-
-        # -- 2.  Static per-leaf metadata --------------------------------
-        feat_shapes: typing.Tuple[typing.Tuple[int, ...], ...] = tuple(
-            spec.shape if spec.shape else (1,)  # scalar becomes (1,)
-            for spec in cls._shape_template.values()
-        )
-        is_scalar: typing.Tuple[bool, ...] = tuple(
-            spec.shape == () for spec in cls._shape_template.values()
-        )
-
-        flat_sizes = [math.prod(s) for s in feat_shapes]  # python ints
+        items = tuple(cls._shape_template.items())
+        flat_sizes = tuple(math.prod(spec.shape or (1,)) for _, spec in items)
         split_idx = tuple(sum(flat_sizes[: i + 1]) for i in range(len(flat_sizes) - 1))
 
-        # -- 3.  JIT-friendly helpers ------------------------------------
         def ravel(obj: "Packable") -> jnp.ndarray:
             parts = []
-            for leaf, shape, scalar in zip(
-                jax.tree_util.tree_leaves(obj), feat_shapes, is_scalar
-            ):
-                if scalar:
-                    leaf = leaf[..., None]  # add size-1 axis
-                batch = leaf.shape[: -len(shape)]  # any leading dims
+            for name, spec in items:
+                leaf = getattr(obj, name).astype(spec.dtype, copy=False)
+                shape = spec.shape
+                if shape == ():
+                    leaf = leaf[..., None]
+                    shape = (1,)
+                batch = leaf.shape[: -len(shape)] if shape else leaf.shape
                 parts.append(jnp.reshape(leaf, batch + (-1,)))
             return jnp.concatenate(parts, axis=-1)
 
         def unravel(vec: jnp.ndarray) -> "Packable":
             batch = vec.shape[:-1]
             chunks = jnp.split(vec, split_idx, axis=-1) if split_idx else (vec,)
-            new_leaves = []
-            for chunk, shape, scalar in zip(chunks, feat_shapes, is_scalar):
-                leaf = jnp.reshape(chunk, batch + shape)
-                if scalar:
-                    leaf = jnp.squeeze(leaf, -1)
-                new_leaves.append(leaf)
-            return treedef.unflatten(new_leaves)
+            kwargs = {}
+            for (name, spec), chunk in zip(items, chunks):
+                target = spec.shape
+                if target == ():
+                    # from (...,1) back to scalar trailing shape
+                    leaf = jnp.reshape(chunk, batch + (1,))
+                    leaf = jnp.reshape(leaf, batch + ())
+                else:
+                    leaf = jnp.reshape(chunk, batch + target)
+                kwargs[name] = leaf.astype(spec.dtype, copy=False)
+            return cls(**kwargs)
 
         return ravel, unravel
 
@@ -135,7 +120,15 @@ class Packable(eqx.Module):
 
     @classmethod
     def fields(cls):
-        return list(cls._shape_template.keys())
+        return tuple(cls._shape_template.keys())
+
+    @classmethod
+    def flat_fields(cls):
+        return tuple(
+            f"{leaf_name}_{ix}"
+            for leaf_name, spec in cls._shape_template.items()
+            for ix in range(math.prod(spec.shape))
+        )
 
 
 class Particle(Packable): ...
