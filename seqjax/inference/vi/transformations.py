@@ -10,6 +10,7 @@ from jax.nn import softplus
 import jax.random as jrandom
 import seqjax.model.typing
 import operator
+import distrax
 
 
 class Bijector(eqx.Module):
@@ -39,6 +40,37 @@ class Identity(Bijector):
         Float[Array, "num_samples"],
     ]:
         return x, jnp.array(0.0)
+
+
+class ConstrainedRQS(Bijector):
+    lower: float
+    upper: float
+    _unc_params: Any
+
+    def __init__(self, num_bins: int, lower: float, upper: float):
+        self._unc_params = jnp.zeros((num_bins * 3 + 1))
+        self.lower = lower
+        self.upper = upper
+
+    def transform_and_lad(self, x: Float[Array, "num_samples x_dim"]) -> tuple[
+        Float[Array, "num_samples x_dim"],
+        Float[Array, "num_samples"],
+    ]:
+        return distrax.RationalQuadraticSpline(
+            self._unc_params,
+            range_min=self.lower,
+            range_max=self.upper,
+        ).forward_and_log_det(x)
+
+    def inverse_and_lad(self, x: Float[Array, "num_samples x_dim"]) -> tuple[
+        Float[Array, "num_samples x_dim"],
+        Float[Array, "num_samples"],
+    ]:
+        return distrax.RationalQuadraticSpline(
+            self._unc_params,
+            range_min=self.lower,
+            range_max=self.upper,
+        ).inverse_and_log_det(x)
 
 
 def log_dsftpls(x):
@@ -101,6 +133,44 @@ class Sigmoid(Bijector):
         x = jax.scipy.special.logit(sig)
         lad = -jnp.log(self.upper - self.lower) - jnp.log(sig) - jnp.log(1 - sig)
 
+        return x, lad
+
+
+class Chain(Bijector):
+    bijectors: typing.Tuple[
+        Bijector, ...
+    ]  # keep as pytree (not static) so it's trainable
+
+    def __init__(self, bijectors: typing.Sequence[Bijector]):
+        # flatten nested Chains to avoid deep Python loops/pytrees
+        flat: list[Bijector] = []
+        for b in bijectors:
+            if isinstance(b, Chain):
+                flat.extend(b.bijectors)
+            else:
+                flat.append(b)
+        self.bijectors = tuple(flat)
+
+    def transform_and_lad(
+        self, x: Float[Array, "num_samples ..."]
+    ) -> typing.Tuple[Float[Array, "num_samples ..."], Float[Array, "num_samples"]]:
+        y = x
+        shape = x.shape[0] if x.shape else ()
+        lad = jnp.zeros(shape, dtype=x.dtype)
+        for b in self.bijectors:
+            y, inc = b.transform_and_lad(y)
+            lad = lad + inc
+        return y, lad
+
+    def inverse_and_lad(
+        self, y: Float[Array, "num_samples ..."]
+    ) -> typing.Tuple[Float[Array, "num_samples ..."], Float[Array, "num_samples"]]:
+        x = y
+        shape = x.shape[0] if x.shape else ()
+        lad = jnp.zeros(shape, dtype=y.dtype)
+        for b in reversed(self.bijectors):
+            x, inc = b.inverse_and_lad(x)
+            lad = lad + inc
         return x, lad
 
 

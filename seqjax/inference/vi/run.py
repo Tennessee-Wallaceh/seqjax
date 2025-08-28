@@ -9,7 +9,6 @@ import optax
 import jax
 import jax.numpy as jnp
 import pandas as pd
-from seqjax.model.simulate import simulate
 from seqjax.model.base import (
     ConditionType,
     ObservationType,
@@ -21,8 +20,6 @@ from seqjax.model.base import (
     ParameterPrior,
 )
 from seqjax.model.typing import Batched, SequenceAxis, SampleAxis, HyperParametersType
-from seqjax.model import evaluate
-from seqjax.util import pytree_shape
 import equinox as eqx
 import jaxtyping
 import jax.random as jrandom
@@ -78,7 +75,7 @@ def run_full_path_vi(
         key, None, target_posterior.target_parameter(initial_parameters)
     )[0]
 
-    target_param_class = type(initial_parameters)
+    target_param_class = target_posterior.target.parameter_cls
     target_latent_class = type(initial_state)
 
     parameter_approximation = transformed.transform_approximation(
