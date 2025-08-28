@@ -220,7 +220,9 @@ class AREmission(Emission[LatentValue, NoisyEmission, Condition, ARParameters]):
 
 
 class AR1Target(SequentialModel[LatentValue, NoisyEmission, Condition, ARParameters]):
-    particle_type = LatentValue
+    particle_cls = LatentValue
+    observation_cls = NoisyEmission
+    parameter_cls = ARParameters
     prior = InitialValue()
     transition = ARRandomWalk()
     emission = AREmission()
@@ -249,5 +251,6 @@ class AR1Bayesian(
             partial(fill_parameter, ref_params=ref_params)
         )
 
+    inference_parameter_cls = AROnlyParameters
     target = AR1Target()  # defind for ARParameters
     parameter_prior = AROnlyPrior()  # defined for the partial parameters

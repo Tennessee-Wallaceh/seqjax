@@ -135,6 +135,9 @@ class Emission(
 class SequentialModel(
     Generic[ParticleType, ObservationType, ConditionType, ParametersType]
 ):
+    particle_cls: type[ParticleType]
+    observation_cls: type[ObservationType]
+    parameter_cls: type[ParametersType]
     prior: Prior[ParticleType, ConditionType, ParametersType]
     transition: Transition[ParticleType, ConditionType, ParametersType]
     emission: Emission[ParticleType, ObservationType, ConditionType, ParametersType]
@@ -156,6 +159,7 @@ class BayesianSequentialModel(
         HyperParametersType,
     ]
 ):
+    inference_parameter_cls: type[InferenceParametersType]
     target: SequentialModel[
         ParticleType, ObservationType, ConditionType, ParametersType
     ]
