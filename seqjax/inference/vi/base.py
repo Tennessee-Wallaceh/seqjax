@@ -247,6 +247,11 @@ class BufferedSSMVI(eqx.Module):
             jrandom.split(key, (context_samples, samples_per_context * 2)), 2, axis=1
         )
 
+        # vmap down both axes
+        parameters, log_q_theta = jax.vmap(
+            jax.vmap(self.parameter_approximation.sample_and_log_prob)
+        )(parameter_keys)
+
         # sample observation slices
         # first padding out to give correct slices
         observations = jax.tree_util.tree_map(
@@ -276,11 +281,6 @@ class BufferedSSMVI(eqx.Module):
             )
         )(jrandom.split(start_key, context_samples))
 
-        # vmap down both axes
-        parameters, log_q_theta = jax.vmap(
-            jax.vmap(self.parameter_approximation.sample_and_log_prob)
-        )(parameter_keys)
-
         # vmap down the outer samples
         # then just latent_keys and the parameter samples
         x_path, log_q_x_path = jax.vmap(
@@ -290,7 +290,7 @@ class BufferedSSMVI(eqx.Module):
         )(
             latent_keys,
             (
-                parameters.ravel(parameters),
+                jax.lax.stop_gradient(parameters.ravel(parameters)),
                 jax.vmap(self.embedding.embed)(observation_slices),
             ),
         )

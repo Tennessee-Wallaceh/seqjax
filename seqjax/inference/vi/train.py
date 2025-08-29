@@ -72,7 +72,7 @@ def loss_buffered_neg_elbo(
     )(conditions, start_ix, approximation.latent_approximation.shape[0])
 
     log_p_theta = jax.vmap(
-        lambda x: target_posterior.parameter_prior.log_prob(x, None)
+        jax.vmap(lambda x: target_posterior.parameter_prior.log_prob(x, None))
     )(theta_q)
 
     batched_log_p_joint = jax.vmap(
@@ -97,15 +97,17 @@ def loss_buffered_neg_elbo(
     )
 
     # apply scaling for each index and sum down the sequence axis
+    # log_q_x_path is (num_context, samples_per_context, sample_length)
     # latent_scaling is (num_context, sample_length) so add extra axis in middle
     # (num_context, 1, sample_length) to broadcast
     path_neg_elbo = jnp.sum(
-        jnp.expand_dims(latent_scaling, axis=1) * (log_q_x_path - log_p_x_y_path_no_x),
+        jnp.expand_dims(latent_scaling, axis=1)
+        * (jax.lax.stop_gradient(log_q_x_path) - log_p_x_y_path_no_x),
         axis=-1,
     )
 
     x_path_neg_elbo = jnp.sum(log_q_x_path - log_p_x_y_path_no_theta, axis=-1)
-    neg_elbo = (log_q_theta - log_p_theta) + 0.5 * path_neg_elbo + 0.5 * x_path_neg_elbo
+    neg_elbo = (log_q_theta - log_p_theta) + path_neg_elbo + x_path_neg_elbo
 
     return jnp.mean(neg_elbo)
 
@@ -158,12 +160,124 @@ def loss_buffered_neg_elbo_path(
     return jnp.mean(log_q_x_path - log_p_x_y_path)
 
 
+def loss_parameter_prior_fit(
+    trainable,
+    static,
+    observations,
+    conditions,
+    key,
+    target_posterior,
+    num_context,
+    samples_per_context,
+):
+    # build full model for sampling
+    approximation: SSMVariationalApproximation = eqx.combine(trainable, static)
+
+    param_keys, latent_keys = jrandom.split(key)
+    theta_keys = jrandom.split(param_keys, (num_context, samples_per_context))
+    prior_theta = jax.vmap(jax.vmap(target_posterior.parameter_prior.sample))(
+        theta_keys, None
+    )
+
+    theta_q, _, x_q, log_q_x_path, start_ix, latent_scaling = (
+        approximation.joint_sample_and_log_prob(
+            observations,
+            conditions,
+            key,
+            num_context,
+            samples_per_context,
+        )
+    )
+
+    corresponding_observations = jax.vmap(
+        util.dynamic_slice_pytree, in_axes=[None, 0, None]
+    )(observations, start_ix, approximation.latent_approximation.shape[0])
+
+    corresponding_conditions = jax.vmap(
+        util.dynamic_slice_pytree, in_axes=[None, 0, None]
+    )(conditions, start_ix, approximation.latent_approximation.shape[0])
+
+    buffered_theta_q = approximation.buffer_params(jax.lax.stop_gradient(theta_q))
+
+    batched_log_p_joint = jax.vmap(
+        partial(buffered_log_p_joint, target_posterior.target),
+        in_axes=[0, None, None, 0],
+    )
+    batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
+    log_p_x_y_path = batched_log_p_joint(
+        x_q,
+        corresponding_observations,
+        corresponding_conditions,
+        target_posterior.target_parameter(buffered_theta_q),
+    )
+
+    return jnp.mean(log_q_x_path - log_p_x_y_path)
+
+
 class LocalTracker:
     def __init__(self):
         self.rows = []
 
     def log(self, data):
         self.rows.append(data)
+
+
+@eqx.filter_jit
+def sample_theta_qs(static, trainable, key, metric_samples):
+    model: SSMVariationalApproximation = eqx.combine(static, trainable)
+    parameter_keys = jrandom.split(key, metric_samples)
+    theta, _ = jax.vmap(model.parameter_approximation.sample_and_log_prob)(
+        parameter_keys
+    )
+    qs = jax.tree_util.tree_map(
+        lambda x: jnp.quantile(x, jnp.array([0.05, 0.95])), theta
+    )
+    means = jax.tree_util.tree_map(lambda x: jnp.mean(x), theta)
+    return qs, means
+
+
+class DefaultTracker:
+    def __init__(self, record_interval=100, metric_samples=100):
+        self.record_interval = record_interval
+        self.metric_samples = metric_samples
+        self.elapsed_time_s = 0
+        self.update_rows = []
+
+    def start_run(self):
+        self.train_phase_start_time = time.time()
+
+    def track_step(self, static, trainable, opt_step, loss, key, loop):
+
+        if (opt_step + 1) % self.record_interval == 0:
+            jax.device_get(loss)  # sync
+
+            # increment elapsed time by the time of this train phase
+            self.elapsed_time_s += time.time() - self.train_phase_start_time
+
+            update = {
+                "step": int(opt_step + 1),
+                "loss": float(loss),
+                "elapsed_time_s": self.elapsed_time_s,
+                # "phase_time_s": elapsed_time_s - time_offset,
+                # "loss_label": loss_label,
+            }
+
+            qs, means = sample_theta_qs(static, trainable, key, self.metric_samples)
+
+            _reads = []
+            for param in static.parameter_approximation.target_struct_cls.fields():
+                update[f"{param}_q05"] = getattr(qs, param)[0]
+                update[f"{param}_q95"] = getattr(qs, param)[1]
+                update[f"{param}_mean"] = getattr(means, param)
+                _reads.append(f'{param}: {update[f"{param}_mean"]:.2f}')
+            mean_str = " , ".join(_reads)
+
+            self.update_rows.append(update)
+
+            loop.set_postfix({f"loss:": f"{loss.item():.3f} {mean_str}"})
+
+            # start the train phase timer
+            self.train_phase_start_time = time.time()
 
 
 def train(
@@ -174,23 +288,18 @@ def train(
     *,
     key,
     optim,
-    run_tracker: Optional[Run | LocalTracker] = None,
+    run_tracker: DefaultTracker,
     num_steps=1000,
-    record_interval=100,
     filter_spec=None,
     observations_per_step: int = 5,
     samples_per_context: int = 10,
-    metric_samples: int = 1000,
     device_sharding: Optional[Any] = None,
     nb_context=False,
-    loss_label="buffered-neg-elbo",
-    time_offset=0,
-    loop_label="",
 ) -> tuple[SSMVariationalApproximation, Any, Any, int]:
 
     # set up record if needed
     if run_tracker is None:
-        run_tracker = LocalTracker()
+        run_tracker = DefaultTracker()
 
     # optimizer initailisation
     if filter_spec is None:
@@ -226,26 +335,11 @@ def train(
         trainable = eqx.apply_updates(trainable, updates)
         return loss, trainable, opt_state
 
-    def sample_theta_qs(trainable, static, key):
-        model: SSMVariationalApproximation = eqx.combine(trainable, static)
-        parameter_keys = jrandom.split(key, metric_samples)
-        theta, _ = jax.vmap(model.parameter_approximation.sample_and_log_prob)(
-            parameter_keys
-        )
-        qs = jax.tree_util.tree_map(
-            lambda x: jnp.quantile(x, jnp.array([0.05, 0.95])), theta
-        )
-        means = jax.tree_util.tree_map(lambda x: jnp.mean(x), theta)
-        return qs, means
-
     # compile
     make_step = (
         eqx.filter_jit(make_step)
         .lower(trainable, static, opt_state, observations, conditions, step_keys[0])
         .compile()
-    )
-    sample_theta_qs = (
-        eqx.filter_jit(sample_theta_qs).lower(trainable, static, step_keys[0]).compile()
     )
 
     # train loop
@@ -254,55 +348,14 @@ def train(
     else:
         loop = trange(num_steps, position=1)
 
-    train_phase_start_time = time.time()
-    elapsed_time_s = time_offset
-    print(f"elapsed_s: {elapsed_time_s}")
-
-    mean_str = ""
+    run_tracker.start_run()
     for opt_step in loop:
         loss, trainable, opt_state = make_step(
             trainable, static, opt_state, observations, conditions, step_keys[opt_step]
         )
-        loss = loss.item()
 
-        if (opt_step + 1) % record_interval == 0:
-            jax.device_get(loss)  # sync
+        run_tracker.track_step(
+            static, trainable, opt_step, loss, step_keys[opt_step], loop
+        )
 
-            # increment elapsed time by the time of this train phase
-            elapsed_time_s += time.time() - train_phase_start_time
-
-            update = {
-                "step": int(opt_step + 1),
-                loss_label: float(loss),
-                "elapsed_time_s": elapsed_time_s,
-                "phase_time_s": elapsed_time_s - time_offset,
-                "loss_label": loss_label,
-            }
-
-            qs, means = sample_theta_qs(trainable, static, step_keys[opt_step])
-
-            _reads = []
-            for param in static.parameter_approximation.target_struct_cls.fields():
-                update[f"{param}_q05"] = getattr(qs, param)[0]
-                update[f"{param}_q95"] = getattr(qs, param)[1]
-                update[f"{param}_mean"] = getattr(means, param)
-                _reads.append(f'{param}: {update[f"{param}_mean"]:.2f}')
-            mean_str = " , ".join(_reads)
-
-            # ess_eff, psis_k, prior_fit, data_fit = compute_vi_metrics(
-            #     trainable, static, key
-            # )
-            # update["ess"] = float(ess_eff)
-            # update["k_hat"] = float(psis_k)
-            # update["prior_fit"] = float(prior_fit)
-            # update["data_fit"] = float(data_fit)
-
-            run_tracker.log(update)
-
-            # start the train phase timer
-            train_phase_start_time = time.time()
-
-        loop.set_postfix({f"{loop_label}| {loss_label}": f"{loss:.3f} {mean_str}"})
-
-    model = eqx.combine(static, trainable)
-    return model, opt_state, run_tracker, elapsed_time_s
+    return eqx.combine(static, trainable)

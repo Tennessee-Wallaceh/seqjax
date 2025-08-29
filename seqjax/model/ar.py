@@ -100,9 +100,8 @@ class AROnlyPrior(ParameterPrior[AROnlyParameters, HyperParameters]):
     def sample(
         key: PRNGKeyArray, _hyperparameters: HyperParameters
     ) -> AROnlyParameters:
-        ar_key, o_std_key, t_std_key = jrandom.split(key, 3)
         return AROnlyParameters(
-            ar=jrandom.uniform(ar_key, minval=-1, maxval=1),
+            ar=jrandom.uniform(key, minval=-1, maxval=1),
         )
 
     @staticmethod
