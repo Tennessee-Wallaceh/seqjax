@@ -17,6 +17,7 @@ import seqjax.model
 import seqjax.model.typing
 from seqjax import util
 from seqjax.inference.embedder import Embedder, NullEmbedder
+from seqjax.model.evaluate import buffered_log_p_joint
 
 
 class VariationalApproximation[
@@ -144,6 +145,17 @@ class SSMVariationalApproximation[
     @abstractmethod
     def buffer_params(self, parameters: ParameterStructT): ...
 
+    @abstractmethod
+    def estimate_loss(
+        self,
+        observations: ObservationT,
+        conditions: seqjax.model.typing.Condition,
+        key: jaxtyping.PRNGKeyArray,
+        context_samples: int,
+        samples_per_context: int,
+    ) -> typing.Any:
+        pass
+
 
 class FullAutoregressiveVI[
     LatentStructT: seqjax.model.typing.Particle,
@@ -203,7 +215,7 @@ class FullAutoregressiveVI[
 
 def sample_batch(key, sample_length, max_start_ix, y_path, condition):
     # each sample will come from the data replicated onto each device
-    start_ix = jrandom.randint(key, (), 0, max_start_ix)
+    start_ix = jrandom.randint(key, (), 0, max_start_ix + 1)
     samples = jax.tree_util.tree_map(
         partial(
             jax.lax.dynamic_slice_in_dim, start_index=start_ix, slice_size=sample_length
@@ -220,7 +232,63 @@ def sample_batch(key, sample_length, max_start_ix, y_path, condition):
     return start_ix, samples, csamples
 
 
-class BufferedSSMVI(eqx.Module):
+def sample_batch_and_mask(
+    key, sequence_length, batch_length, buffer_length, y_path, condition
+):
+    sample_length = batch_length + 2 * buffer_length
+    pad_length = batch_length - 1
+
+    # each sample will come from the data replicated onto each device
+    padded_start_ix = jrandom.randint(key, (), 0, sequence_length + pad_length)
+
+    # where the buffer would like to start, may fall outside of data
+    buffer_start = padded_start_ix - pad_length - buffer_length
+    # pshirt into possible starts for the latent approximation
+    approx_start = jnp.clip(buffer_start, min=0, max=sequence_length - sample_length)
+
+    # construct the mask for theta, this probably could be
+    # written in a clearer way
+    batch_index = padded_start_ix + jnp.arange(batch_length)
+    padded_mask = jax.nn.one_hot(
+        batch_index, num_classes=sequence_length + 2 * pad_length
+    ).any(axis=0)
+    in_data = jnp.concatenate(
+        (
+            jnp.full(pad_length, 0),
+            jnp.full(sequence_length, 1),
+            jnp.full(pad_length, 0),
+        )
+    )
+    theta_mask = jnp.logical_and(in_data, padded_mask)[pad_length:-pad_length]
+    theta_mask = jax.lax.dynamic_slice_in_dim(
+        theta_mask, start_index=approx_start, slice_size=sample_length
+    )
+
+    samples = jax.tree_util.tree_map(
+        partial(
+            jax.lax.dynamic_slice_in_dim,
+            start_index=approx_start,
+            slice_size=sample_length,
+        ),
+        y_path,
+    )
+    csamples = jax.tree_util.tree_map(
+        partial(
+            jax.lax.dynamic_slice_in_dim,
+            start_index=approx_start,
+            slice_size=sample_length,
+        ),
+        condition,
+    )
+
+    return approx_start, samples, csamples, theta_mask
+
+
+class BufferedSSMVI[
+    LatentStructT: seqjax.model.typing.Particle,
+    ParameterStructT: seqjax.model.typing.Parameters,
+    ObservationT: seqjax.model.typing.Observation,
+](eqx.Module):
     latent_approximation: AmortizedVariationalApproximation
     parameter_approximation: UnconditionalVariationalApproximation
     embedding: Embedder
@@ -236,9 +304,7 @@ class BufferedSSMVI(eqx.Module):
 
         # read off configuration
         path_length = observations.batch_shape[0]
-        sample_length = self.latent_approximation.shape[0]
         batch_length = self.latent_approximation.batch_length
-        max_start_ix = path_length - batch_length - 1
         buffer_length = self.latent_approximation.buffer_length
 
         # split keys for sampling
@@ -252,30 +318,13 @@ class BufferedSSMVI(eqx.Module):
             jax.vmap(self.parameter_approximation.sample_and_log_prob)
         )(parameter_keys)
 
-        # sample observation slices
-        # first padding out to give correct slices
-        observations = jax.tree_util.tree_map(
+        # sample batches and masks
+        approx_start, y_batch, c_batch, theta_mask = jax.vmap(
             partial(
-                jnp.pad,
-                pad_width=(buffer_length, buffer_length),
-                mode="mean",
-            ),
-            observations,
-        )
-        conditions = jax.tree_util.tree_map(
-            partial(
-                jnp.pad,
-                pad_width=(buffer_length, buffer_length),
-                mode="mean",
-            ),
-            conditions,
-        )
-
-        start_ix, observation_slices, condition_slices = jax.vmap(
-            partial(
-                sample_batch,
-                sample_length=sample_length,
-                max_start_ix=max_start_ix,
+                sample_batch_and_mask,
+                sequence_length=path_length,
+                batch_length=batch_length,
+                buffer_length=buffer_length,
                 y_path=observations,
                 condition=conditions,
             )
@@ -291,42 +340,70 @@ class BufferedSSMVI(eqx.Module):
             latent_keys,
             (
                 jax.lax.stop_gradient(parameters.ravel(parameters)),
-                jax.vmap(self.embedding.embed)(observation_slices),
+                jax.vmap(self.embedding.embed)(y_batch),
             ),
         )
-        # compute the latent scaling
-        t_abs = start_ix.reshape(-1, 1) + jnp.arange(sample_length)
-        num_possible_block = path_length - batch_length + 1
-        block_membership_count = jnp.minimum(
-            jnp.minimum(t_abs + 1, path_length - t_abs),
-            min(batch_length, num_possible_block, path_length - batch_length + 1),
-        )
-        block_membership_count = jnp.maximum(block_membership_count, 1)
-        latent_scaling = num_possible_block / block_membership_count
-        sample_length = self.latent_approximation.shape[0]
-        buffer_length = self.latent_approximation.buffer_length
-        buffer_ix = jnp.arange(sample_length)
-        batch_mask = jnp.logical_and(
-            buffer_ix >= buffer_length,
-            buffer_ix < sample_length - buffer_length,
-        )
 
-        latent_scaling = latent_scaling * batch_mask
-        return (parameters, log_q_theta, x_path, log_q_x_path, start_ix, latent_scaling)
-
-    def buffer_params(self, parameters):
-        sample_length = self.latent_approximation.shape[0]
-        buffer_length = self.latent_approximation.buffer_length
-        buffer_ix = jnp.arange(sample_length)
-        buffer_mask = jnp.logical_and(
-            buffer_ix <= buffer_length,
-            buffer_ix >= sample_length - buffer_length,
-        )
-
-        return buffer_params(
+        return (
             parameters,
-            buffer_mask,  # nothing in buffer
-            parameters.batch_shape[0],
-            parameters.batch_shape[1],
-            sample_length,
+            log_q_theta,
+            x_path,
+            log_q_x_path,
+            (approx_start, theta_mask, y_batch, c_batch),
         )
+
+    def buffer_params(self, parameters, mask):
+        theta_grad = parameters
+        theta_no_grad = jax.lax.stop_gradient(parameters)
+
+        return jax.tree.map(
+            lambda a, b: jnp.where(mask, a, b),
+            theta_no_grad,
+            theta_grad,
+        )
+
+    def estimate_loss(
+        self,
+        observations: ObservationT,
+        conditions: seqjax.model.typing.Condition,
+        key: jaxtyping.PRNGKeyArray,
+        context_samples: int,
+        samples_per_context: int,
+        target_posterior,
+    ) -> typing.Any:
+        # each index appears in max batch length batches
+        # batches are sampled uniformly, so scale by
+        latent_scaling = (
+            self.latent_approximation.batch_length + observations.batch_shape[0]
+        ) / self.latent_approximation.batch_length
+
+        theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
+            self.joint_sample_and_log_prob(
+                observations, conditions, key, context_samples, samples_per_context
+            )
+        )
+        _, theta_mask, y_batch, c_batch = extra_info
+
+        log_p_theta = jax.vmap(
+            jax.vmap(lambda x: target_posterior.parameter_prior.log_prob(x, None))
+        )(theta_q)
+
+        batched_log_p_joint = jax.vmap(
+            partial(buffered_log_p_joint, target_posterior.target),
+            in_axes=[0, None, None, 0],
+        )
+        batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
+
+        buffered_theta = jax.vmap(jax.vmap(self.buffer_params, in_axes=[0, None]))(
+            theta_q, theta_mask
+        )
+
+        log_p_y_x_path = batched_log_p_joint(
+            x_path, y_batch, c_batch, target_posterior.target_parameter(buffered_theta)
+        )
+
+        neg_elbo = (log_q_theta - log_p_theta) + latent_scaling * jnp.sum(
+            log_q_x_path - log_p_y_x_path, axis=-1
+        )
+
+        return jnp.mean(neg_elbo)

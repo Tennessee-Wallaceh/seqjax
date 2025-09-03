@@ -53,63 +53,14 @@ def loss_buffered_neg_elbo(
     # build full model for sampling
     approximation: SSMVariationalApproximation = eqx.combine(trainable, static)
 
-    theta_q, log_q_theta, x_q, log_q_x_path, start_ix, latent_scaling = (
-        approximation.joint_sample_and_log_prob(
-            observations,
-            conditions,
-            key,
-            num_context,
-            samples_per_context,
-        )
+    return approximation.estimate_loss(
+        observations,
+        conditions,
+        key,
+        num_context,
+        samples_per_context,
+        target_posterior,
     )
-
-    corresponding_observations = jax.vmap(
-        util.dynamic_slice_pytree, in_axes=[None, 0, None]
-    )(observations, start_ix, approximation.latent_approximation.shape[0])
-
-    corresponding_conditions = jax.vmap(
-        util.dynamic_slice_pytree, in_axes=[None, 0, None]
-    )(conditions, start_ix, approximation.latent_approximation.shape[0])
-
-    log_p_theta = jax.vmap(
-        jax.vmap(lambda x: target_posterior.parameter_prior.log_prob(x, None))
-    )(theta_q)
-
-    batched_log_p_joint = jax.vmap(
-        partial(buffered_log_p_joint, target_posterior.target),
-        in_axes=[0, None, None, 0],
-    )
-    batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
-    log_p_x_y_path_no_x = batched_log_p_joint(
-        jax.lax.stop_gradient(x_q),
-        corresponding_observations,
-        corresponding_conditions,
-        target_posterior.target_parameter(approximation.buffer_params(theta_q)),
-    )
-
-    log_p_x_y_path_no_theta = batched_log_p_joint(
-        x_q,
-        corresponding_observations,
-        corresponding_conditions,
-        target_posterior.target_parameter(
-            approximation.buffer_params(jax.lax.stop_gradient(theta_q))
-        ),
-    )
-
-    # apply scaling for each index and sum down the sequence axis
-    # log_q_x_path is (num_context, samples_per_context, sample_length)
-    # latent_scaling is (num_context, sample_length) so add extra axis in middle
-    # (num_context, 1, sample_length) to broadcast
-    path_neg_elbo = jnp.sum(
-        jnp.expand_dims(latent_scaling, axis=1)
-        * (jax.lax.stop_gradient(log_q_x_path) - log_p_x_y_path_no_x),
-        axis=-1,
-    )
-
-    x_path_neg_elbo = jnp.sum(log_q_x_path - log_p_x_y_path_no_theta, axis=-1)
-    neg_elbo = (log_q_theta - log_p_theta) + path_neg_elbo + x_path_neg_elbo
-
-    return jnp.mean(neg_elbo)
 
 
 def loss_buffered_neg_elbo_path(
@@ -312,14 +263,6 @@ def train(
     loss_and_grad = jax.value_and_grad(
         partial(
             loss_buffered_neg_elbo,
-            target_posterior=target,
-            num_context=samples_per_context,
-            samples_per_context=observations_per_step,
-        )
-    )
-    path_loss_and_grad = jax.value_and_grad(
-        partial(
-            loss_buffered_neg_elbo_path,
             target_posterior=target,
             num_context=samples_per_context,
             samples_per_context=observations_per_step,

@@ -65,3 +65,32 @@ def load_packable_artifact(
         df_to_packable(packable_cls, pl.read_parquet(file_path)),
         pl.read_parquet_metadata(file_path),
     )
+
+
+"""
+
+
+import wandb
+from seqjax import io
+
+run = wandb.init(project="test", job_type="upload-dataset")
+
+io.save_packable_artifact(
+    run=run,
+    artifact_name="test_dset",
+    file_name="afile",
+    wandb_type="dataset",
+    packable=x_path,
+    metadata=dict(anextra="thing"),
+)
+run = wandb.init(project="test", job_type="dlow-dataset")
+# artifact = run.use_artifact(f"test_dset:latest")
+# artifact_dir = artifact.download()
+
+io.load_packable_artifact(
+    run=run,
+    artifact_name="test_dset",
+    file_name="afile",
+    packable_cls=type(x_path),
+)
+"""
