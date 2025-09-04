@@ -29,3 +29,6 @@ share/python-wheels/
 
 # PyInstaller
 # Usually these files are written by a python
+
+# wandb
+**/wandb/
