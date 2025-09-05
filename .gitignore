@@ -32,3 +32,5 @@ share/python-wheels/
 
 # wandb
 **/wandb/
+**/artifacts/
+**/*.parquet
