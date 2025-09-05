@@ -3,8 +3,33 @@ import numpy as np
 from seqjax.model.typing import Packable
 import wandb
 import os
+from seqjax.model.registry import DataConfig
+from seqjax.model import simulate
+import jax.random as jrandom
 
 SEQJAX_DATA_DIR = "../"
+
+
+def normalize_parquet_metadata(md: dict) -> dict[str, bytes]:
+    out = {}
+    for k, v in md.items():
+        if k == "elapsed_time_s":
+            # this is not brilliant encoding, but the quantity does not
+            # need massive precision
+            out[k] = str(v)
+        else:
+            out[k] = v
+    return out
+
+
+def process_parquet_metadata(md: dict) -> dict[str, bytes]:
+    out = {}
+    for k, v in md.items():
+        if k == "elapsed_time_s":
+            out[k] = float(v)
+        else:
+            out[k] = v
+    return out
 
 
 def packable_to_df(packable: Packable) -> pl.DataFrame:
@@ -19,17 +44,16 @@ def df_to_packable(packable_cls: type[Packable], df: pl.DataFrame) -> Packable:
 def save_packable_artifact(
     run: wandb.Run,
     artifact_name: str,
-    file_name: str,
     wandb_type: str,
-    packable: Packable,
-    metadata: dict,
+    file_names_and_data: list[tuple[str, Packable, dict]],
 ):
-    file_loc = f"{SEQJAX_DATA_DIR}/{file_name}.parquet"
     artifact = wandb.Artifact(name=artifact_name, type=wandb_type)
 
-    df = packable_to_df(packable)
-    df.write_parquet(file_loc, metadata=metadata)
-    artifact.add_file(local_path=file_loc)
+    for file_name, packable, metadata in file_names_and_data:
+        file_loc = f"{SEQJAX_DATA_DIR}/{file_name}.parquet"
+        df = packable_to_df(packable)
+        df.write_parquet(file_loc, metadata=normalize_parquet_metadata(metadata))
+        artifact.add_file(local_path=file_loc)
     run.log_artifact(artifact)
 
 
@@ -55,42 +79,77 @@ def packable_artifact_present(
 def load_packable_artifact(
     run: wandb.Run,
     artifact_name: str,
-    file_name: str,
-    packable_cls: type[Packable],
-) -> tuple[Packable, dict]:
+    file_names_and_class: list[tuple[str, type[Packable]]],
+) -> list[tuple[Packable, dict]]:
     artifact = run.use_artifact(f"{artifact_name}:latest")
     artifact_dir = artifact.download()
-    file_path = os.path.join(artifact_dir, f"{file_name}.parquet")
-    return (
-        df_to_packable(packable_cls, pl.read_parquet(file_path)),
-        pl.read_parquet_metadata(file_path),
+    loaded_data = []
+    for file_name, packable_cls in file_names_and_class:
+        file_path = os.path.join(artifact_dir, f"{file_name}.parquet")
+        loaded_data.append(
+            (
+                df_to_packable(packable_cls, pl.read_parquet(file_path)),
+                process_parquet_metadata(pl.read_parquet_metadata(file_path)),
+            )
+        )
+    return loaded_data
+
+
+def load_packable_artifact_all(
+    run: wandb.Run,
+    artifact_name: str,
+    packable_cls: type[Packable],
+) -> list[tuple[Packable, dict]]:
+    artifact = run.use_artifact(f"{artifact_name}:latest")
+    artifact_dir = artifact.download()
+    loaded_data = []
+    files = [e.name for e in os.scandir(artifact_dir) if e.is_file()]
+    for file_name in files:
+        if file_name.endswith(".parquet"):
+            file_path = os.path.join(artifact_dir, file_name)
+            loaded_data.append(
+                (
+                    df_to_packable(packable_cls, pl.read_parquet(file_path)),
+                    process_parquet_metadata(pl.read_parquet_metadata(file_path)),
+                )
+            )
+    return loaded_data
+
+
+def get_remote_data(run, data_config: DataConfig):
+    artifact_name = data_config.dataset_name
+
+    if not packable_artifact_present(run, artifact_name):
+        print(f"{artifact_name} not present on remote, generating...")
+        data_key = jrandom.PRNGKey(data_config.seed)
+        x_path, y_path, _, _ = simulate.simulate(
+            data_key,
+            data_config.target,
+            None,
+            data_config.generative_parameters,  # needs params
+            sequence_length=data_config.sequence_length,
+        )
+
+        print(f"saving {artifact_name} on remote...")
+        save_packable_artifact(
+            run,
+            artifact_name,
+            "dataset",
+            [
+                ("x_path", x_path, {}),
+                ("y_path", y_path, {}),
+            ],
+        )
+        return x_path, y_path
+
+    print(f"{artifact_name} present on remote, downloading...")
+    (x_path, _), (y_path, _) = load_packable_artifact(
+        run,
+        artifact_name,
+        [
+            ("x_path", data_config.target.particle_cls),
+            ("y_path", data_config.target.observation_cls),
+        ],
     )
 
-
-"""
-
-
-import wandb
-from seqjax import io
-
-run = wandb.init(project="test", job_type="upload-dataset")
-
-io.save_packable_artifact(
-    run=run,
-    artifact_name="test_dset",
-    file_name="afile",
-    wandb_type="dataset",
-    packable=x_path,
-    metadata=dict(anextra="thing"),
-)
-run = wandb.init(project="test", job_type="dlow-dataset")
-# artifact = run.use_artifact(f"test_dset:latest")
-# artifact_dir = artifact.download()
-
-io.load_packable_artifact(
-    run=run,
-    artifact_name="test_dset",
-    file_name="afile",
-    packable_cls=type(x_path),
-)
-"""
+    return x_path, y_path
