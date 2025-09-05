@@ -184,7 +184,7 @@ def sample_theta_qs(static, trainable, key, metric_samples):
         lambda x: jnp.quantile(x, jnp.array([0.05, 0.95])), theta
     )
     means = jax.tree_util.tree_map(lambda x: jnp.mean(x), theta)
-    return qs, means
+    return qs, means, theta
 
 
 class DefaultTracker:
@@ -193,6 +193,7 @@ class DefaultTracker:
         self.metric_samples = metric_samples
         self.elapsed_time_s = 0
         self.update_rows = []
+        self.checkpoint_samples = []
 
     def start_run(self):
         self.train_phase_start_time = time.time()
@@ -213,8 +214,10 @@ class DefaultTracker:
                 # "loss_label": loss_label,
             }
 
-            qs, means = sample_theta_qs(static, trainable, key, self.metric_samples)
-
+            qs, means, theta = sample_theta_qs(
+                static, trainable, key, self.metric_samples
+            )
+            self.checkpoint_samples.append((self.elapsed_time_s, theta))
             _reads = []
             for param in static.parameter_approximation.target_struct_cls.fields():
                 update[f"{param}_q05"] = getattr(qs, param)[0]
@@ -246,7 +249,7 @@ def train(
     samples_per_context: int = 10,
     device_sharding: Optional[Any] = None,
     nb_context=False,
-) -> tuple[SSMVariationalApproximation, Any, Any, int]:
+) -> SSMVariationalApproximation:
 
     # set up record if needed
     if run_tracker is None:

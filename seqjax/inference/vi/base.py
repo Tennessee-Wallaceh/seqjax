@@ -160,6 +160,7 @@ class SSMVariationalApproximation[
 class FullAutoregressiveVI[
     LatentStructT: seqjax.model.typing.Particle,
     ParameterStructT: seqjax.model.typing.Parameters,
+    ObservationT: seqjax.model.typing.Observation,
 ](SSMVariationalApproximation):
     def joint_sample_and_log_prob(
         self,
@@ -169,10 +170,6 @@ class FullAutoregressiveVI[
         context_samples,
         samples_per_context,
     ):
-        # all samples use the same context and weighting
-        start_ix = jnp.zeros((context_samples), dtype=jnp.int32)
-        latent_scaling = jnp.ones((context_samples, self.latent_approximation.shape[0]))
-
         parameter_keys, latent_keys = jnp.split(
             jrandom.split(key, (context_samples, samples_per_context * 2)), 2, axis=1
         )
@@ -184,6 +181,11 @@ class FullAutoregressiveVI[
 
         # vmap down the latent_keys and the parameter samples
         vmap_axes = [0, (0, None)]
+        context = jnp.linspace(-3, 3, self.latent_approximation.shape[0]).reshape(
+            -1, 1
+        )  # give location information
+        embedded_context = jnp.hstack([context, self.embedding.embed(observations)])
+
         x_path, log_q_x_path = jax.vmap(
             jax.vmap(
                 self.latent_approximation.sample_and_log_prob,
@@ -192,25 +194,62 @@ class FullAutoregressiveVI[
             in_axes=vmap_axes,
         )(
             latent_keys,
-            (
-                parameters.ravel(parameters),
-                jnp.arange(self.latent_approximation.shape[0]).reshape(
-                    -1, 1
-                ),  # just give location information
-            ),
+            (parameters.ravel(parameters), embedded_context),
         )
 
-        return (parameters, log_q_theta, x_path, log_q_x_path, start_ix, latent_scaling)
+        return (parameters, log_q_theta, x_path, log_q_x_path, None)
 
-    def buffer_params(self, parameters):
-        sample_length = self.latent_approximation.shape[0]
-        return buffer_params(
-            parameters,
-            jnp.zeros(sample_length),  # nothing in buffer
-            parameters.batch_shape[0],
-            parameters.batch_shape[1],
-            sample_length,
+    def buffer_params(self, parameters, mask):
+        theta_grad = parameters
+        theta_no_grad = jax.lax.stop_gradient(parameters)
+
+        return jax.tree.map(
+            lambda a, b: jnp.where(mask, a, b),
+            theta_grad,
+            theta_no_grad,
         )
+
+    def estimate_loss(
+        self,
+        observations: ObservationT,
+        conditions: seqjax.model.typing.Condition,
+        key: jaxtyping.PRNGKeyArray,
+        context_samples: int,
+        samples_per_context: int,
+        target_posterior,
+    ) -> typing.Any:
+        theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
+            self.joint_sample_and_log_prob(
+                observations, conditions, key, context_samples, samples_per_context
+            )
+        )
+
+        log_p_theta = jax.vmap(
+            jax.vmap(lambda x: target_posterior.parameter_prior.log_prob(x, None))
+        )(theta_q)
+
+        batched_log_p_joint = jax.vmap(
+            partial(buffered_log_p_joint, target_posterior.target),
+            in_axes=[0, None, None, 0],
+        )
+        batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, None, None, 0])
+
+        buffered_theta = jax.vmap(
+            jax.vmap(self.buffer_params, in_axes=[0, None]), in_axes=[0, None]
+        )(theta_q, jnp.ones(observations.batch_shape[0]))
+
+        log_p_y_x_path = batched_log_p_joint(
+            x_path,
+            observations,
+            conditions,
+            target_posterior.target_parameter(buffered_theta),
+        )
+
+        neg_elbo = (log_q_theta - log_p_theta) + jnp.sum(
+            log_q_x_path - log_p_y_x_path, axis=-1
+        )
+
+        return jnp.mean(neg_elbo)
 
 
 def sample_batch(key, sample_length, max_start_ix, y_path, condition):
