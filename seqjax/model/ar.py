@@ -3,6 +3,7 @@
 from dataclasses import field
 from typing import ClassVar
 from functools import partial
+from collections import OrderedDict
 
 import jax
 import jax.numpy as jnp
@@ -32,9 +33,9 @@ class LatentValue(Particle):
 
     x: Scalar
 
-    _shape_template: ClassVar = {
-        "x": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
-    }
+    _shape_template: ClassVar = OrderedDict(
+        x=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class ARParameters(Parameters):
@@ -44,11 +45,11 @@ class ARParameters(Parameters):
     observation_std: Scalar = field(default_factory=lambda: jnp.array(1.0))
     transition_std: Scalar = field(default_factory=lambda: jnp.array(0.5))
 
-    _shape_template: ClassVar = {
-        "ar": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
-        "observation_std": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
-        "transition_std": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
-    }
+    _shape_template: ClassVar = OrderedDict(
+        ar=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        observation_std=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        transition_std=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class AROnlyParameters(Parameters):
@@ -56,9 +57,9 @@ class AROnlyParameters(Parameters):
 
     ar: Scalar = field(default_factory=lambda: jnp.array(0.5))
 
-    _shape_template: ClassVar = {
-        "ar": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
-    }
+    _shape_template: ClassVar = OrderedDict(
+        ar=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class NoisyEmission(Observation):
@@ -66,9 +67,9 @@ class NoisyEmission(Observation):
 
     y: Scalar
 
-    _shape_template: ClassVar = {
-        "y": jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
-    }
+    _shape_template: ClassVar = OrderedDict(
+        y=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class HalfCauchyStds(ParameterPrior[ARParameters, HyperParameters]):
