@@ -6,14 +6,15 @@ parameter settings.
 import jax.numpy as jnp
 
 import typing
-from functools import partial
 from . import ar
 from dataclasses import dataclass, field
-from .base import SequentialModel, ParametersType
+from .base import SequentialModel
 from .typing import Parameters
 
 SequentialModelLabel = typing.Literal["ar"]
-sequential_models: dict[SequentialModelLabel, SequentialModel] = {"ar": ar.AR1Target}
+sequential_models: dict[SequentialModelLabel, type[SequentialModel]] = {
+    "ar": ar.AR1Target
+}
 parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
     "ar": {
         "base": ar.ARParameters(
