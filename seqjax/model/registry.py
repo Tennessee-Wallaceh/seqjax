@@ -1,6 +1,28 @@
 """
-Submodule mapping static configuration to code objects, corresponding to particular models +
-parameter settings.
+Central registry of available sequential models and predefined parameter presets.
+
+The module maintains two dictionaries with matching keys:
+
+* ``sequential_models`` maps a short string label to the ``SequentialModel``
+  subclass that implements the model.
+* ``parameter_settings`` maps the same label to a mapping of preset names to
+  parameter dataclass instances.
+
+Experiments first retrieve a model class via ``sequential_models[label]`` and
+then choose a preset through ``parameter_settings[label][preset]``.  Using the
+same label across both dictionaries guarantees that models and presets remain
+compatible.
+
+Registering a new model type and parameter presets
+-------------------------------------------------
+1. Implement a ``SequentialModel`` subclass and its associated parameter
+   dataclass.
+2. Pick a unique string label for the model.
+3. Add the class to ``sequential_models`` under that label.
+4. Create one or more parameter presets and add them to
+   ``parameter_settings`` under the same label.
+5. (Optional) expose a ``DataConfig`` helper if the model needs specialised
+   configuration handling.
 """
 
 import jax.numpy as jnp
