@@ -34,9 +34,20 @@ from .base import SequentialModel
 from .typing import Parameters
 
 SequentialModelLabel = typing.Literal["ar"]
+
+# Maps each model label to its ``SequentialModel`` implementation. The keys
+# must appear in ``SequentialModelLabel`` and are typically accessed via
+# ``sequential_models[label]``. When adding a new model, extend
+# ``SequentialModelLabel`` and add the class here with the same label.
 sequential_models: dict[SequentialModelLabel, type[SequentialModel]] = {
-    "ar": ar.AR1Target
+    "ar": ar.AR1Target,
 }
+
+# Predefined parameter presets for each model. The outer keys mirror
+# ``sequential_models`` and thus use ``SequentialModelLabel``. Inner keys are
+# free-form preset names (e.g. ``"base"``) that experiments reference with
+# ``parameter_settings[label][preset]``. Add new presets under the appropriate
+# model label and keep labels consistent across both dictionaries.
 parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
     "ar": {
         "base": ar.ARParameters(
