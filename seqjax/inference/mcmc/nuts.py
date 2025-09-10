@@ -208,9 +208,10 @@ def run_bayesian_nuts(
         num_samples=samples_per_chain,
         num_chains=config.num_chains,
     )
-    latent_samples, param_samples = jax.tree_util.tree_map(
+    _, param_samples = jax.tree_util.tree_map(
         partial(jnp.concatenate, axis=-1), paths.position
     )
+    latent_samples = paths.position[0]
 
     end_time = time.time()
     sample_time = end_time - start_time

@@ -1,16 +1,61 @@
+"""
+Submodule mapping static configuration to code objects, corresponding to particular models +
+parameter settings.
+"""
 
-@dataclass
+import jax.numpy as jnp
+
+import typing
+from functools import partial
+from . import ar
+from dataclasses import dataclass, field
+from .base import SequentialModel, ParametersType
+from .typing import Parameters
+
+SequentialModelLabel = typing.Literal["ar"]
+sequential_models: dict[SequentialModelLabel, SequentialModel] = {"ar": ar.AR1Target}
+parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
+    "ar": {
+        "base": ar.ARParameters(
+            ar=jnp.array(0.8),
+            observation_std=jnp.array(0.1),
+            transition_std=jnp.array(0.5),
+        ),
+        "lower_ar": ar.ARParameters(
+            ar=jnp.array(0.5),
+            observation_std=jnp.array(0.1),
+            transition_std=jnp.array(0.5),
+        ),
+    }
+}
+
+
+@dataclass(kw_only=True, frozen=True, slots=True)
 class DataConfig:
-    parameter_setting: str
+    target_model_label: SequentialModelLabel
+    generative_parameter_label: str
     sequence_length: int
     seed: int
-    target: *ValidTarget*
 
     @property
     def dataset_name(self):
-        dataset_name = sequential_models[self.target].label
-        dataset_name += f"-{self.parameter_setting}"
+        dataset_name = self.target_model_label
+        dataset_name += f"-{self.generative_parameter_label}"
         dataset_name += f"-d{self.seed}"
         dataset_name += f"-l{self.sequence_length}"
         return dataset_name
 
+    @property
+    def target(self):
+        return sequential_models[self.target_model_label]
+
+    @property
+    def generative_parameters(self):
+        return parameter_settings[self.target_model_label][
+            self.generative_parameter_label
+        ]
+
+
+@dataclass(kw_only=True, frozen=True, slots=True)
+class ARDataConfig(DataConfig):
+    target_model_label: SequentialModelLabel = field(default="ar", init=False)

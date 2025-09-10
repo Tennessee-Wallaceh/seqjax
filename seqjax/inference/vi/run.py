@@ -66,6 +66,7 @@ class BufferedVIConfig(eqx.Module):
     samples_per_context: int = 5
     nn_width: int = 20
     nn_depth: int = 2
+    control_variate: bool = False
 
 
 def run_full_path_vi(
@@ -217,6 +218,7 @@ def run_buffered_vi(
         latent_approximation,
         parameter_approximation,
         embed,
+        control_variate=config.control_variate,
     )
 
     optim = optax.apply_if_finite(

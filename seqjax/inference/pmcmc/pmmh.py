@@ -63,9 +63,10 @@ def run_particle_mcmc(
     ],
     hyperparameters: HyperParametersType,
     key: PRNGKeyArray,
-    config: ParticleMCMCConfig,
     observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    condition_path: Batched[ConditionType, SequenceAxis] | None,
+    config: ParticleMCMCConfig,
+    test_samples: int = 1000,
 ) -> Batched[ParametersType, SampleAxis]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
@@ -99,7 +100,11 @@ def run_particle_mcmc(
 
     sample_time_start = time.time()
     samples = run_random_walk_metropolis(
-        jax.jit(estimate_log_joint), sample_key, initial_parameters, config=config.mcmc
+        jax.jit(estimate_log_joint),
+        sample_key,
+        initial_parameters,
+        config=config.mcmc,
+        num_samples=test_samples,
     )
     sample_time_end = time.time()
     sample_time_s = sample_time_end - sample_time_start

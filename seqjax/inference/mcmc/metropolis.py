@@ -28,10 +28,11 @@ def run_random_walk_metropolis(
     key: PRNGKeyArray,
     initial_parameters: Parameters,
     config: RandomWalkConfig = RandomWalkConfig(),
+    num_samples: int = 1000,
 ) -> jax.Array | Parameters:
     """Run Random Walk Metropolis sampling using ``blackjax`` utilities."""
 
-    init_key, *step_keys = jrandom.split(key, config.num_samples + 1)
+    init_key, *step_keys = jrandom.split(key, num_samples + 1)
     init_logp = logdensity(initial_parameters, init_key)
 
     random_step = blackjax.random_walk.normal(config.step_size)

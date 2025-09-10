@@ -178,6 +178,10 @@ class FullAutoregressiveVI[
         parameters, log_q_theta = jax.vmap(
             jax.vmap(self.parameter_approximation.sample_and_log_prob)
         )(parameter_keys)
+        theta_array = parameters.ravel(parameters)
+        theta_array = jnp.tile(
+            theta_array[:, :, None, :], (1, 1, observations.batch_shape[0], 1)
+        )  # repeat down sequence axis for each sample
 
         # vmap down the latent_keys and the parameter samples
         vmap_axes = [0, (0, None)]
@@ -185,7 +189,8 @@ class FullAutoregressiveVI[
             -1, 1
         )  # give location information
         embedded_context = jnp.hstack([context, self.embedding.embed(observations)])
-
+        print(theta_array.shape)
+        print(embedded_context.shape)
         x_path, log_q_x_path = jax.vmap(
             jax.vmap(
                 self.latent_approximation.sample_and_log_prob,
@@ -194,7 +199,7 @@ class FullAutoregressiveVI[
             in_axes=vmap_axes,
         )(
             latent_keys,
-            (parameters.ravel(parameters), embedded_context),
+            (theta_array, embedded_context),
         )
 
         return (parameters, log_q_theta, x_path, log_q_x_path, None)
@@ -331,6 +336,7 @@ class BufferedSSMVI[
     latent_approximation: AmortizedVariationalApproximation
     parameter_approximation: UnconditionalVariationalApproximation
     embedding: Embedder
+    control_variate: bool = eqx.field(default=False, static=True)
 
     def joint_sample_and_log_prob(
         self,
@@ -369,6 +375,17 @@ class BufferedSSMVI[
             )
         )(jrandom.split(start_key, context_samples))
 
+        buffered_theta_array = parameters.ravel(
+            jax.vmap(jax.vmap(self.buffer_params, in_axes=[0, None]))(
+                parameters, theta_mask
+            )
+        )
+        buffered_theta_array = jax.lax.select(
+            self.control_variate,
+            buffered_theta_array,
+            jax.lax.stop_gradient(buffered_theta_array),
+        )
+
         # vmap down the outer samples
         # then just latent_keys and the parameter samples
         x_path, log_q_x_path = jax.vmap(
@@ -378,7 +395,7 @@ class BufferedSSMVI[
         )(
             latent_keys,
             (
-                jax.lax.stop_gradient(parameters.ravel(parameters)),
+                buffered_theta_array,
                 jax.vmap(self.embedding.embed)(y_batch),
             ),
         )
@@ -397,8 +414,8 @@ class BufferedSSMVI[
 
         return jax.tree.map(
             lambda a, b: jnp.where(mask, a, b),
-            theta_no_grad,
             theta_grad,
+            theta_no_grad,
         )
 
     def estimate_loss(

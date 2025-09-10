@@ -29,10 +29,14 @@ class BufferVI:
     config: vi.BufferedVIConfig
 
     @property
-    def name(self):
+    def name(self) -> str:
         name = f"buffer-vi-b{self.config.buffer_length}-m{self.config.batch_length}"
         for param, bijector_label in self.config.parameter_field_bijections.items():
             name += f"-{param}_{bijector_label}"
+
+        if self.config.control_variate:
+            name += "-cv"
+
         return name
 
 
