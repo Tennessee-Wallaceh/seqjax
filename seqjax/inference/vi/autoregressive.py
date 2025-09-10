@@ -180,20 +180,20 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     def sample_sub_path(
         self,
         key: PRNGKeyArray,
-        theta_context: Float[Array, "param_dim"],
+        theta_context: Float[Array, "sample_length param_dim"],
         context: Float[Array, "sample_length context_dim"],
         num_steps: int,
         offset: int,
         init: tuple[Array, ...],
     ) -> tuple[seqjax.model.typing.Packable, Float[Array, "sample_length"]]:
         def update(carry, key_context):
-            key, ctx = key_context
+            key, ctx, step_theta_context = key_context
             ix, prev_x = carry
             previous_available_flag = (
                 jnp.arange(self.lag_order) + ix - self.lag_order >= 0
             )
             next_x, log_q_x_ix = self.conditional(
-                key, prev_x, previous_available_flag, theta_context, ctx
+                key, prev_x, previous_available_flag, step_theta_context, ctx
             )
             next_x_context = (*prev_x[1:], next_x)
             return (ix + 1, next_x_context), (next_x, log_q_x_ix)
@@ -201,8 +201,9 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         init_state = (offset, init)
         keys = jrandom.split(key, num_steps)
         subpath_context = context[offset : offset + num_steps]
+        subpath_theta_context = theta_context[offset : offset + num_steps]
         _, (x_path, log_q_x_path) = jax.lax.scan(
-            update, init_state, (keys, subpath_context)
+            update, init_state, (keys, subpath_context, subpath_theta_context)
         )
         return self.target_struct_cls.unravel(x_path), jnp.sum(log_q_x_path, axis=-1)
 
@@ -214,8 +215,8 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         parameter_context, observation_context = condition
         x_path, log_q_x_path = self.sample_sub_path(
             key,
-            jax.lax.stop_gradient(parameter_context),
-            jax.lax.stop_gradient(observation_context),
+            parameter_context,
+            observation_context,
             self.shape[0],
             0,
             tuple(jnp.zeros(self.shape[1]) for _ in range(self.lag_order)),
