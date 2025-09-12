@@ -85,9 +85,7 @@ def test_incremental_normalizers() -> None:
     num_particles = 200
     pf = BootstrapParticleFilter(model, num_particles=num_particles)
     key = jrandom.PRNGKey(3)
-    _, _, (log_incs,) = run_filter(
-        pf, key, params, obs, recorders=(log_marginal(),)
-    )
+    _, _, (log_incs,) = run_filter(pf, key, params, obs, recorders=(log_marginal(),))
     log_incs = jnp.asarray(log_incs)
     total_from_prod = jnp.log(jnp.prod(jnp.exp(log_incs)))
     total_from_sum = jnp.sum(log_incs)
