@@ -142,12 +142,12 @@ def build_score_increment(target_posterior: BayesianSequentialModel):
     return score_increment
 
 
-def run_sgld[ParametersType, SampleAxis](
+def run_sgld[ParametersType](
     grad_estimator: Callable[[ParametersType, PRNGKeyArray], ParametersType],
     key: PRNGKeyArray,
     initial_parameters: ParametersType,
     config: SGLDConfig,
-) -> ParametersType[SampleAxis]:
+) -> ParametersType:
     """Run SGLD updates using ``grad_estimator``."""
 
     n_iters = config.num_samples
