@@ -118,17 +118,9 @@ def proposal_from_transition(
 
 
 class Recorder(Protocol):
-    def __call__(
-        self,
-        log_weights: Array,
-        particles: tuple[ParticleType, ...],
-        ancestors: Array,
-        observation: ObservationType,
-        condition: ConditionType,
-        last_log_weights: Array,
-        last_particles: tuple[ParticleType, ...],
-        ess_e: Array,
-    ) -> PyTree: ...
+    """Callable that records information from a single filtering step."""
+
+    def __call__(self, filter_data: FilterData) -> PyTree: ...
 
 
 class SMCSampler(
