@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 
 import jaxtyping
+from jax_tqdm import scan_tqdm
 
 from seqjax.model.simulate import simulate
 from seqjax.model.base import (
@@ -31,15 +32,20 @@ import blackjax  # type: ignore
 def inference_loop_multiple_chains(
     rng_key, kernel, initial_state, num_samples, num_chains
 ):
-    def one_step(states, rng_key):
-        keys = jax.random.split(rng_key, num_chains)
+    @scan_tqdm(num_samples)
+    def one_step(carry, inp):
+        ix, states = carry
+        _, rng = inp
+        keys = jax.random.split(rng, num_chains)
         states, _ = jax.vmap(kernel)(keys, states)
-        return states, states
+        return (ix + 1, states), states
 
     keys = jax.random.split(rng_key, num_samples)
-    final_state, states = jax.lax.scan(one_step, initial_state, keys)
+    final_state, states = jax.lax.scan(
+        one_step, (0, initial_state), (jnp.arange(num_samples), keys)
+    )
 
-    return final_state, states
+    return final_state[1], states
 
 
 class NUTSConfig(eqx.Module):
