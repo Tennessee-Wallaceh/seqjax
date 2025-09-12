@@ -1,9 +1,11 @@
 from typing import Callable
+import typing
 import time
 
 from jaxtyping import PRNGKeyArray
 
 import equinox as eqx
+import jaxtyping
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax
@@ -24,16 +26,20 @@ from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 from seqjax.inference.mcmc.metropolis import (
     run_random_walk_metropolis,
 )
+from seqjax.inference.interface import inference_method
 from seqjax import util
 
 
-class ParticleMCMCConfig(eqx.Module):
+class ParticleMCMCConfig(
+    eqx.Module,
+    typing.Generic[ParticleType, ObservationType, ConditionType, ParametersType],
+):
     """Configuration for :func:`run_particle_mcmc`."""
 
     mcmc: Callable[
         [
-            Callable[[ParametersType, jrandom.PRNGKey], jnp.ndarray],
-            jrandom.PRNGKey,
+            Callable[[ParametersType, PRNGKeyArray], jnp.ndarray],
+            PRNGKeyArray,
             ParametersType,
         ],
         ParametersType,
@@ -44,6 +50,7 @@ class ParticleMCMCConfig(eqx.Module):
     initial_parameter_guesses: int = 10
 
 
+@inference_method
 def run_particle_mcmc(
     target_posterior: BayesianSequentialModel[
         ParticleType,
@@ -56,10 +63,14 @@ def run_particle_mcmc(
     hyperparameters: HyperParametersType,
     key: PRNGKeyArray,
     observation_path: ObservationType,
-    condition_path: ConditionType | None,
     config: ParticleMCMCConfig,
+    *,
+    condition_path: ConditionType | None = None,
+    initial_latents: ParticleType | None = None,
+    initial_conditions: tuple[ConditionType, ...] | None = None,
+    observation_history: tuple[ObservationType, ...] | None = None,
     test_samples: int = 1000,
-) -> ParametersType:
+) -> tuple[jaxtyping.Array, InferenceParametersType, typing.Any]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
     def estimate_log_joint(params, key):
@@ -104,4 +115,4 @@ def run_particle_mcmc(
         jnp.arange(config.mcmc.num_samples) * (sample_time_s / config.mcmc.num_samples)
     )
 
-    return time_array_s, None, samples, None
+    return time_array_s, samples, None
