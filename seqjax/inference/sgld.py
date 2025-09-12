@@ -27,7 +27,9 @@ from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 from seqjax.inference import particlefilter
 
 
-class SGLDConfig(eqx.Module, Generic[ParametersType]):
+class SGLDConfig(
+    eqx.Module, Generic[ParticleType, ObservationType, ConditionType, ParametersType]
+):
     """Configuration for :func:`run_sgld`."""
 
     particle_filter: SMCSampler[
@@ -38,7 +40,9 @@ class SGLDConfig(eqx.Module, Generic[ParametersType]):
     initial_parameter_guesses: int = 20
 
 
-class BufferedSGLDConfig(eqx.Module, Generic[ParametersType]):
+class BufferedSGLDConfig(
+    eqx.Module, Generic[ParticleType, ObservationType, ConditionType, ParametersType]
+):
     """Configuration for :func:`run_sgld`."""
 
     particle_filter: SMCSampler[

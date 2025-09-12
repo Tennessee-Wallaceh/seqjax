@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Any, Callable, Generic, Protocol
+from typing import Callable, Generic, Protocol
 from abc import abstractmethod
 
 import equinox as eqx
@@ -17,7 +17,7 @@ from seqjax.model.base import (
     SequentialModel,
     Transition,
 )
-from seqjax.model.typing import Batched, SequenceAxis, EnforceInterface
+import seqjax.model.typing as seqjtyping
 from seqjax import util
 from .resampling import Resampler
 from .metrics import compute_esse_from_log_weights
@@ -29,22 +29,22 @@ class FilterData(eqx.Module):
     """
 
     log_w: Array
-    particles: Array
+    particles: tuple[seqjtyping.Particle, ...]
     ancestor_ix: Array
-    observation: Array
-    obs_hist: Array
-    condition: Array
+    observation: seqjtyping.Observation
+    obs_hist: tuple[seqjtyping.Observation, ...]
+    condition: seqjtyping.Condition | None
     last_log_w: Array
     last_particles: Array
     ess_e: Array
     log_weight_increment: Array
-    parameters: Array
+    parameters: seqjtyping.Parameters
 
 
 class Proposal(
     eqx.Module,
     Generic[ParticleType, ObservationType, ConditionType, ParametersType],
-    EnforceInterface,
+    seqjtyping.EnforceInterface,
 ):
     """Proposal distribution for sequential importance sampling."""
 
@@ -118,8 +118,6 @@ def proposal_from_transition(
 
 
 class Recorder(Protocol):
-    """Callable that records information from a single filtering step."""
-
     def __call__(self, filter_data: FilterData) -> PyTree: ...
 
 
@@ -238,8 +236,8 @@ def run_filter(
     smc: SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType],
     key: PRNGKeyArray,
     parameters: ParametersType,
-    observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    observation_path: ObservationType,
+    condition_path: ConditionType | None = None,
     *,
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
@@ -273,9 +271,9 @@ def run_filter(
         observation_history = ()
 
     if condition_path is None:
-        condition_path: Any = [None] * sequence_length
+        initial_condition = None
     else:
-        condition_path = condition_path
+        initial_condition = util.index_pytree(condition_path, 0)
 
     init_key, *step_keys = jrandom.split(key, sequence_length)
 
@@ -290,7 +288,7 @@ def run_filter(
         init_particles,
         observation_history,
         util.index_pytree(observation_path, 0),
-        util.index_pytree(condition_path, 0),
+        initial_condition,
         target_parameters(parameters),
     )
     if smc.target.emission.observation_dependency > 0:
@@ -305,7 +303,7 @@ def run_filter(
         ancestor_ix=jnp.full((smc.num_particles,), -1, dtype=jnp.int32),
         observation=util.index_pytree(observation_path, 0),
         obs_hist=observation_history,
-        condition=util.index_pytree(condition_path, 0),
+        condition=initial_condition,
         last_log_w=jnp.zeros(smc.num_particles),
         last_particles=jax.tree_util.tree_map(
             lambda x: jnp.full_like(x, fill_value=-1.0), init_particles
@@ -356,12 +354,15 @@ def run_filter(
         ), recorder_vals
 
     observation_path = util.slice_pytree(observation_path, 1, sequence_length)
-    condition_path = util.slice_pytree(condition_path, 1, sequence_length)
+    if condition_path is not None:
+        sliced_condition_path = util.slice_pytree(condition_path, 1, sequence_length)
+    else:
+        sliced_condition_path = None
 
     final_state, recorder_history = jax.lax.scan(
         body,
         (log_weights, init_particles, observation_history),
-        (jnp.array(step_keys), observation_path, condition_path),
+        (jnp.array(step_keys), observation_path, sliced_condition_path),
     )
 
     def expand_concat(value, array):
@@ -384,8 +385,8 @@ def vmapped_run_filter(
     smc: SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType],
     key: Array,
     parameters: ParametersType,
-    observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    observation_path: ObservationType,
+    condition_path: ObservationType | None = None,
     *,
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
