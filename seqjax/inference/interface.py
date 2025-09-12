@@ -1,7 +1,5 @@
-from __future__ import annotations
-
-from typing import Any, Protocol
-from jaxtyping import PRNGKeyArray
+import typing
+import jaxtyping
 
 from seqjax.model.base import (
     SequentialModel,
@@ -15,7 +13,7 @@ from seqjax.model.base import (
 from seqjax.model.typing import HyperParametersType
 
 
-class InferenceMethod(Protocol):
+class InferenceMethod(typing.Protocol):
     """Callable protocol for Bayesian inference routines.
 
     This interface represents the minimal call signature shared by the
@@ -27,7 +25,7 @@ class InferenceMethod(Protocol):
 
     def __call__(
         self,
-        target: BayesianSequentialModel[
+        target_posterior: BayesianSequentialModel[
             ParticleType,
             ObservationType,
             ConditionType,
@@ -35,19 +33,25 @@ class InferenceMethod(Protocol):
             InferenceParametersType,
             HyperParametersType,
         ],
-        key: PRNGKeyArray,
+        hyperparameters: HyperParametersType,
+        key: jaxtyping.PRNGKeyArray,
         observation_path: ObservationType,
+        config: typing.Any,
         *,
         condition_path: ConditionType | None = None,
         initial_latents: ParticleType | None = None,
-        hyperparameters: HyperParametersType | None = None,
         initial_conditions: tuple[ConditionType, ...] | None = None,
         observation_history: tuple[ObservationType, ...] | None = None,
         test_samples: int = 1000,
-    ) -> Any: ...
+    ) -> tuple[jaxtyping.Array, InferenceParametersType, typing.Any]: ...
 
 
-class LatentInferenceMethod(Protocol):
+def inference_method(f: InferenceMethod) -> InferenceMethod:
+    """Adding this decorator ensures that an intended inference method satisfies the protocol"""
+    return f
+
+
+class LatentInferenceMethod(typing.Protocol):
     """Callable protocol for latent path inference routines.
 
     This interface covers samplers that condition on known model parameters and
@@ -62,7 +66,7 @@ class LatentInferenceMethod(Protocol):
         target: SequentialModel[
             ParticleType, ObservationType, ConditionType, ParametersType
         ],
-        key: PRNGKeyArray,
+        key: jaxtyping.PRNGKeyArray,
         observations: ObservationType,
         *,
         parameters: ParametersType,
@@ -70,4 +74,4 @@ class LatentInferenceMethod(Protocol):
         initial_latents: ParticleType | None = None,
         initial_conditions: tuple[ConditionType, ...] | None = None,
         observation_history: tuple[ObservationType, ...] | None = None,
-    ) -> Any: ...
+    ) -> typing.Any: ...

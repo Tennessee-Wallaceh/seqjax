@@ -52,10 +52,3 @@ ignore = ["E501", "F722"]
 [tool.mypy]
 python_version = "3.12"
 
-[[tool.mypy.overrides]]
-module = [
-    "seqjax.model.*",
-    "seqjax.inference.*",
-    "seqjax.io",
-]
-ignore_errors = true

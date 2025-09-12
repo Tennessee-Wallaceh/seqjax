@@ -159,7 +159,7 @@ ObservationType = TypeVar("ObservationType", bound=Observation)
 ConditionType = TypeVar("ConditionType", bound=Condition)
 ParametersType = TypeVar("ParametersType", bound=Parameters)
 InferenceParametersType = TypeVar("InferenceParametersType", bound=Parameters)
-HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters)
+HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters | None)
 
 
 def resolve_annotation(annotation, type_mapping, class_vars):

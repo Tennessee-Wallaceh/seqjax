@@ -1,12 +1,12 @@
-from __future__ import annotations
 import time
-from typing import Callable, Generic
+import typing
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
-from jaxtyping import PRNGKeyArray
+
+import equinox as eqx
+import jaxtyping
 from jax_tqdm import scan_tqdm
 
 from seqjax import util
@@ -19,13 +19,14 @@ from seqjax.model.base import (
     HyperParametersType,
     BayesianSequentialModel,
 )
-
 from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 from seqjax.inference import particlefilter
+from seqjax.inference.interface import inference_method
 
 
 class SGLDConfig(
-    eqx.Module, Generic[ParticleType, ObservationType, ConditionType, ParametersType]
+    eqx.Module,
+    typing.Generic[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
     """Configuration for :func:`run_sgld`."""
 
@@ -33,12 +34,12 @@ class SGLDConfig(
         ParticleType, ObservationType, ConditionType, ParametersType
     ]
     step_size: float | ParametersType = 1e-3
-    num_samples: int = 100
     initial_parameter_guesses: int = 20
 
 
 class BufferedSGLDConfig(
-    eqx.Module, Generic[ParticleType, ObservationType, ConditionType, ParametersType]
+    eqx.Module,
+    typing.Generic[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
     """Configuration for :func:`run_sgld`."""
 
@@ -52,7 +53,9 @@ class BufferedSGLDConfig(
     batch_length: int = 10
 
 
-def _tree_randn_like(key: PRNGKeyArray, tree: ParametersType) -> ParametersType:  # type: ignore[misc]
+def _tree_randn_like(
+    key: jaxtyping.PRNGKeyArray, tree: ParametersType
+) -> ParametersType:
     leaves, treedef = jax.tree_util.tree_flatten(tree)
     keys = jrandom.split(key, len(leaves))
     new_leaves = [
@@ -142,9 +145,11 @@ def build_score_increment(target_posterior: BayesianSequentialModel):
     return score_increment
 
 
-def run_sgld[ParametersType](
-    grad_estimator: Callable[[ParametersType, PRNGKeyArray], ParametersType],
-    key: PRNGKeyArray,
+def run_sgld(
+    grad_estimator: typing.Callable[
+        [ParametersType, jaxtyping.PRNGKeyArray], ParametersType
+    ],
+    key: jaxtyping.PRNGKeyArray,
     initial_parameters: ParametersType,
     config: SGLDConfig,
 ) -> ParametersType:
@@ -165,7 +170,10 @@ def run_sgld[ParametersType](
         )
 
     @scan_tqdm(n_iters)
-    def step(carry: tuple[int, ParametersType], inp: tuple[PRNGKeyArray, PRNGKeyArray]):
+    def step(
+        carry: tuple[int, ParametersType],
+        inp: tuple[jaxtyping.PRNGKeyArray, jaxtyping.PRNGKeyArray],
+    ):
         ix, params = carry
         _, (g_key, n_key) = inp
         grad = grad_estimator(params, g_key)
@@ -179,12 +187,30 @@ def run_sgld[ParametersType](
         params = eqx.apply_updates(params, updates)
         return (ix + 1, params), params
 
+    step = typing.cast(
+        typing.Callable[
+            [
+                tuple[int, ParametersType],
+                tuple[
+                    jaxtyping.Array,
+                    tuple[jaxtyping.PRNGKeyArray, jaxtyping.PRNGKeyArray],
+                ],
+            ],
+            tuple[
+                tuple[int, ParametersType],
+                ParametersType,
+            ],
+        ],
+        step,
+    )
+
     samples: ParametersType = jax.lax.scan(
         step, (0, initial_parameters), (jnp.arange(n_iters), (grad_keys, noise_keys))
     )[1]
     return samples
 
 
+@inference_method
 def run_full_sgld_mcmc(
     target_posterior: BayesianSequentialModel[
         ParticleType,
@@ -195,11 +221,16 @@ def run_full_sgld_mcmc(
         HyperParametersType,
     ],
     hyperparameters: HyperParametersType,
-    key: PRNGKeyArray,
-    config: SGLDConfig,
+    key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationType,
+    config: SGLDConfig,
+    *,
     condition_path: ConditionType | None = None,
-) -> ParametersType:
+    initial_latents: ParticleType | None = None,
+    initial_conditions: tuple[ConditionType, ...] | None = None,
+    observation_history: tuple[ObservationType, ...] | None = None,
+    test_samples: int = 1000,
+) -> tuple[jaxtyping.Array, InferenceParametersType, typing.Any]:
     score_increment = build_score_increment(target_posterior)
 
     @jax.jit
@@ -283,9 +314,10 @@ def run_full_sgld_mcmc(
         jnp.arange(config.num_samples) * (sample_time_s / config.num_samples)
     )
 
-    return time_array_s, None, samples, None
+    return time_array_s, samples, None
 
 
+@inference_method
 def run_buffer_sgld_mcmc(
     target_posterior: BayesianSequentialModel[
         ParticleType,
@@ -296,11 +328,16 @@ def run_buffer_sgld_mcmc(
         HyperParametersType,
     ],
     hyperparameters: HyperParametersType,
-    key: PRNGKeyArray,
-    config: BufferedSGLDConfig,
+    key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationType,
+    config: SGLDConfig,
+    *,
     condition_path: ConditionType | None = None,
-) -> ParametersType:
+    initial_latents: ParticleType | None = None,
+    initial_conditions: tuple[ConditionType, ...] | None = None,
+    observation_history: tuple[ObservationType, ...] | None = None,
+    test_samples: int = 1000,
+) -> tuple[jaxtyping.Array, InferenceParametersType, typing.Any]:
     score_increment = build_score_increment(target_posterior)
     sequence_length = observation_path.y.shape[0]
 
@@ -426,4 +463,4 @@ def run_buffer_sgld_mcmc(
         jnp.arange(config.num_samples) * (sample_time_s / config.num_samples)
     )
 
-    return time_array_s, None, samples, None
+    return time_array_s, samples, None
