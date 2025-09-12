@@ -10,19 +10,16 @@ from jaxtyping import PRNGKeyArray
 from jax_tqdm import scan_tqdm
 
 from seqjax import util
-from seqjax.model.base import ParametersType
-from seqjax.model.typing import Batched, SampleAxis
 from seqjax.model.base import (
     ConditionType,
     ObservationType,
     ParticleType,
+    ParametersType,
+    InferenceParametersType,
+    HyperParametersType,
     BayesianSequentialModel,
 )
-from seqjax.model.typing import (
-    SequenceAxis,
-    HyperParametersType,
-    InferenceParametersType,
-)
+
 from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 from seqjax.inference import particlefilter
 
@@ -145,12 +142,12 @@ def build_score_increment(target_posterior: BayesianSequentialModel):
     return score_increment
 
 
-def run_sgld(
+def run_sgld[ParametersType, SampleAxis](
     grad_estimator: Callable[[ParametersType, PRNGKeyArray], ParametersType],
     key: PRNGKeyArray,
     initial_parameters: ParametersType,
     config: SGLDConfig,
-) -> Batched[ParametersType, SampleAxis]:
+) -> ParametersType[SampleAxis]:
     """Run SGLD updates using ``grad_estimator``."""
 
     n_iters = config.num_samples
@@ -182,7 +179,7 @@ def run_sgld(
         params = eqx.apply_updates(params, updates)
         return (ix + 1, params), params
 
-    samples: Batched[ParametersType, SampleAxis] = jax.lax.scan(
+    samples: ParametersType = jax.lax.scan(
         step, (0, initial_parameters), (jnp.arange(n_iters), (grad_keys, noise_keys))
     )[1]
     return samples
@@ -200,9 +197,9 @@ def run_full_sgld_mcmc(
     hyperparameters: HyperParametersType,
     key: PRNGKeyArray,
     config: SGLDConfig,
-    observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
-) -> Batched[ParametersType, SampleAxis]:
+    observation_path: ObservationType,
+    condition_path: ConditionType | None = None,
+) -> ParametersType:
     score_increment = build_score_increment(target_posterior)
 
     @jax.jit
@@ -301,9 +298,9 @@ def run_buffer_sgld_mcmc(
     hyperparameters: HyperParametersType,
     key: PRNGKeyArray,
     config: BufferedSGLDConfig,
-    observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
-) -> Batched[ParametersType, SampleAxis]:
+    observation_path: ObservationType,
+    condition_path: ConditionType | None = None,
+) -> ParametersType:
     score_increment = build_score_increment(target_posterior)
     sequence_length = observation_path.y.shape[0]
 

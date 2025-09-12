@@ -13,7 +13,6 @@ from seqjax.model.base import (
     ParticleType,
     SequentialModel,
 )
-from seqjax.model.typing import Batched, SequenceAxis
 from seqjax.util import (
     dynamic_index_pytree_in_dim,
     dynamic_slice_pytree,
@@ -46,8 +45,8 @@ def _run_segment(
     smc: SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType],
     key: PRNGKeyArray,
     parameters: ParametersType,
-    observations: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None,
+    observations: ObservationType,
+    condition_path: ConditionType | None,
     *,
     buffer_size: int,
     batch_size: int,
@@ -70,9 +69,11 @@ def _run_segment(
 
     if smc.target.prior.order > 0:
         init_conds = tuple(
-            dynamic_index_pytree_in_dim(cond_padded, start + i, 0)
-            if cond_padded is not None
-            else None
+            (
+                dynamic_index_pytree_in_dim(cond_padded, start + i, 0)
+                if cond_padded is not None
+                else None
+            )
             for i in range(smc.target.prior.order)
         )
     else:
@@ -99,9 +100,9 @@ def run_buffered_filter(
     ],
     key: PRNGKeyArray,
     parameters: ParametersType,
-    observations: Batched[ObservationType, SequenceAxis],
+    observations: ObservationType,
     *,
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    condition_path: ConditionType | None = None,
     config: BufferedConfig,
 ) -> jax.Array:
     """Run buffered particle filtering over ``observations``."""

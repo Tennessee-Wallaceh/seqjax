@@ -20,7 +20,7 @@ from seqjax.model.base import (
     SequentialModel,
     BayesianSequentialModel,
 )
-from seqjax.model.typing import Batched, SequenceAxis, SampleAxis, HyperParametersType
+from seqjax.model.typing import HyperParametersType
 from seqjax.model import evaluate
 from seqjax.util import pytree_shape
 
@@ -54,15 +54,15 @@ def run_latent_nuts(
         ParticleType, ObservationType, ConditionType, ParametersType
     ],
     key: PRNGKeyArray,
-    observation_path: Batched[ObservationType, SequenceAxis],
+    observation_path: ObservationType,
     parameters: ParametersType,
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    condition_path: ConditionType | None = None,
     *,
     config: NUTSConfig = NUTSConfig(),
-    initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
+    initial_latents: ParticleType | None = None,
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
-) -> Batched[ParticleType, SampleAxis, SequenceAxis]:
+) -> ParticleType:
     """Sample latent paths using the NUTS algorithm from ``blackjax``."""
 
     log_prob_joint = evaluate.get_log_prob_joint_for_target(target)
@@ -132,13 +132,13 @@ def run_bayesian_nuts(
     ],
     hyperparameters: HyperParametersType,
     key: PRNGKeyArray,
-    observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    observation_path: ObservationType,
+    condition_path: ConditionType | None = None,
     config: NUTSConfig = NUTSConfig(),
     test_samples: int = 1000,
 ) -> Tuple[
-    Batched[ParticleType, SampleAxis, SequenceAxis | int],
-    Batched[ParametersType, SampleAxis | int],
+    ParticleType,
+    ParametersType,
 ]:
     """Sample parameters and latent paths jointly using NUTS."""
 

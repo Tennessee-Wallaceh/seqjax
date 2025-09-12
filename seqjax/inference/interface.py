@@ -12,7 +12,7 @@ from seqjax.model.base import (
     BayesianSequentialModel,
     InferenceParametersType,
 )
-from seqjax.model.typing import Batched, SequenceAxis, HyperParametersType
+from seqjax.model.typing import HyperParametersType
 
 
 class InferenceMethod(Protocol):
@@ -36,10 +36,10 @@ class InferenceMethod(Protocol):
             HyperParametersType,
         ],
         key: PRNGKeyArray,
-        observation_path: Batched[ObservationType, SequenceAxis],
+        observation_path: ObservationType,
         *,
-        condition_path: Batched[ConditionType, SequenceAxis] | None = None,
-        initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
+        condition_path: ConditionType | None = None,
+        initial_latents: ParticleType | None = None,
         hyperparameters: HyperParametersType | None = None,
         initial_conditions: tuple[ConditionType, ...] | None = None,
         observation_history: tuple[ObservationType, ...] | None = None,
@@ -63,11 +63,11 @@ class LatentInferenceMethod(Protocol):
             ParticleType, ObservationType, ConditionType, ParametersType
         ],
         key: PRNGKeyArray,
-        observations: Batched[ObservationType, SequenceAxis],
+        observations: ObservationType,
         *,
         parameters: ParametersType,
-        condition_path: Batched[ConditionType, SequenceAxis] | None = None,
-        initial_latents: Batched[ParticleType, SequenceAxis] | None = None,
+        condition_path: ConditionType | None = None,
+        initial_latents: ParticleType | None = None,
         initial_conditions: tuple[ConditionType, ...] | None = None,
         observation_history: tuple[ObservationType, ...] | None = None,
     ) -> Any: ...

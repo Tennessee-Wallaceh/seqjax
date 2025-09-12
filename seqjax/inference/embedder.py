@@ -17,21 +17,8 @@ class Embedder(eqx.Module):
 
     @abstractmethod
     def embed(
-        self, observations: seqjax.model.typing.Batched[seqjax.model.typing.Observation]
+        self, observations: seqjax.model.typing.Observation
     ) -> Float[Array, "batch_length context_dimension"]: ...
-
-
-class NullEmbedder(Embedder):
-    """
-    Throw away input observations
-    """
-
-    context_dimension = 0
-
-    def embed(
-        self, observations: seqjax.model.typing.Batched[seqjax.model.typing.Observation]
-    ):
-        return jnp.broadcast_to(jnp.array(()), (90, 0))
 
 
 class WindowEmbedder(Embedder):

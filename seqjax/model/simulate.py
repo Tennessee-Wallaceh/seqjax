@@ -14,7 +14,6 @@ from seqjax.model.base import (
     ParticleType,
     SequentialModel,
 )
-from seqjax.model.typing import Batched, SequenceAxis
 from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
 
 
@@ -80,8 +79,8 @@ def simulate(
     parameters: ParametersType,
     sequence_length: int,
 ) -> tuple[
-    Batched[ParticleType, SequenceAxis],
-    Batched[ObservationType, SequenceAxis],
+    ParticleType,
+    ObservationType,
     PyTree,
     PyTree,
 ]:

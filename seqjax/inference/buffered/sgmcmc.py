@@ -14,7 +14,7 @@ from seqjax.model.base import (
     ParameterPrior,
     HyperParametersType,
 )
-from seqjax.model.typing import Batched, SequenceAxis, SampleAxis
+
 from seqjax.inference.particlefilter import SMCSampler
 from .buffered import _run_segment
 from ..sgld import SGLDConfig, run_sgld
@@ -36,8 +36,8 @@ def _make_grad_estimator(
     target: SequentialModel[
         ParticleType, ObservationType, ConditionType, ParametersType
     ],
-    observations: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None,
+    observations: ObservationType,
+    condition_path: ConditionType | None,
     config: BufferedSGLDConfig,
 ) -> tuple[typing.Callable[[ParametersType, PRNGKeyArray], ParametersType], int]:
     """Return gradient estimator and maximum start index."""
@@ -87,12 +87,12 @@ def run_buffered_sgld(
     ],
     key: PRNGKeyArray,
     parameters: ParametersType,
-    observations: Batched[ObservationType, SequenceAxis],
+    observations: ObservationType,
     *,
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    condition_path: ConditionType | None = None,
     config: BufferedSGLDConfig,
     sgld_config: SGLDConfig = SGLDConfig(),
-) -> Batched[ParametersType, SampleAxis | int]:
+) -> ParametersType:
     """Run buffered SGLD updates over ``observations``."""
 
     grad_estimator, _ = _make_grad_estimator(

@@ -16,9 +16,6 @@ from seqjax.model.base import (
     BayesianSequentialModel,
 )
 from seqjax.model.typing import (
-    Batched,
-    SequenceAxis,
-    SampleAxis,
     HyperParametersType,
     InferenceParametersType,
 )
@@ -39,7 +36,7 @@ class ParticleMCMCConfig(eqx.Module):
             jrandom.PRNGKey,
             ParametersType,
         ],
-        Batched[ParametersType, SampleAxis | int],
+        ParametersType,
     ]
     particle_filter: SMCSampler[
         ParticleType, ObservationType, ConditionType, ParametersType
@@ -58,11 +55,11 @@ def run_particle_mcmc(
     ],
     hyperparameters: HyperParametersType,
     key: PRNGKeyArray,
-    observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None,
+    observation_path: ObservationType,
+    condition_path: ConditionType | None,
     config: ParticleMCMCConfig,
     test_samples: int = 1000,
-) -> Batched[ParametersType, SampleAxis]:
+) -> ParametersType:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
     def estimate_log_joint(params, key):
