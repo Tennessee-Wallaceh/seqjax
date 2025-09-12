@@ -55,7 +55,7 @@ def run_random_walk_metropolis(
         typing.Callable[
             [
                 tuple[int, seqjtyping.Parameters, jaxtyping.Array],
-                jaxtyping.PRNGKeyArray,
+                tuple[jaxtyping.Array, jaxtyping.PRNGKeyArray],
             ],
             tuple[
                 tuple[int, seqjtyping.Parameters, jaxtyping.Array],
