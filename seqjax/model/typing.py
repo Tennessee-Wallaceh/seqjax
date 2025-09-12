@@ -5,11 +5,8 @@ from functools import lru_cache
 import math
 from typing import (
     ClassVar,
-    Generic,
-    Protocol,
     TypeVar,
     TypeVarTuple,
-    Unpack,
 )
 import typing
 from collections import OrderedDict
@@ -29,8 +26,10 @@ We can do this by making the base classes metaclasses, using __init__subclass__ 
 - that the implementation signatures match order rules
 """
 
+BatchAxes = TypeVarTuple("BatchAxes")
 
-class Packable(eqx.Module):
+
+class Packable[*BatchAxes](eqx.Module):
     """
     Mix-in that flattens only the *feature* axis, leaving any leading batch
     axes intact.  Sub-classes provide `_shape_template`, a dict whose values
@@ -131,20 +130,20 @@ class Packable(eqx.Module):
         )
 
 
-class Particle(Packable): ...
+class Particle[*BatchAxes](Packable[*BatchAxes]): ...
 
 
-class Observation(Packable): ...
+class Observation[*BatchAxes](Packable[*BatchAxes]): ...
 
 
-class Condition(Packable): ...
+class Condition[*BatchAxes](Packable[*BatchAxes]): ...
 
 
-class Parameters(Packable):
+class Parameters[*BatchAxes](Packable[*BatchAxes]):
     reference_emission = ()
 
 
-class HyperParameters(Packable): ...
+class HyperParameters[*BatchAxes](Packable[*BatchAxes]): ...
 
 
 """
@@ -161,22 +160,6 @@ ConditionType = TypeVar("ConditionType", bound=Condition)
 ParametersType = TypeVar("ParametersType", bound=Parameters)
 InferenceParametersType = TypeVar("InferenceParametersType", bound=Parameters)
 HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters)
-
-Batch = TypeVarTuple("Batch")
-SequenceAxis = TypeVar("SequenceAxis", covariant=True)
-SampleAxis = TypeVar("SampleAxis", covariant=True)
-T_co = TypeVar("T_co", covariant=True)
-
-
-class Batched(Protocol, Generic[T_co, Unpack[Batch]]):
-    """A :class:`~jaxtyping.PyTree` with arbitrary leading batch axes.
-
-    ``Batch`` represents the shared leading dimensions while ``SequenceAxis``
-    denotes the trailing sequence length. ``SampleAxis`` can be used to
-    represent batches of independent samples that are not part of the
-    sequence dimension. Multiple return values can reuse the same ``Batch``
-    tuple to indicate they are batched together.
-    """
 
 
 def resolve_annotation(annotation, type_mapping, class_vars):
