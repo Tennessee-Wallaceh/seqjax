@@ -38,13 +38,13 @@ def test_filtering_moments_close_to_kalman() -> None:
         params,
         obs,
         recorders=(
-            current_particle_mean(lambda p: p.x),
-            current_particle_variance(lambda p: p.x),
-            log_marginal(),
+            current_particle_mean,
+            current_particle_variance,
+            log_marginal,
         ),
     )
-    pf_means = jnp.squeeze(jnp.asarray(pf_means))
-    pf_vars = jnp.squeeze(jnp.asarray(pf_vars))
+    pf_means = jnp.squeeze(jnp.asarray(pf_means.x))
+    pf_vars = jnp.squeeze(jnp.asarray(pf_vars.x))
     kf_means = jnp.squeeze(kf_means, axis=-1)
     kf_vars = jnp.squeeze(kf_covs)
     mean_err = jnp.mean(jnp.abs(pf_means - kf_means))
@@ -69,7 +69,7 @@ def test_marginal_likelihood_unbiased() -> None:
             jrandom.fold_in(key, i),
             params,
             obs,
-            recorders=(log_marginal(),),
+            recorders=(log_marginal,),
         )
         pf_lls.append(jnp.sum(jnp.asarray(log_incs)))
     pf_lls = jnp.asarray(pf_lls, dtype=jnp.float64)
@@ -97,7 +97,7 @@ def test_incremental_normalizers() -> None:
     num_particles = 200
     pf = BootstrapParticleFilter(model, num_particles=num_particles)
     key = jrandom.PRNGKey(3)
-    _, _, (log_incs,) = run_filter(pf, key, params, obs, recorders=(log_marginal(),))
+    _, _, (log_incs,) = run_filter(pf, key, params, obs, recorders=(log_marginal,))
     log_incs = jnp.asarray(log_incs)
     total_from_prod = jnp.log(jnp.prod(jnp.exp(log_incs)))
     total_from_sum = jnp.sum(log_incs)

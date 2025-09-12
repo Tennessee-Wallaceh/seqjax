@@ -75,7 +75,7 @@ def run_particle_mcmc(
             key,
             model_params,
             observation_path,
-            recorders=(log_marginal(),),
+            recorders=(log_marginal,),
         )
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
         return jnp.sum(log_marginal_increments) + log_prior

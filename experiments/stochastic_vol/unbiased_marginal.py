@@ -76,7 +76,7 @@ if __name__ == "__main__":
             cond_path,
         )
 
-        lm_rec = log_marginal()
+        lm_rec = log_marginal
         _, _, _, (log_mp,) = vmapped_run_filter(
             bpf,
             filter_keys,
