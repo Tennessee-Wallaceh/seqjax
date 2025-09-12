@@ -1,0 +1,9 @@
+site_name: SeqJAX
+nav:
+  - Usage:
+      - Getting Started: tutorials/getting-started.md
+  - API Reference:
+      - Models: api.md
+plugins:
+  - search
+  - mkdocstrings

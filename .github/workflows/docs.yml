@@ -19,12 +19,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install .[dev] pdoc
-      - run: pdoc ./seqjax -o docs
+      - run: pip install .[dev] mkdocs mkdocstrings[python]
+      - run: mkdocs build
       - name: Commit documentation
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git add docs
+          git add site
           git commit -m "Build documentation" || echo "No changes to commit"
           git push
