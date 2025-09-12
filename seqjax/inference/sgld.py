@@ -279,7 +279,7 @@ def run_full_sgld_mcmc(
             key,
             model_params,
             observation_path,
-            recorders=(log_marginal(),),
+            recorders=(log_marginal,),
             target_parameters=target_posterior.target_parameter,
         )
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
@@ -428,7 +428,7 @@ def run_buffer_sgld_mcmc(
             key,
             model_params,
             observation_path,
-            recorders=(log_marginal(),),
+            recorders=(log_marginal,),
             target_parameters=target_posterior.target_parameter,
         )
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)

@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import functools
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
@@ -40,12 +41,12 @@ if __name__ == "__main__":
     pf = BootstrapParticleFilter(model, num_particles=1000)
     init_cond = (AnnealCondition(beta=betas[0], beta_prev=betas[0]),)
 
-    mean_rec = current_particle_mean(lambda p: p.theta)
-    quant_rec = current_particle_quantiles(lambda p: p.theta, quantiles=(0.05, 0.95))
+    mean_rec = current_particle_mean
+    quant_rec = functools.partial(current_particle_quantiles, quantiles=(0.05, 0.95))
 
-    lm_rec = log_marginal()
-    ess_rec = effective_sample_size()
-    log_w, particles, _, (log_mp, ess, theta_mean, theta_quant) = run_filter(
+    lm_rec = log_marginal
+    ess_rec = effective_sample_size
+    log_w, particles, _, (log_mp, ess, mean_state, quant_state) = run_filter(
         pf,
         jrandom.key(1),
         data,
@@ -54,6 +55,9 @@ if __name__ == "__main__":
         initial_conditions=init_cond,
         recorders=(lm_rec, ess_rec, mean_rec, quant_rec),
     )
+
+    theta_mean = mean_state.theta
+    theta_quant = quant_state.theta
 
     weights = jax.nn.softmax(log_w)
     theta_samples = particles[-1].theta

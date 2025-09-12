@@ -1,4 +1,6 @@
 import matplotlib.pyplot as plt
+import functools
+import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 
@@ -17,8 +19,9 @@ from seqjax.inference.particlefilter import (
 )
 
 
-def mean_log_vol(weights, particles):
-    current = particles[-1]
+def mean_log_vol(filter_data):
+    weights = jax.nn.softmax(filter_data.log_w)
+    current = filter_data.particles[-1]
     return jnp.sum(current.log_vol * weights)
 
 
@@ -48,13 +51,13 @@ if __name__ == "__main__":
 
     bpf = BootstrapParticleFilter(target, num_particles=500)
     filter_key = jrandom.key(1)
-    quant_rec = current_particle_quantiles(lambda p: p.log_vol, quantiles=(0.05, 0.95))
+    quant_rec = functools.partial(current_particle_quantiles, quantiles=(0.05, 0.95))
     init_conds = tuple(TimeIncrement(cond.dt[i]) for i in range(target.prior.order))
     cond_path = TimeIncrement(cond.dt[target.prior.order:])
 
-    lm_rec = log_marginal()
-    ess_rec = effective_sample_size()
-    log_w, _, _, (log_mp, ess, filt_lv, filt_quant) = run_filter(
+    lm_rec = log_marginal
+    ess_rec = effective_sample_size
+    log_w, _, _, (log_mp, ess, filt_lv, filt_quant_state) = run_filter(
         bpf,
         filter_key,
         params,
@@ -64,6 +67,8 @@ if __name__ == "__main__":
         observation_history=(),
         recorders=(lm_rec, ess_rec, mean_log_vol, quant_rec),
     )
+
+    filt_quant = filt_quant_state.log_vol
 
     t = jnp.arange(filt_lv.shape[0])
     plt.figure(figsize=(10, 4))
