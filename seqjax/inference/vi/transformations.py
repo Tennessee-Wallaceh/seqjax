@@ -1,13 +1,11 @@
 from abc import abstractmethod
-from typing import Type, Generic, Callable, Optional, Literal, Any
+from typing import Any
 import typing
 import equinox as eqx
-import jax.scipy.stats as jstats
-from jaxtyping import Shaped, Array, Int, Float, PRNGKeyArray
+from jaxtyping import Array, Float
 import jax.numpy as jnp
 import jax
 from jax.nn import softplus
-import jax.random as jrandom
 import seqjax.model.typing
 import operator
 import distrax
@@ -17,27 +15,31 @@ class Bijector(eqx.Module):
     # maps from one manifold to another
     @abstractmethod
     def transform_and_lad(
-        self, x: Float[Array, "batch_length"]
-    ) -> Float[Array, "context_length"]:
+        self, x: Float[Array, " batch_length"]
+    ) -> Float[Array, " context_length"]:
         pass
 
     @abstractmethod
     def inverse_and_lad(
-        self, x: Float[Array, "batch_length"]
-    ) -> Float[Array, "context_length"]:
+        self, x: Float[Array, " batch_length"]
+    ) -> Float[Array, " context_length"]:
         pass
 
 
 class Identity(Bijector):
-    def transform_and_lad(self, x: Float[Array, "num_samples x_dim"]) -> tuple[
+    def transform_and_lad(
+        self, x: Float[Array, "num_samples x_dim"]
+    ) -> tuple[
         Float[Array, "num_samples x_dim"],
-        Float[Array, "num_samples"],
+        Float[Array, " num_samples"],
     ]:
         return x, jnp.array(0.0)
 
-    def inverse_and_lad(self, x: Float[Array, "num_samples x_dim"]) -> tuple[
+    def inverse_and_lad(
+        self, x: Float[Array, "num_samples x_dim"]
+    ) -> tuple[
         Float[Array, "num_samples x_dim"],
-        Float[Array, "num_samples"],
+        Float[Array, " num_samples"],
     ]:
         return x, jnp.array(0.0)
 
@@ -52,9 +54,11 @@ class ConstrainedRQS(Bijector):
         self.lower = lower
         self.upper = upper
 
-    def transform_and_lad(self, x: Float[Array, "num_samples x_dim"]) -> tuple[
+    def transform_and_lad(
+        self, x: Float[Array, "num_samples x_dim"]
+    ) -> tuple[
         Float[Array, "num_samples x_dim"],
-        Float[Array, "num_samples"],
+        Float[Array, " num_samples"],
     ]:
         return distrax.RationalQuadraticSpline(
             self._unc_params,
@@ -62,9 +66,11 @@ class ConstrainedRQS(Bijector):
             range_max=self.upper,
         ).forward_and_log_det(x)
 
-    def inverse_and_lad(self, x: Float[Array, "num_samples x_dim"]) -> tuple[
+    def inverse_and_lad(
+        self, x: Float[Array, "num_samples x_dim"]
+    ) -> tuple[
         Float[Array, "num_samples x_dim"],
-        Float[Array, "num_samples"],
+        Float[Array, " num_samples"],
     ]:
         return distrax.RationalQuadraticSpline(
             self._unc_params,
@@ -86,15 +92,19 @@ def inverse_softplus(y: jnp.ndarray) -> jnp.ndarray:
 
 
 class Softplus(Bijector):
-    def transform_and_lad(self, x: Float[Array, "num_samples x_dim"]) -> tuple[
+    def transform_and_lad(
+        self, x: Float[Array, "num_samples x_dim"]
+    ) -> tuple[
         Float[Array, "num_samples x_dim"],
-        Float[Array, "num_samples"],
+        Float[Array, " num_samples"],
     ]:
         return softplus(x), log_dsftpls(x).sum(axis=1)
 
-    def inverse_and_lad(self, y: Float[Array, "num_samples x_dim"]) -> tuple[
+    def inverse_and_lad(
+        self, y: Float[Array, "num_samples x_dim"]
+    ) -> tuple[
         Float[Array, "num_samples x_dim"],
-        Float[Array, "num_samples"],
+        Float[Array, " num_samples"],
     ]:
         x = inverse_softplus(y)
         return x, -log_dsftpls(x).sum(axis=1)
@@ -109,7 +119,8 @@ class Sigmoid(Bijector):
         self.upper = upper
 
     def transform_and_lad(
-        self, x: jnp.ndarray  # Float[Array, "num_samples x_dim"]
+        self,
+        x: jnp.ndarray,  # Float[Array, "num_samples x_dim"]
     ) -> tuple[
         jnp.ndarray, jnp.ndarray
     ]:  # (Float[Array, "num_samples x_dim"], Float[Array, "num_samples"])
@@ -123,11 +134,11 @@ class Sigmoid(Bijector):
         return y, lad
 
     def inverse_and_lad(
-        self, y: jnp.ndarray  # Float[Array, "num_samples x_dim"]
+        self,
+        y: jnp.ndarray,  # Float[Array, "num_samples x_dim"]
     ) -> tuple[
         jnp.ndarray, jnp.ndarray
     ]:  # (Float[Array, "num_samples x_dim"], Float[Array, "num_samples"])
-
         # rescale
         sig = (y - self.lower) / (self.upper - self.lower)
         x = jax.scipy.special.logit(sig)
@@ -153,7 +164,7 @@ class Chain(Bijector):
 
     def transform_and_lad(
         self, x: Float[Array, "num_samples ..."]
-    ) -> typing.Tuple[Float[Array, "num_samples ..."], Float[Array, "num_samples"]]:
+    ) -> typing.Tuple[Float[Array, "num_samples ..."], Float[Array, " num_samples"]]:
         y = x
         shape = x.shape[0] if x.shape else ()
         lad = jnp.zeros(shape, dtype=x.dtype)
@@ -164,7 +175,7 @@ class Chain(Bijector):
 
     def inverse_and_lad(
         self, y: Float[Array, "num_samples ..."]
-    ) -> typing.Tuple[Float[Array, "num_samples ..."], Float[Array, "num_samples"]]:
+    ) -> typing.Tuple[Float[Array, "num_samples ..."], Float[Array, " num_samples"]]:
         x = y
         shape = x.shape[0] if x.shape else ()
         lad = jnp.zeros(shape, dtype=y.dtype)
@@ -182,7 +193,7 @@ class FieldwiseBijector[TargetStructT: seqjax.model.typing.Packable](eqx.Module)
     def transform_and_lad(
         self,
         z: TargetStructT,
-    ) -> tuple[TargetStructT, Float[Array, "batch"]]:
+    ) -> tuple[TargetStructT, Float[Array, " batch"]]:
         x = z
         lad = jnp.zeros(x.batch_shape)  # batch dim
 

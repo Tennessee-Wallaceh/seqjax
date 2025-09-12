@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
-from jax_tqdm import scan_tqdm
 from seqjax.model.base import (
     ConditionType,
     ObservationType,

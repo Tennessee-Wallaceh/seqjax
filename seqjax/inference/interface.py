@@ -9,7 +9,6 @@ from seqjax.model.base import (
     ObservationType,
     ConditionType,
     ParametersType,
-    ParameterPrior,
     BayesianSequentialModel,
     InferenceParametersType,
 )

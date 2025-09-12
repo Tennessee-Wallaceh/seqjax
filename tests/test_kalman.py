@@ -1,4 +1,3 @@
-import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 
@@ -37,4 +36,6 @@ def test_kalman_filter_matches_particle_filter() -> None:
     assert kf_mean.shape == mean_hist.shape
     assert kf_cov.shape[:2] == (seq_len, params.transition_matrix.shape[0])
     assert jnp.allclose(kf_mean, mean_hist, atol=1e-1, rtol=1e-1)
-    assert jnp.allclose(jnp.diagonal(kf_cov, axis1=1, axis2=2), var_hist, atol=1e-1, rtol=1e-1)
+    assert jnp.allclose(
+        jnp.diagonal(kf_cov, axis1=1, axis2=2), var_hist, atol=1e-1, rtol=1e-1
+    )

@@ -1,31 +1,21 @@
 import matplotlib.pyplot as plt
 import jax
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 import jax.numpy as jnp
 import jax.random as jrandom
-from functools import partial
 import arviz as az
-import equinox as eqx
 import wandb
 
-from seqjax.model import simulate
-from seqjax.model.ar import AR1Target, ARParameters, HalfCauchyStds
-from seqjax.inference.particlefilter import (
-    BootstrapParticleFilter,
-    current_particle_mean,
-    current_particle_quantiles,
-    run_filter,
-    log_marginal,
-)
+from seqjax import util
+from seqjax.model import registry as model_registry
 
-from seqjax.inference import pmcmc, mcmc, particlefilter, sgld, registry
+from seqjax.inference import vi
+from seqjax.inference import registry as inference_registry
+from seqjax import io
 
 # from seqjax.inference.buffered import BufferedSGLDConfig, run_buffered_sgld
 # from seqjax.inference.sgld import SGLDConfig
 from seqjax.model import ar
-from seqjax.model.typing import HyperParameters, Condition
-from seqjax.model.base import BayesianSequentialModel
-from seqjax.inference import mcmc, InferenceMethod
 
 
 def cumulative_quantiles_masked(samples, quantiles):
@@ -43,87 +33,377 @@ def cumulative_quantiles_masked(samples, quantiles):
     return jax.vmap(compute_row)(full_samples, mask)
 
 
-def analytic_log_marginal(target_posterior, params, y_path):
-    def log_marginal(params):
-        R = target_posterior.target_parameter(params).observation_std ** 2
-        Q = target_posterior.target_parameter(params).transition_std ** 2
-
-        # initial predictive for x₁
-        x_pred = 0.0
-
-        P_pred = true_params.transition_std**2
-
-        def scan_step(carry, y_t):
-            x_pred, P_pred, ll = carry
-
-            # 1) marginal for y_t
-            S = P_pred + R
-            ll = ll - 0.5 * (jnp.log(2 * jnp.pi * S) + (y_t - x_pred) ** 2 / S)
-
-            # 2) Kalman update
-            K = P_pred / S
-            x_filt = x_pred + K * (y_t - x_pred)
-            P_filt = (1 - K) * P_pred
-
-            # 3) predict to next
-            x_pred_next = target_posterior.target_parameter(params).ar * x_filt
-            P_pred_next = target_posterior.target_parameter(params).ar ** 2 * P_filt + Q
-
-            return (x_pred_next, P_pred_next, ll), None
-
-        (x_final, P_final, total_ll), _ = jax.lax.scan(
-            scan_step, init=(x_pred, P_pred, 0.0), xs=y_path.y
-        )
-        return total_ll + target_posterior.parameter_prior.log_prob(params, None)
-
-    return log_marginal(params)
+@dataclass
+class ARExperimentConfig:
+    data_config: model_registry.ARDataConfig
+    test_samples: int
+    fit_seed: int
+    inference: inference_registry.InferenceConfig
 
 
-parameter_settings = {
-    "base": ar.ARParameters(
-        ar=jnp.array(0.8),
-        observation_std=jnp.array(0.1),
-        transition_std=jnp.array(0.5),
+def process_mcmc_results(
+    run,
+    experiment_config,
+    elapsed_time_s,
+    latent_samples,
+    param_samples,
+    extra_data,
+    x_path,
+    y_path,
+):
+    experiment_shorthand = f"{experiment_config.inference.name} {experiment_config.data_config.dataset_name}"
+    io.save_packable_artifact(
+        run,
+        f"{run.name}_samples",
+        "run_output",
+        [("final_samples", param_samples, {})],
     )
+
+    # plot hist of
+    fig = plt.figure(figsize=(8, 3))
+    generative_params = experiment_config.data_config.generative_parameters
+    plt.hist(param_samples.ar, bins=50, density=True, alpha=0.5, label=label)
+    plt.axvline(generative_params.ar, color="black", linestyle="--", label="true")
+    plt.xlabel("ar parameter")
+    plt.ylabel("density")
+    plt.legend()
+    plt.grid()
+    plt.title(f"{experiment_shorthand} samples")
+    plt.tight_layout()
+
+    run.log({"final_sample": wandb.Image(fig)})
+    plt.close(fig)
+
+    # sample plot
+    fig = plt.figure(figsize=(8, 3))
+    plt.title(f"{experiment_shorthand} sample path")
+
+    plt.plot(
+        elapsed_time_s,
+        param_samples.ar,
+        label=label,
+    )
+
+    plt.legend()
+    plt.xlabel("Inference Time (s)")
+    plt.ylabel("AR")
+    plt.grid()
+
+    run.log({"sample_path": wandb.Image(fig)})
+    plt.close(fig)
+
+    # autocorr plot
+    fig = plt.figure(figsize=(8, 3))
+    ax = fig.add_axes((0.1, 0.1, 0.9, 0.9))
+    az.plot_autocorr(asdict(param_samples), ax=ax)
+    plt.title(f"{experiment_shorthand} autocorrelation")
+    plt.tight_layout()
+    run.log({"autocorrelation": wandb.Image(fig)})
+    plt.close(fig)
+
+    # generative p MSE
+    fig = plt.figure(figsize=(8, 8))
+    plt.title(f"{experiment_shorthand} MSE to generative vs inference time")
+    plt.plot(
+        elapsed_time_s,
+        jnp.cumsum(jnp.square(param_samples.ar - generative_params.ar))
+        / jnp.arange(1, 1 + len(param_samples.ar)),
+    )
+    plt.xlabel("Inference Time (s)")
+    plt.ylabel("Parameter MSE")
+    plt.grid()
+    run.log({"parameter_mse_plot": wandb.Image(fig)})
+    plt.close(fig)
+    run.log(
+        {
+            "generative_parameter_mse": jnp.mean(
+                jnp.square(param_samples.ar - generative_params.ar)
+            )
+        }
+    )
+
+    # latent fit
+    fig = plt.figure(figsize=(8, 3))
+    plt.plot(x_path.x, linestyle="--", c="black", label="true latent")
+    for ix in range(5):
+        latent_sample = util.index_pytree(latent_samples, (-ix, 0))
+        plt.plot(latent_sample.x, c="blue", alpha=0.5)
+    plt.grid()
+    plt.ylabel("x")
+    plt.ylabel("t")
+    plt.title(f"{experiment_shorthand} Latent Approximation")
+    run.log({"latent_approximation": wandb.Image(fig)})
+    plt.close(fig)
+
+    # save down samples
+    num_sample_points = 10
+    num_samples = param_samples.batch_shape[0]
+    block_size = int(num_samples / num_sample_points)
+
+    io.save_packable_artifact(
+        run,
+        f"{run.name}_checkpoint_samples",
+        "checkpoint_samples",
+        [
+            (
+                f"samples_{i}",
+                util.slice_pytree(param_samples, 0, block_size * i),
+                {"elapsed_time_s": float(elapsed_time_s[i * block_size])},
+            )
+            for i in range(1, num_sample_points + 1)
+        ],
+    )
+
+
+def process_buffer_vi(
+    run,
+    experiment_config,
+    elapsed_time_s,
+    latent_samples,
+    param_samples,
+    extra_data,
+    x_path,
+    y_path,
+):
+    run_data, approx_start, run_tracker = extra_data
+    experiment_shorthand = f"{experiment_config.inference.name} {experiment_config.data_config.dataset_name}"
+    io.save_packable_artifact(
+        run,
+        f"{run.name}_samples",
+        "run_output",
+        [("final_samples", param_samples, {})],
+    )
+
+    fig = plt.figure(figsize=(8, 3))
+    generative_params = experiment_config.data_config.generative_parameters
+    plt.hist(param_samples.ar, bins=50, density=True, alpha=0.5, label=label)
+    plt.axvline(generative_params.ar, color="black", linestyle="--", label="true")
+    plt.xlabel("ar parameter")
+    plt.ylabel("density")
+    plt.legend()
+    plt.grid()
+    plt.title(f"{experiment_shorthand} samples")
+    plt.tight_layout()
+    run.log({"final_sample": wandb.Image(fig)})
+    plt.close(fig)
+
+    run.log(
+        {
+            "generative_parameter_mse": jnp.mean(
+                jnp.square(param_samples.ar - generative_params.ar)
+            )
+        }
+    )
+
+    fig = plt.figure(figsize=(8, 3))
+    plt.plot(run_data["elapsed_time_s"], run_data["ar_q05"], c="green")
+    plt.plot(run_data["elapsed_time_s"], run_data["ar_q95"], c="blue", linestyle="--")
+    plt.axhline(generative_params.ar, c="black")
+    plt.grid()
+    plt.title(f"{experiment_shorthand} quantiles")
+    plt.xlabel("Elapsed time (s)")
+    run.log({"quantile_plot": wandb.Image(fig)})
+    plt.close(fig)
+
+    # approximation plot
+    fig = plt.figure(figsize=(8, 3))
+    plt.title(f"{experiment_shorthand} latent approximation")
+    for start_sample_ix in range(5):
+        start_ix = approx_start[start_sample_ix]
+
+        for sample_ix in range(3):
+            latent_sample = util.index_pytree(
+                latent_samples, (start_sample_ix, sample_ix)
+            )
+            plt.plot(
+                range(start_ix, start_ix + len(latent_sample.x)),
+                latent_sample.x,
+                c="blue",
+                alpha=0.5,
+            )
+            plt.scatter(start_ix, latent_sample.x[0], marker="x", c="blue")
+
+    plt.ylabel("x")
+    plt.ylabel("t")
+    plt.plot(x_path.x, c="black", linestyle="--")
+    plt.grid()
+    run.log({"latent_approximation": wandb.Image(fig)})
+    plt.close(fig)
+
+    # save checkpoint samples
+    io.save_packable_artifact(
+        run,
+        f"{run.name}_checkpoint_samples",
+        "checkpoint_samples",
+        [
+            (
+                f"samples_{i}",
+                samples,
+                {"elapsed_time_s": elapsed_time_s},
+            )
+            for i, (elapsed_time_s, samples) in enumerate(
+                run_tracker.checkpoint_samples
+            )
+        ],
+    )
+
+    #
+    fig = plt.figure(figsize=(8, 3))
+    plt.plot(run_data["elapsed_time_s"], run_data["loss"], c="green")
+    plt.grid()
+    plt.title(f"{experiment_shorthand} loss")
+    plt.xlabel("Elapsed time (s)")
+    run.log({"loss_plot": wandb.Image(fig)})
+    plt.close(fig)
+
+
+def process_full_vi(
+    run,
+    experiment_config,
+    elapsed_time_s,
+    latent_samples,
+    param_samples,
+    extra_data,
+    x_path,
+    y_path,
+):
+    run_data, run_tracker = extra_data
+    experiment_shorthand = f"{experiment_config.inference.name} {experiment_config.data_config.dataset_name}"
+    io.save_packable_artifact(
+        run,
+        f"{run.name}_samples",
+        "run_output",
+        [("final_samples", param_samples, {})],
+    )
+
+    fig = plt.figure(figsize=(8, 3))
+    generative_params = experiment_config.data_config.generative_parameters
+    plt.hist(param_samples.ar, bins=50, density=True, alpha=0.5, label=label)
+    plt.axvline(generative_params.ar, color="black", linestyle="--", label="true")
+    plt.xlabel("ar parameter")
+    plt.ylabel("density")
+    plt.legend()
+    plt.grid()
+    plt.title(f"{experiment_shorthand} samples")
+    plt.tight_layout()
+    run.log({"final_sample": wandb.Image(fig)})
+    plt.close(fig)
+
+    run.log(
+        {
+            "generative_parameter_mse": jnp.mean(
+                jnp.square(param_samples.ar - generative_params.ar)
+            )
+        }
+    )
+
+    fig = plt.figure(figsize=(8, 3))
+    plt.plot(run_data["elapsed_time_s"], run_data["ar_q05"], c="green")
+    plt.plot(run_data["elapsed_time_s"], run_data["ar_q95"], c="blue", linestyle="--")
+    plt.axhline(generative_params.ar, c="black")
+    plt.grid()
+    plt.title(f"{experiment_shorthand} quantiles")
+    plt.xlabel("Elapsed time (s)")
+    run.log({"quantile_plot": wandb.Image(fig)})
+    plt.close(fig)
+
+    # approximation plot
+    fig = plt.figure(figsize=(8, 3))
+    plt.title(f"{experiment_shorthand} latent approximation")
+    for sample_ix in range(5):
+        latent_sample = util.index_pytree(latent_samples, (0, sample_ix))
+        plt.plot(
+            latent_sample.x,
+            c="blue",
+            alpha=0.5,
+        )
+
+    plt.ylabel("x")
+    plt.ylabel("t")
+    plt.plot(x_path.x, c="black", linestyle="--")
+    plt.grid()
+    run.log({"latent_approximation": wandb.Image(fig)})
+    plt.close(fig)
+
+    # save checkpoint samples
+    io.save_packable_artifact(
+        run,
+        f"{run.name}_checkpoint_samples",
+        "checkpoint_samples",
+        [
+            (
+                f"samples_{i}",
+                samples,
+                {"elapsed_time_s": elapsed_time_s},
+            )
+            for i, (elapsed_time_s, samples) in enumerate(
+                run_tracker.checkpoint_samples
+            )
+        ],
+    )
+
+    #
+    fig = plt.figure(figsize=(8, 3))
+    plt.plot(run_data["elapsed_time_s"], run_data["loss"], c="green")
+    plt.grid()
+    plt.title(f"{experiment_shorthand} loss")
+    plt.xlabel("Elapsed time (s)")
+    run.log({"loss_plot": wandb.Image(fig)})
+    plt.close(fig)
+
+
+results_process = {
+    "NUTS": process_mcmc_results,
+    "buffer-vi": process_buffer_vi,
+    "full-vi": process_full_vi,
 }
 
 
-@dataclass
-class ARExperimentConfig:
-    parameter_setting: str
-    sequence_length: int
-    data_seed: int
-
-    test_samples: int
-    fit_seed: int
-    inference: registry.InferenceConfig
+def process_results(
+    run,
+    experiment_config,
+    elapsed_time_s,
+    latent_samples,
+    param_samples,
+    extra_data,
+    x_path,
+    y_path,
+):
+    result_processor = results_process.get(experiment_config.inference.method, None)
+    if result_processor is not None:
+        result_processor(
+            run,
+            experiment_config,
+            elapsed_time_s,
+            latent_samples,
+            param_samples,
+            extra_data,
+            x_path,
+            y_path,
+        )
 
 
 def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
     # track run data
     wandb_run = wandb.init(
         project=experiment_name,
-        config=asdict(experiment_config),
+        config={
+            **asdict(experiment_config),
+            "inference_name": experiment_config.inference.name,
+        },  # force inference name into config
     )
 
     # define target model
-    target_params = parameter_settings[experiment_config.parameter_setting]
+    target_params = experiment_config.data_config.generative_parameters
     model = ar.AR1Bayesian(target_params)
 
-    # generate data
-    data_key = jrandom.PRNGKey(experiment_config.data_seed)
-    x_path, y_path, _, _ = simulate.simulate(
-        data_key,
-        model.target,
-        None,
-        target_params,
-        sequence_length=experiment_config.sequence_length,
-    )
+    # get target data
+    x_path, y_path = io.get_remote_data(wandb_run, experiment_config.data_config)
 
     # inference init
-    inference = registry.build_inference(experiment_config.inference, model)
+    inference = inference_registry.build_inference(experiment_config.inference, model)
 
-    elapsed_time_s, _, param_samples, extra_data = inference(
+    elapsed_time_s, latent_samples, param_samples, extra_data = inference(
         model,
         hyperparameters=None,
         key=jrandom.key(experiment_config.fit_seed),
@@ -132,46 +412,85 @@ def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
         test_samples=experiment_config.test_samples,
     )
 
-    artifact = wandb.Artifact(
-        name=f"{experiment_config.inference.method}_samples", type="dataset"
+    process_results(
+        wandb_run,
+        experiment_config,
+        elapsed_time_s,
+        latent_samples,
+        param_samples,
+        extra_data,
+        x_path,
+        y_path,
     )
-    eqx.tree_serialise_leaves("some_filename.eqx", model)
 
-    artifact.add_file(
-        local_path=f"./{experiment_config.inference.method}_samples.dat",
-        name="training_dataset",
-    )
-    artifact.save()
+    wandb_run.finish()
 
-    return param_samples
-
-    # ar_sample_sets[label] = param_samples.ar
-    # sample_sets[label] = param_samples
-    # inference_time[label] = time_s
+    return (elapsed_time_s, latent_samples, param_samples, extra_data, x_path, y_path)
 
 
-inference_methods = {
-    "NUTS": registry.NUTSInference(
-        "NUTS", mcmc.NUTSConfig(step_size=1e-3, num_warmup=100, num_chains=2)
-    )
-}
+"""
+Select inference methods to run
+"""
+inference_methods = {}
 
+# inference_methods["NUTS"] = inference_registry.NUTSInference(
+#     "NUTS", mcmc.NUTSConfig(step_size=1e-3, num_warmup=1000, num_chains=1)
+# )
+
+for buffer in [2, 5]:
+    for batch in [10]:
+        for cv in [True]:
+            # for ar_transform in ["interval_spline"]:
+            for ar_transform in ["sigmoid"]:
+                buffviconf = inference_registry.BufferVI(
+                    "buffer-vi",
+                    vi.BufferedVIConfig(
+                        learning_rate=2e-3,
+                        opt_steps=20000,
+                        buffer_length=buffer,
+                        batch_length=batch,
+                        parameter_field_bijections={
+                            "ar": ar_transform,
+                        },
+                        control_variate=cv,
+                    ),
+                )
+                inference_methods[buffviconf.name] = buffviconf
+
+
+# full_vi_config = inference_registry.FullVI(
+#     "full-vi",
+#     vi.FullVIConfig(
+#         learning_rate=2e-3,
+#         opt_steps=20000,
+#         parameter_field_bijections={"ar": "sigmoid"},
+#     ),
+# )
+# inference_methods[full_vi_config.name] = full_vi_config
 
 if __name__ == "__main__":
-    data_repeats = 2
-    experiment_name = "seq_rough"
+    data_repeats = 1
+    experiment_name = "ar1-experimental"
     for data_seed in range(data_repeats):
         for label, inference_config in inference_methods.items():
             experiment_config = ARExperimentConfig(
-                parameter_setting="base",
-                sequence_length=100,
-                test_samples=100,
-                data_seed=data_seed,
+                data_config=model_registry.ARDataConfig(
+                    generative_parameter_label="base",
+                    sequence_length=1000,
+                    seed=data_seed,
+                ),
+                test_samples=10000,
                 fit_seed=1000,
                 inference=inference_config,
             )
-            run_experiment(experiment_name, experiment_config)
+            output = run_experiment(experiment_name, experiment_config)
 
+            # try:
+            #     output = run_experiment(experiment_name, experiment_config)
+
+            # except Exception as e:
+            #     print(e)
+            #     pass
     # define inference procedures
     # inference_procedures = {}
     # mcmc_samplers = ["NUTS", "PMMH", "full_SGLD"]
@@ -206,22 +525,6 @@ if __name__ == "__main__":
     #         initial_parameter_guesses=20,
     #     ),
     # )
-
-    # ar_sample_sets = {}
-    # sample_sets = {}
-    # inference_time = {}
-    # for label, procedure in inference_procedures.items():
-    #     print(f"Running: {label}")
-    #     time_s, _, param_samples = procedure(
-    #         model,
-    #         hyperparameters=None,
-    #         key=jrandom.key(100),
-    #         observation_path=y_path,
-    #         condition_path=None,
-    #     )
-    #     ar_sample_sets[label] = param_samples.ar
-    #     sample_sets[label] = param_samples
-    #     inference_time[label] = time_s
 
     # min_ar = 1
     # max_ar = -1
@@ -265,48 +568,3 @@ if __name__ == "__main__":
     # plt.tight_layout()
     # plt.savefig("approximate_posterior_comparison.png")
     # plt.show()
-
-    # plt.figure(figsize=(8, 8))
-    # plt.title("MSE vs Inference time")
-    # for label in ar_sample_sets:
-    #     ar_samples = ar_sample_sets[label]
-    #     time_s = inference_time[label]
-    #     plt.plot(
-    #         time_s,
-    #         jnp.cumsum(jnp.square(ar_samples - true_params.ar))
-    #         / jnp.arange(1, 1 + len(ar_samples)),
-    #         label=label,
-    #     )
-    # plt.legend()
-    # plt.xlabel("Inference Time (s)")
-    # plt.ylabel("Parameter MSE")
-    # plt.grid()
-    # plt.savefig("parameter_mse_path_comparison.png")
-    # plt.show()
-
-    # for mcmc_sampler in mcmc_samplers:
-    #     if mcmc_sampler in ar_sample_sets:
-    #         plt.figure(figsize=(8, 3))
-    #         plt.title(f"{mcmc_sampler} path")
-
-    #         nuts_ar1_samples = sample_sets[mcmc_sampler]
-    #         time_s = inference_time[mcmc_sampler]
-
-    #         plt.plot(
-    #             time_s,
-    #             nuts_ar1_samples.ar,
-    #             label=label,
-    #         )
-
-    #         plt.legend()
-    #         plt.xlabel("Inference Time (s)")
-    #         plt.ylabel("AR1")
-    #         plt.grid()
-    #         plt.savefig(f"{mcmc_sampler}_sample_path.png")
-    #         plt.show()
-
-    #         plt.figure(figsize=(8, 3))
-    #         az.plot_autocorr(asdict(nuts_ar1_samples))
-    #         plt.grid()
-    #         plt.savefig(f"{mcmc_sampler}_acf.png")
-    #         plt.show()

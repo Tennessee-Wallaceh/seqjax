@@ -1,4 +1,4 @@
-from typing import TypeVar, Callable
+from typing import Callable
 import time
 
 from jaxtyping import PRNGKeyArray
@@ -7,15 +7,12 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax
-from jax_tqdm import scan_tqdm
 
 from seqjax.model.base import (
     ConditionType,
     ObservationType,
     ParametersType,
     ParticleType,
-    ParameterPrior,
-    SequentialModel,
     BayesianSequentialModel,
 )
 from seqjax.model.typing import (
@@ -25,11 +22,9 @@ from seqjax.model.typing import (
     HyperParametersType,
     InferenceParametersType,
 )
-from functools import partial
 
 from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 from seqjax.inference.mcmc.metropolis import (
-    RandomWalkConfig,
     run_random_walk_metropolis,
 )
 from seqjax import util

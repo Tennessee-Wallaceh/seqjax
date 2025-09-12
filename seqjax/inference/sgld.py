@@ -1,6 +1,6 @@
 from __future__ import annotations
 import time
-from typing import Callable, Generic, Any
+from typing import Callable, Generic
 
 import equinox as eqx
 import jax
@@ -15,16 +15,11 @@ from seqjax.model.typing import Batched, SampleAxis
 from seqjax.model.base import (
     ConditionType,
     ObservationType,
-    ParametersType,
     ParticleType,
-    ParameterPrior,
-    SequentialModel,
     BayesianSequentialModel,
 )
 from seqjax.model.typing import (
-    Batched,
     SequenceAxis,
-    SampleAxis,
     HyperParametersType,
     InferenceParametersType,
 )
@@ -66,7 +61,6 @@ def _tree_randn_like(key: PRNGKeyArray, tree: ParametersType) -> ParametersType:
 
 
 def build_score_increment(target_posterior: BayesianSequentialModel):
-
     def latent_prior_log_prob(particle, condition, parameters):
         return target_posterior.target.prior.log_prob(
             particle, condition, target_posterior.target_parameter(parameters)
@@ -160,7 +154,9 @@ def run_sgld(
     grad_keys = split_keys[:n_iters]
     noise_keys = split_keys[n_iters:]
 
-    if jax.tree_util.tree_structure(config.step_size) == jax.tree_util.tree_structure(initial_parameters):  # type: ignore[operator]
+    if jax.tree_util.tree_structure(config.step_size) == jax.tree_util.tree_structure(
+        initial_parameters
+    ):  # type: ignore[operator]
         step_sizes = config.step_size
     else:
         step_sizes = jax.tree_util.tree_map(
@@ -203,7 +199,6 @@ def run_full_sgld_mcmc(
     observation_path: Batched[ObservationType, SequenceAxis],
     condition_path: Batched[ConditionType, SequenceAxis] | None = None,
 ) -> Batched[ParametersType, SampleAxis]:
-
     score_increment = build_score_increment(target_posterior)
 
     @jax.jit
@@ -305,7 +300,6 @@ def run_buffer_sgld_mcmc(
     observation_path: Batched[ObservationType, SequenceAxis],
     condition_path: Batched[ConditionType, SequenceAxis] | None = None,
 ) -> Batched[ParametersType, SampleAxis]:
-
     score_increment = build_score_increment(target_posterior)
     sequence_length = observation_path.y.shape[0]
 
@@ -321,7 +315,7 @@ def run_buffer_sgld_mcmc(
                 config.particle_filter,
                 pf_key,
                 model_params,
-                util.slice_pytree(y_path, start_ix, start_ix + sample_length),
+                util.slice_pytree(observation_path, start_ix, start_ix + sample_length),
                 recorders=(
                     score_increment,
                     lambda x: x.ancestor_ix,

@@ -45,7 +45,7 @@ extend-exclude = ["sketch.ipynb", "notebooks/*"]
 
 [tool.ruff.lint]
 select = ["E", "F"]
-ignore = ["E501"]
+ignore = ["E501", "F722"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S101"]
 

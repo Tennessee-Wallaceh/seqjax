@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import typing
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -40,7 +39,7 @@ def _make_grad_estimator(
     observations: Batched[ObservationType, SequenceAxis],
     condition_path: Batched[ConditionType, SequenceAxis] | None,
     config: BufferedSGLDConfig,
-) -> tuple[Callable[[ParametersType, PRNGKeyArray], ParametersType], int]:
+) -> tuple[typing.Callable[[ParametersType, PRNGKeyArray], ParametersType], int]:
     """Return gradient estimator and maximum start index."""
 
     smc = config.particle_filter
@@ -59,7 +58,9 @@ def _make_grad_estimator(
 
     start_max = seq_len - config.batch_size + 1
 
-    def log_post(params: ParametersType, start: jax.Array, pf_key: PRNGKeyArray) -> jax.Array:
+    def log_post(
+        params: ParametersType, start: jax.Array, pf_key: PRNGKeyArray
+    ) -> jax.Array:
         log_mps = _run_segment(
             start,
             smc,

@@ -1,22 +1,13 @@
 from typing import Tuple, Type
 import typing
 
-from seqjax.inference.embedder import Embedder
 from seqjax.inference.vi.base import AmortizedVariationalApproximation
-from seqjax.model.base import (
-    SequentialModel,
-    ParticleType,
-    ObservationType,
-    ConditionType,
-    ParametersType,
-)
 import seqjax.model.typing
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
-from jax import flatten_util
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
 
@@ -33,8 +24,8 @@ def make_linear(in_dim: int, out_dim: int, key: PRNGKeyArray) -> eqx.nn.Linear:
     assert layer.bias is not None
     new_bias = jnp.zeros(layer.bias.shape, dtype=layer.bias.dtype)
 
-    layer = eqx.tree_at(lambda l: l.weight, layer, new_weight)
-    layer = eqx.tree_at(lambda l: l.bias, layer, new_bias)
+    layer = eqx.tree_at(lambda leaf: leaf.weight, layer, new_weight)
+    layer = eqx.tree_at(lambda leaf: leaf.bias, layer, new_bias)
     return layer
 
 
@@ -170,11 +161,11 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     def conditional(
         self,
         key: PRNGKeyArray,
-        prev_x: tuple[Float[Array, "x_dim"], ...],
-        previous_available_flag: Bool[Array, "lag_order"],
-        theta_context: Float[Array, "param_dim"],
-        context: Float[Array, "context_dim"],
-    ) -> tuple[Float[Array, "x_dim"], Float[Array, ""]]:
+        prev_x: tuple[Float[Array, " x_dim"], ...],
+        previous_available_flag: Bool[Array, " lag_order"],
+        theta_context: Float[Array, " param_dim"],
+        context: Float[Array, " context_dim"],
+    ) -> tuple[Float[Array, " x_dim"], Float[Array, ""]]:
         raise NotImplementedError
 
     def sample_sub_path(
@@ -185,7 +176,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         num_steps: int,
         offset: int,
         init: tuple[Array, ...],
-    ) -> tuple[seqjax.model.typing.Packable, Float[Array, "sample_length"]]:
+    ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
         def update(carry, key_context):
             key, ctx, step_theta_context = key_context
             ix, prev_x = carry
@@ -211,7 +202,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         self,
         key: PRNGKeyArray,
         condition: typing.Any,
-    ) -> tuple[seqjax.model.typing.Packable, Float[Array, "sample_length"]]:
+    ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
         parameter_context, observation_context = condition
         x_path, log_q_x_path = self.sample_sub_path(
             key,
@@ -309,9 +300,7 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
             key=key,
         )
 
-    def conditional(
-        self, key, prev_x, previous_available_flag, theta_context, context
-    ):  # noqa: D401, ANN001
+    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
         flat_prev_x = (jnp.ravel(_x) for _x in prev_x)
         inputs = jnp.concatenate(
             [*flat_prev_x, previous_available_flag, theta_context, context]
@@ -357,9 +346,7 @@ class AmortizedMultivariateIsotropicAutoregressor(AutoregressiveApproximation):
             key=key,
         )
 
-    def conditional(
-        self, key, prev_x, previous_available_flag, theta_context, context
-    ):  # noqa: D401, ANN001
+    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
         inputs = jnp.concatenate(
             [*prev_x, previous_available_flag, theta_context, context]
         )

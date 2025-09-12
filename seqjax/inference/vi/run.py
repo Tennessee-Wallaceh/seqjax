@@ -15,11 +15,9 @@ from seqjax.model.base import (
     ParametersType,
     ParticleType,
     InferenceParametersType,
-    SequentialModel,
     BayesianSequentialModel,
-    ParameterPrior,
 )
-from seqjax.model.typing import Batched, SequenceAxis, SampleAxis, HyperParametersType
+from seqjax.model.typing import HyperParametersType
 import equinox as eqx
 import jaxtyping
 import jax.random as jrandom
@@ -30,7 +28,7 @@ from dataclasses import field
 class FullVIConfig(eqx.Module):
     learning_rate: float = 1e-2
     opt_steps: int = 5000
-    parameter_field_bijections: dict[str, transformations.Bijector] = field(
+    parameter_field_bijections: dict[str, str | transformations.Bijector] = field(
         default_factory=dict
     )
     prev_window: int = 3
@@ -80,27 +78,31 @@ def run_full_path_vi(
     ],
     hyperparameters: HyperParametersType,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    observation_path: ObservationType,
+    condition_path: ConditionType | None = None,
     config: FullVIConfig = FullVIConfig(),
     test_samples: int = 1000,
 ):
-
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
 
     target_param_class = target_posterior.inference_parameter_cls
     target_latent_class = target_posterior.target.particle_cls
 
+    # handle parameter constrainsts with specified constraint transforms
+    field_bijections = {}
+    for parameter_field, bijection in config.parameter_field_bijections.items():
+        if isinstance(bijection, str):
+            field_bijections[parameter_field] = configured_bijections[bijection]()
+        else:
+            field_bijections[parameter_field] = bijection
+
     parameter_approximation = transformed.transform_approximation(
         target_struct_class=target_param_class,
         base=base.MeanField,
         constraint=partial(
             transformations.FieldwiseBijector,
-            field_bijections={
-                field: configured_bijections[bijection_label]()
-                for field, bijection_label in config.parameter_field_bijections.items()
-            },
+            field_bijections,
         ),
     )
     embed = embedder.WindowEmbedder(
@@ -172,12 +174,11 @@ def run_buffered_vi(
     ],
     hyperparameters: HyperParametersType,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: Batched[ObservationType, SequenceAxis],
-    condition_path: Batched[ConditionType, SequenceAxis] | None = None,
+    observation_path: ObservationType,
+    condition_path: ConditionType | None = None,
     config: BufferedVIConfig = BufferedVIConfig(),
     test_samples: int = 1000,
 ):
-
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
 
@@ -224,6 +225,7 @@ def run_buffered_vi(
     optim = optax.apply_if_finite(
         optax.adam(config.learning_rate), max_consecutive_errors=100
     )
+
     run_tracker = train.DefaultTracker()
     fitted_approximation = train.train(
         model=approximation,

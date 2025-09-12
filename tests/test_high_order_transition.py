@@ -7,8 +7,12 @@ import jax.random as jrandom
 
 from seqjax import simulate
 from seqjax.model.base import Prior, Transition, Emission, SequentialModel
-from seqjax.model.typing import Parameters, Condition, Observation, Particle
-from tests.test_typing import DummyParticle, DummyObservation, DummyCondition, DummyParameters
+from tests.test_typing import (
+    DummyParticle,
+    DummyObservation,
+    DummyCondition,
+    DummyParameters,
+)
 from typing import ClassVar
 from jaxtyping import PRNGKeyArray, Scalar
 
@@ -102,6 +106,8 @@ def test_simulate_second_order_transition() -> None:
     seq_len = 4
     params = DummyParameters(reference_emission=())
     condition = DummyCondition(jnp.ones(seq_len + FibModel.prior.order - 1))
-    latents, _, _, _ = simulate.simulate(key, FibModel, condition, params, sequence_length=seq_len)
+    latents, _, _, _ = simulate.simulate(
+        key, FibModel, condition, params, sequence_length=seq_len
+    )
     expected = jnp.array([1.0, 1.0, 2.0, 3.0])
     assert jnp.allclose(latents.value, expected)

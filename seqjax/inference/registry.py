@@ -4,7 +4,7 @@ import typing
 from dataclasses import dataclass
 from functools import partial
 
-from seqjax.inference import InferenceMethod, pmcmc, mcmc, particlefilter, sgld, vi
+from seqjax.inference import InferenceMethod, mcmc, vi
 
 inference_functions = {
     "NUTS": mcmc.run_bayesian_nuts,
@@ -47,7 +47,7 @@ class FullVI:
 
     @property
     def name(self):
-        name = f"full-vi"
+        name = "full-vi"
         for param, bijector_label in self.config.parameter_field_bijections.items():
             name += f"-{param}_{bijector_label}"
         return name

@@ -15,8 +15,7 @@ import jax.random as jrandom
 import seqjax
 import seqjax.model
 import seqjax.model.typing
-from seqjax import util
-from seqjax.inference.embedder import Embedder, NullEmbedder
+from seqjax.inference.embedder import Embedder
 from seqjax.model.evaluate import buffered_log_p_joint
 
 
@@ -68,8 +67,8 @@ class MeanField[TargetStructT: seqjax.model.typing.Packable](
     UnconditionalVariationalApproximation[TargetStructT]
 ):
     target_struct_cls: type[TargetStructT]
-    loc: jaxtyping.Float[jaxtyping.Array, "TargetStructT.dim"]
-    _unc_scale: jaxtyping.Float[jaxtyping.Array, "TargetStructT.dim"]
+    loc: jaxtyping.Float[jaxtyping.Array, " TargetStructT.dim"]
+    _unc_scale: jaxtyping.Float[jaxtyping.Array, " TargetStructT.dim"]
 
     def __init__(self, target_struct_cls: type[TargetStructT]):
         super().__init__(target_struct_cls, shape=(target_struct_cls.flat_dim,))
@@ -134,7 +133,7 @@ class SSMVariationalApproximation[
         jaxtyping.Float[
             jaxtyping.Array, "context_samples samples_per_context sample_length"
         ],
-        jaxtyping.Int[jaxtyping.Array, "context_samples"],
+        jaxtyping.Int[jaxtyping.Array, " context_samples"],
         jaxtyping.Float[jaxtyping.Array, "context_samples sample_length"],
     ]: ...
 
@@ -164,11 +163,11 @@ class FullAutoregressiveVI[
 ](SSMVariationalApproximation):
     def joint_sample_and_log_prob(
         self,
-        observations,
+        observations: ObservationT,
         conditions,
         key,
-        context_samples,
-        samples_per_context,
+        context_samples: int,
+        samples_per_context: int,
     ):
         parameter_keys, latent_keys = jnp.split(
             jrandom.split(key, (context_samples, samples_per_context * 2)), 2, axis=1
@@ -332,8 +331,8 @@ class BufferedSSMVI[
     LatentStructT: seqjax.model.typing.Particle,
     ParameterStructT: seqjax.model.typing.Parameters,
     ObservationT: seqjax.model.typing.Observation,
-](eqx.Module):
-    latent_approximation: AmortizedVariationalApproximation
+](SSMVariationalApproximation):
+    latent_approximation: AmortizedVariationalApproximation[LatentStructT, ObservationT]
     parameter_approximation: UnconditionalVariationalApproximation
     embedding: Embedder
     control_variate: bool = eqx.field(default=False, static=True)
@@ -346,7 +345,6 @@ class BufferedSSMVI[
         context_samples: int,
         samples_per_context: int,
     ) -> typing.Any:
-
         # read off configuration
         path_length = observations.batch_shape[0]
         batch_length = self.latent_approximation.batch_length

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from functools import partial
 
-from typing import Any, Tuple, Callable
+from typing import Any, Tuple
 import time
 import equinox as eqx
 import jax
@@ -19,7 +19,6 @@ from seqjax.model.base import (
     InferenceParametersType,
     SequentialModel,
     BayesianSequentialModel,
-    ParameterPrior,
 )
 from seqjax.model.typing import Batched, SequenceAxis, SampleAxis, HyperParametersType
 from seqjax.model import evaluate
@@ -31,7 +30,6 @@ import blackjax  # type: ignore
 def inference_loop_multiple_chains(
     rng_key, kernel, initial_state, num_samples, num_chains
 ):
-
     def one_step(states, rng_key):
         keys = jax.random.split(rng_key, num_chains)
         states, _ = jax.vmap(kernel)(keys, states)

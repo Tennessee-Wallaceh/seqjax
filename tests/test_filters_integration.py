@@ -10,12 +10,13 @@ from seqjax.model.stochastic_vol import (
     SimpleStochasticVol,
     LogVolRW,
     TimeIncrement,
-    LogReturnObs,
 )
 from seqjax.model.poisson_ssm import PoissonSSM, PoissonSSMParameters
 
 
-@pytest.mark.parametrize("filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter])
+@pytest.mark.parametrize(
+    "filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter]
+)
 def test_filters_ar1_and_stochastic_vol(filter_cls) -> None:
     seq_len = 5
 
@@ -23,7 +24,9 @@ def test_filters_ar1_and_stochastic_vol(filter_cls) -> None:
     key = jrandom.PRNGKey(0)
     ar_target = AR1Target()
     ar_params = ARParameters()
-    _, ar_obs, _, _ = simulate.simulate(key, ar_target, None, ar_params, sequence_length=seq_len)
+    _, ar_obs, _, _ = simulate.simulate(
+        key, ar_target, None, ar_params, sequence_length=seq_len
+    )
     filter_key = jrandom.PRNGKey(1)
     ar_pf = filter_cls(ar_target, num_particles=5)
     log_w, _, _, _ = run_filter(
@@ -57,12 +60,14 @@ def test_filters_ar1_and_stochastic_vol(filter_cls) -> None:
         initial_conditions=tuple(
             TimeIncrement(full_cond.dt[i]) for i in range(sv_target.prior.order)
         ),
-        observation_history=()
+        observation_history=(),
     )
     assert log_w.shape == (sv_pf.num_particles,)
 
 
-@pytest.mark.parametrize("filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter])
+@pytest.mark.parametrize(
+    "filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter]
+)
 def test_filters_linear_gaussian(filter_cls) -> None:
     seq_len = 4
 
@@ -81,7 +86,9 @@ def test_filters_linear_gaussian(filter_cls) -> None:
     assert log_w.shape == (pf.num_particles,)
 
 
-@pytest.mark.parametrize("filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter])
+@pytest.mark.parametrize(
+    "filter_cls", [BootstrapParticleFilter, AuxiliaryParticleFilter]
+)
 def test_filters_poisson_ssm(filter_cls) -> None:
     seq_len = 5
 

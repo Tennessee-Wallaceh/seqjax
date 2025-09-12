@@ -1,12 +1,9 @@
 import matplotlib.pyplot as plt
-import jax
 import jax.numpy as jnp
-import blackjax
 import jax.random as jrandom
 
-from seqjax.model import simulate, evaluate
+from seqjax.model import simulate
 from seqjax.model import ar
-from seqjax import util
 from seqjax.inference.mcmc import nuts
 
 if __name__ == "__main__":

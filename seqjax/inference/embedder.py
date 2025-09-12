@@ -1,5 +1,5 @@
 import equinox as eqx
-from jaxtyping import Array, Int, Float, Scalar, PRNGKeyArray
+from jaxtyping import Array, Int, Float
 import jax.numpy as jnp
 import jax
 from abc import abstractmethod
