@@ -17,6 +17,7 @@ import seqjax.model
 import seqjax.model.typing
 from seqjax.inference.embedder import Embedder
 from seqjax.model.evaluate import buffered_log_p_joint
+from seqjax.model.base import BayesianSequentialModel
 
 
 class VariationalApproximation[
@@ -108,17 +109,18 @@ def buffer_params(
 
 
 class SSMVariationalApproximation[
-    LatentStructT: seqjax.model.typing.Particle,
-    ParameterStructT: seqjax.model.typing.Parameters,
+    LatentT: seqjax.model.typing.Particle,
     ObservationT: seqjax.model.typing.Observation,
-](eqx.Module):
+    ConditionT: seqjax.model.typing.Condition,
+    ParameterT: seqjax.model.typing.Parameters,
+    HyperParameterT: seqjax.model.typing.HyperParameters,
+](typing.Protocol):
     latent_approximation: AmortizedVariationalApproximation[
-        LatentStructT, tuple[ParameterStructT, ObservationT]
+        LatentT, tuple[ParameterT, ObservationT]
     ]
-    parameter_approximation: UnconditionalVariationalApproximation[ParameterStructT]
+    parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
     embedding: Embedder
 
-    @abstractmethod
     def joint_sample_and_log_prob(
         self,
         observations: ObservationT,
@@ -127,9 +129,9 @@ class SSMVariationalApproximation[
         context_samples: int,
         samples_per_context: int,
     ) -> tuple[
-        ParameterStructT,
+        ParameterT,
         jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
-        LatentStructT,
+        LatentT,
         jaxtyping.Float[
             jaxtyping.Array, "context_samples samples_per_context sample_length"
         ],
@@ -137,38 +139,47 @@ class SSMVariationalApproximation[
         jaxtyping.Float[jaxtyping.Array, "context_samples sample_length"],
     ]: ...
 
-    """
-    Align parameters down the sample axis
-    """
-
-    @abstractmethod
-    def buffer_params(self, parameters: ParameterStructT): ...
-
-    @abstractmethod
     def estimate_loss(
+        self,
+        observations: ObservationT,
+        conditions: ConditionT,
+        key: jaxtyping.PRNGKeyArray,
+        context_samples: int,
+        samples_per_context: int,
+        target_posterior: BayesianSequentialModel[
+            LatentT,
+            ObservationT,
+            ConditionT,
+            ParameterT,
+            ParameterT,
+            HyperParameterT,
+        ],
+    ) -> typing.Any: ...
+
+
+class FullAutoregressiveVI[
+    LatentT: seqjax.model.typing.Particle,
+    ObservationT: seqjax.model.typing.Observation,
+    ConditionT: seqjax.model.typing.Condition,
+    ParameterT: seqjax.model.typing.Parameters,
+    HyperParameterT: seqjax.model.typing.HyperParameters,
+](eqx.Module):
+    def joint_sample_and_log_prob(
         self,
         observations: ObservationT,
         conditions: seqjax.model.typing.Condition,
         key: jaxtyping.PRNGKeyArray,
         context_samples: int,
         samples_per_context: int,
-    ) -> typing.Any:
-        pass
-
-
-class FullAutoregressiveVI[
-    LatentStructT: seqjax.model.typing.Particle,
-    ParameterStructT: seqjax.model.typing.Parameters,
-    ObservationT: seqjax.model.typing.Observation,
-](SSMVariationalApproximation):
-    def joint_sample_and_log_prob(
-        self,
-        observations: ObservationT,
-        conditions,
-        key,
-        context_samples: int,
-        samples_per_context: int,
-    ):
+    ) -> tuple[
+        ParameterT,
+        jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
+        LatentT,
+        jaxtyping.Float[
+            jaxtyping.Array, "context_samples samples_per_context sample_length"
+        ],
+        typing.Any,
+    ]:
         parameter_keys, latent_keys = jnp.split(
             jrandom.split(key, (context_samples, samples_per_context * 2)), 2, axis=1
         )
@@ -188,8 +199,7 @@ class FullAutoregressiveVI[
             -1, 1
         )  # give location information
         embedded_context = jnp.hstack([context, self.embedding.embed(observations)])
-        print(theta_array.shape)
-        print(embedded_context.shape)
+
         x_path, log_q_x_path = jax.vmap(
             jax.vmap(
                 self.latent_approximation.sample_and_log_prob,
@@ -203,7 +213,7 @@ class FullAutoregressiveVI[
 
         return (parameters, log_q_theta, x_path, log_q_x_path, None)
 
-    def buffer_params(self, parameters, mask):
+    def buffer_params(self, parameters: ParameterT, mask):
         theta_grad = parameters
         theta_no_grad = jax.lax.stop_gradient(parameters)
 
@@ -216,11 +226,18 @@ class FullAutoregressiveVI[
     def estimate_loss(
         self,
         observations: ObservationT,
-        conditions: seqjax.model.typing.Condition,
+        conditions: ConditionT,
         key: jaxtyping.PRNGKeyArray,
         context_samples: int,
         samples_per_context: int,
-        target_posterior,
+        target_posterior: BayesianSequentialModel[
+            LatentT,
+            ObservationT,
+            ConditionT,
+            ParameterT,
+            ParameterT,
+            HyperParameterT,
+        ],
     ) -> typing.Any:
         theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
             self.joint_sample_and_log_prob(
@@ -328,23 +345,35 @@ def sample_batch_and_mask(
 
 
 class BufferedSSMVI[
-    LatentStructT: seqjax.model.typing.Particle,
-    ParameterStructT: seqjax.model.typing.Parameters,
+    LatentT: seqjax.model.typing.Particle,
     ObservationT: seqjax.model.typing.Observation,
-](SSMVariationalApproximation):
-    latent_approximation: AmortizedVariationalApproximation[LatentStructT, ObservationT]
-    parameter_approximation: UnconditionalVariationalApproximation
+    ConditionT: seqjax.model.typing.Condition,
+    ParameterT: seqjax.model.typing.Parameters,
+    HyperParameterT: seqjax.model.typing.HyperParameters,
+](eqx.Module):
+    latent_approximation: AmortizedVariationalApproximation[
+        LatentT, tuple[ParameterT, ObservationT]
+    ]
+    parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
     embedding: Embedder
     control_variate: bool = eqx.field(default=False, static=True)
 
     def joint_sample_and_log_prob(
         self,
-        observations: seqjax.model.typing.Observation,
-        conditions: seqjax.model.typing.Condition,
+        observations: ObservationT,
+        conditions: ConditionT,
         key: jaxtyping.PRNGKeyArray,
         context_samples: int,
         samples_per_context: int,
-    ) -> typing.Any:
+    ) -> tuple[
+        ParameterT,
+        jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
+        LatentT,
+        jaxtyping.Float[
+            jaxtyping.Array, "context_samples samples_per_context sample_length"
+        ],
+        typing.Any,
+    ]:
         # read off configuration
         path_length = observations.batch_shape[0]
         batch_length = self.latent_approximation.batch_length
@@ -419,7 +448,7 @@ class BufferedSSMVI[
     def estimate_loss(
         self,
         observations: ObservationT,
-        conditions: seqjax.model.typing.Condition,
+        conditions: ConditionT,
         key: jaxtyping.PRNGKeyArray,
         context_samples: int,
         samples_per_context: int,

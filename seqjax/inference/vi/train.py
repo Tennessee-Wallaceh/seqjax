@@ -12,7 +12,7 @@ import equinox as eqx
 from tqdm.auto import trange
 from tqdm.notebook import trange as nbtrange
 
-# from seqjax.model.evaluate import log_p_joint, log_p_x, log_p_y_given_x
+from seqjax.model.base import BayesianSequentialModel
 from seqjax.inference.vi.base import (
     SSMVariationalApproximation,
 )
@@ -114,7 +114,7 @@ def train(
     model: SSMVariationalApproximation,
     observations: seqjax.model.typing.Observation,
     conditions: Optional[seqjax.model.typing.Condition],
-    target,
+    target: BayesianSequentialModel,
     *,
     key,
     optim,
