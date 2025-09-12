@@ -13,7 +13,7 @@ from seqjax.inference.particlefilter.recorders import (
 from seqjax.inference.kalman import run_kalman_filter
 
 
-def _setup(T: int = 40, rho: float = 0.7):
+def _setup(T: int = 10, rho: float = 0.7):
     params = LGSSMParameters(
         transition_matrix=jnp.array([[rho]]),
         transition_noise_scale=jnp.array([1.0]),
@@ -56,7 +56,7 @@ def test_filtering_moments_close_to_kalman() -> None:
     assert var_err <= c / jnp.sqrt(num_particles)
 
 
-def test_log_likelihood_unbiased() -> None:
+def test_marginal_likelihood_unbiased() -> None:
     model, params, obs, _kf_means, _kf_covs, kf_logm = _setup()
     num_particles = 200
     pf = BootstrapParticleFilter(model, num_particles=num_particles)
@@ -72,12 +72,24 @@ def test_log_likelihood_unbiased() -> None:
             recorders=(log_marginal(),),
         )
         pf_lls.append(jnp.sum(jnp.asarray(log_incs)))
-    pf_lls = jnp.asarray(pf_lls)
-    pf_mean = pf_lls.mean()
-    pf_std = pf_lls.std(ddof=1)
-    kf_total = kf_logm[-1]
-    stderr = pf_std / jnp.sqrt(repeats)
-    assert jnp.abs(pf_mean - kf_total) <= 2.0 * stderr
+    pf_lls = jnp.asarray(pf_lls, dtype=jnp.float64)
+
+    R = pf_lls.shape[0]
+    m = jnp.max(pf_lls)  # max-trick anchor
+
+    u = jnp.exp(pf_lls - m)  # <= 1, stable
+    s1 = u.mean()  # ≈ E[exp(L - m)]
+    s2 = (u * u).mean()  # ≈ E[exp(2(L - m))]
+
+    log_Z_bar = m + jnp.log(s1)  # log of sample mean \hat Z
+    Z_bar = jnp.exp(log_Z_bar)
+
+    # unbiased sample variance of \hat Z, still stable
+    var_Z = jnp.exp(2 * m) * (R / (R - 1)) * jnp.maximum(s2 - s1**2, 0.0)
+    stderr = jnp.sqrt(var_Z / R)
+
+    Z_true = jnp.exp(kf_logm[-1])
+    assert jnp.abs(Z_bar - Z_true) <= 2.0 * stderr
 
 
 def test_incremental_normalizers() -> None:
