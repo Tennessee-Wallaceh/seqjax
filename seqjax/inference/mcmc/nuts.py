@@ -1,14 +1,14 @@
 from __future__ import annotations
 from functools import partial
 
-from typing import Any, Tuple
+from typing import Any
 import time
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 
-from jaxtyping import PRNGKeyArray
+import jaxtyping
 
 from seqjax.model.simulate import simulate
 from seqjax.model.base import (
@@ -23,6 +23,7 @@ from seqjax.model.base import (
 from seqjax.model.typing import HyperParametersType
 from seqjax.model import evaluate
 from seqjax.util import pytree_shape
+from seqjax.inference.interface import inference_method
 
 import blackjax  # type: ignore
 
@@ -53,7 +54,7 @@ def run_latent_nuts(
     target: SequentialModel[
         ParticleType, ObservationType, ConditionType, ParametersType
     ],
-    key: PRNGKeyArray,
+    key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationType,
     parameters: ParametersType,
     condition_path: ConditionType | None = None,
@@ -62,7 +63,7 @@ def run_latent_nuts(
     initial_latents: ParticleType | None = None,
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
-) -> ParticleType:
+) -> tuple[jaxtyping.Array, ParticleType]:
     """Sample latent paths using the NUTS algorithm from ``blackjax``."""
 
     log_prob_joint = evaluate.get_log_prob_joint_for_target(target)
@@ -121,6 +122,7 @@ def run_latent_nuts(
     return time_array_s, samples
 
 
+@inference_method
 def run_bayesian_nuts(
     target_posterior: BayesianSequentialModel[
         ParticleType,
@@ -131,14 +133,19 @@ def run_bayesian_nuts(
         HyperParametersType,
     ],
     hyperparameters: HyperParametersType,
-    key: PRNGKeyArray,
+    key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationType,
-    condition_path: ConditionType | None = None,
     config: NUTSConfig = NUTSConfig(),
+    *,
+    condition_path: ConditionType | None = None,
+    initial_latents: ParticleType | None = None,
+    initial_conditions: tuple[ConditionType, ...] | None = None,
+    observation_history: tuple[ObservationType, ...] | None = None,
     test_samples: int = 1000,
-) -> Tuple[
+) -> tuple[
+    jaxtyping.Array,
+    InferenceParametersType,
     ParticleType,
-    ParametersType,
 ]:
     """Sample parameters and latent paths jointly using NUTS."""
 
@@ -206,10 +213,10 @@ def run_bayesian_nuts(
         num_samples=samples_per_chain,
         num_chains=config.num_chains,
     )
-    _, param_samples = jax.tree_util.tree_map(
+    param_samples: InferenceParametersType = jax.tree_util.tree_map(
         partial(jnp.concatenate, axis=-1), paths.position
-    )
-    latent_samples = paths.position[0]
+    )[1]
+    latent_samples: ParticleType = paths.position[0]
 
     end_time = time.time()
     sample_time = end_time - start_time
@@ -218,4 +225,4 @@ def run_bayesian_nuts(
         * (sample_time / samples_per_chain)
     )
 
-    return time_array_s, latent_samples, param_samples, None
+    return time_array_s, param_samples, latent_samples
