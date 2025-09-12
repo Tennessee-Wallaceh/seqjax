@@ -4,11 +4,18 @@ from typing import Callable, Sequence, cast
 
 from jaxtyping import Array, PyTree
 
-from .base import Recorder
+from .base import Recorder, FilterData
 
 import jax.numpy as jnp
 
 from seqjax.model.base import ParticleType
+
+
+def _normalised_weights(log_w: Array) -> Array:
+    """Convert log weights to normalised weights."""
+    lw_max = jnp.max(log_w)
+    w = jnp.exp(log_w - lw_max)
+    return w / jnp.sum(w)
 
 
 def current_particle_mean(
@@ -16,18 +23,9 @@ def current_particle_mean(
 ) -> Recorder:
     """Return a recorder capturing the mean of ``extractor`` over particles."""
 
-    def _recorder(
-        weights: Array,
-        particles: tuple[ParticleType, ...],
-        _ancestors: Array,
-        _obs: object,
-        _cond: object,
-        _last_particles: tuple[ParticleType, ...],
-        _last_log_w: Array,
-        _log_weight_sum: Array,
-        _ess: Array,
-    ) -> PyTree:
-        current = extractor(particles[-1])
+    def _recorder(filter_data: FilterData) -> PyTree:
+        weights = _normalised_weights(filter_data.log_w)
+        current = extractor(filter_data.particles[-1])
         expanded = jnp.reshape(weights, weights.shape + (1,) * (current.ndim - 1))
         return jnp.sum(current * expanded, axis=0)
 
@@ -58,18 +56,9 @@ def current_particle_quantiles(
 
     qs = jnp.array(quantiles)
 
-    def _recorder(
-        weights: Array,
-        particles: tuple[ParticleType, ...],
-        _ancestors: Array,
-        _obs: object,
-        _cond: object,
-        _last_particles: tuple[ParticleType, ...],
-        _last_log_w: Array,
-        _log_weight_sum: Array,
-        _ess: Array,
-    ) -> PyTree:
-        current = extractor(particles[-1])
+    def _recorder(filter_data: FilterData) -> PyTree:
+        weights = _normalised_weights(filter_data.log_w)
+        current = extractor(filter_data.particles[-1])
         flat = current.reshape(current.shape[0], -1)
         q_vals = _weighted_quantiles(flat, weights, qs)
         return q_vals.reshape((qs.shape[0],) + current.shape[1:])
@@ -82,18 +71,9 @@ def current_particle_variance(
 ) -> Recorder:
     """Return a recorder capturing the weighted variance of ``extractor``."""
 
-    def _recorder(
-        weights: Array,
-        particles: tuple[ParticleType, ...],
-        _ancestors: Array,
-        _obs: object,
-        _cond: object,
-        _last_particles: tuple[ParticleType, ...],
-        _last_log_w: Array,
-        _log_weight_sum: Array,
-        _ess: Array,
-    ) -> PyTree:
-        current = extractor(particles[-1])
+    def _recorder(filter_data: FilterData) -> PyTree:
+        weights = _normalised_weights(filter_data.log_w)
+        current = extractor(filter_data.particles[-1])
         expanded = jnp.reshape(weights, weights.shape + (1,) * (current.ndim - 1))
         mean = jnp.sum(current * expanded, axis=0)
         return jnp.sum(expanded * (current - mean) ** 2, axis=0)
@@ -120,17 +100,7 @@ def log_marginal() -> Recorder:
 def effective_sample_size() -> Recorder:
     """Record the effective sample size at each step."""
 
-    def _recorder(
-        _weights: Array,
-        _particles: tuple[ParticleType, ...],
-        _ancestors: Array,
-        _obs: object,
-        _cond: object,
-        _last_particles: tuple[ParticleType, ...],
-        _last_log_w: Array,
-        _log_weight_sum: Array,
-        ess_val: Array,
-    ) -> PyTree:
-        return ess_val
+    def _recorder(filter_data: FilterData) -> PyTree:
+        return filter_data.ess_e
 
     return cast(Recorder, _recorder)
