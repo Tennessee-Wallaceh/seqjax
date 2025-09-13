@@ -8,7 +8,7 @@ import jax
 from jax.nn import softplus
 import seqjax.model.typing
 import operator
-import distrax
+import distrax  # type: ignore[import-untyped]
 
 
 class Bijector(eqx.Module):
@@ -16,13 +16,13 @@ class Bijector(eqx.Module):
     @abstractmethod
     def transform_and_lad(
         self, x: Float[Array, " batch_length"]
-    ) -> Float[Array, " context_length"]:
+    ) -> tuple[Array, Float[Array, " context_length"]]:
         pass
 
     @abstractmethod
     def inverse_and_lad(
         self, x: Float[Array, " batch_length"]
-    ) -> Float[Array, " context_length"]:
+    ) -> tuple[Array, Float[Array, " context_length"]]:
         pass
 
 

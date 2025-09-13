@@ -52,3 +52,5 @@ ignore = ["E501", "F722"]
 [tool.mypy]
 python_version = "3.12"
 
+[mypy]
+mypy_path = "stubs"

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jaxtyping
 import blackjax  # type: ignore
-from jax_tqdm import scan_tqdm
+from jax_tqdm import scan_tqdm  # type: ignore[import-not-found]
 import seqjax.model.typing as seqjtyping
 
 

@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 
 import jaxtyping
-from jax_tqdm import scan_tqdm
+from jax_tqdm import scan_tqdm  # type: ignore[import-not-found]
 
 from seqjax.model.simulate import simulate
 from seqjax.model.base import (

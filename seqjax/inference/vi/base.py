@@ -40,7 +40,7 @@ class VariationalApproximation[
 
 class AmortizedVariationalApproximation[
     TargetStructT: seqjax.model.typing.Packable,
-    ConditionT: tuple[seqjax.model.typing.Parameters, seqjax.model.typing.Observation],
+    ConditionT: tuple[jaxtyping.Array, jaxtyping.Array],
 ](VariationalApproximation[TargetStructT, ConditionT]): ...
 
 
@@ -116,7 +116,7 @@ class SSMVariationalApproximation[
     HyperParameterT: seqjax.model.typing.HyperParameters,
 ](typing.Protocol):
     latent_approximation: AmortizedVariationalApproximation[
-        LatentT, tuple[ParameterT, ObservationT]
+        LatentT, tuple[jaxtyping.Array, jaxtyping.Array]
     ]
     parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
     embedding: Embedder
@@ -154,6 +154,7 @@ class SSMVariationalApproximation[
             ParameterT,
             HyperParameterT,
         ],
+        hyperparameters: HyperParameterT,
     ) -> typing.Any: ...
 
 
@@ -238,6 +239,7 @@ class FullAutoregressiveVI[
             ParameterT,
             HyperParameterT,
         ],
+        hyperparameters: HyperParameterT,
     ) -> typing.Any:
         theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
             self.joint_sample_and_log_prob(
@@ -246,7 +248,9 @@ class FullAutoregressiveVI[
         )
 
         log_p_theta = jax.vmap(
-            jax.vmap(lambda x: target_posterior.parameter_prior.log_prob(x, None))
+            jax.vmap(
+                lambda x: target_posterior.parameter_prior.log_prob(x, hyperparameters)
+            )
         )(theta_q)
 
         batched_log_p_joint = jax.vmap(
@@ -352,7 +356,7 @@ class BufferedSSMVI[
     HyperParameterT: seqjax.model.typing.HyperParameters,
 ](eqx.Module):
     latent_approximation: AmortizedVariationalApproximation[
-        LatentT, tuple[ParameterT, ObservationT]
+        LatentT, tuple[jaxtyping.Array, jaxtyping.Array]
     ]
     parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
     embedding: Embedder
@@ -453,6 +457,7 @@ class BufferedSSMVI[
         context_samples: int,
         samples_per_context: int,
         target_posterior,
+        hyperparameters: HyperParameterT,
     ) -> typing.Any:
         # each index appears in max batch length batches
         # batches are sampled uniformly, so scale by
@@ -468,7 +473,9 @@ class BufferedSSMVI[
         _, theta_mask, y_batch, c_batch = extra_info
 
         log_p_theta = jax.vmap(
-            jax.vmap(lambda x: target_posterior.parameter_prior.log_prob(x, None))
+            jax.vmap(
+                lambda x: target_posterior.parameter_prior.log_prob(x, hyperparameters)
+            )
         )(theta_q)
 
         batched_log_p_joint = jax.vmap(

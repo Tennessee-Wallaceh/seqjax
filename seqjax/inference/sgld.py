@@ -7,7 +7,7 @@ import jax.random as jrandom
 
 import equinox as eqx
 import jaxtyping
-from jax_tqdm import scan_tqdm
+from jax_tqdm import scan_tqdm  # type: ignore[import-not-found]
 
 from seqjax import util
 from seqjax.model.base import (
