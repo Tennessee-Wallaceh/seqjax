@@ -1,4 +1,3 @@
-from typing import Callable
 import typing
 import time
 
@@ -24,6 +23,7 @@ from seqjax.model.typing import (
 
 from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 from seqjax.inference.mcmc.metropolis import (
+    RandomWalkConfig,
     run_random_walk_metropolis,
 )
 from seqjax.inference.interface import inference_method
@@ -36,17 +36,10 @@ class ParticleMCMCConfig(
 ):
     """Configuration for :func:`run_particle_mcmc`."""
 
-    mcmc: Callable[
-        [
-            Callable[[ParametersType, PRNGKeyArray], jnp.ndarray],
-            PRNGKeyArray,
-            ParametersType,
-        ],
-        ParametersType,
-    ]
     particle_filter: SMCSampler[
         ParticleType, ObservationType, ConditionType, ParametersType
     ]
+    mcmc: RandomWalkConfig = RandomWalkConfig()
     initial_parameter_guesses: int = 10
 
 
@@ -70,17 +63,19 @@ def run_particle_mcmc(
     initial_conditions: tuple[ConditionType, ...] | None = None,
     observation_history: tuple[ObservationType, ...] | None = None,
     test_samples: int = 1000,
-) -> tuple[jaxtyping.Array, InferenceParametersType, typing.Any]:
+) -> tuple[jaxtyping.Array, InferenceParametersType, None]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
-    def estimate_log_joint(params, key):
+    def estimate_log_joint(
+        params: InferenceParametersType, key: PRNGKeyArray
+    ) -> jaxtyping.Array:
         model_params = target_posterior.target_parameter(params)
         _, _, (log_marginal_increments,) = run_filter(
             config.particle_filter,
             key,
             model_params,
             observation_path,
-            recorders=(log_marginal(),),
+            recorders=(log_marginal,),
         )
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
         return jnp.sum(log_marginal_increments) + log_prior
@@ -97,22 +92,28 @@ def run_particle_mcmc(
     init_time_end = time.time()
     init_time_s = init_time_end - init_time_start
 
-    initial_parameters = util.index_pytree(
-        initial_parameter_samples, jnp.argmax(parameter_init_marginals).item()
+    initial_parameters = typing.cast(
+        InferenceParametersType,
+        util.index_pytree(
+            initial_parameter_samples, jnp.argmax(parameter_init_marginals).item()
+        ),
     )
 
     sample_time_start = time.time()
-    samples = run_random_walk_metropolis(
-        jax.jit(estimate_log_joint),
-        sample_key,
-        initial_parameters,
-        config=config.mcmc,
-        num_samples=test_samples,
+    samples = typing.cast(
+        InferenceParametersType,
+        run_random_walk_metropolis(
+            jax.jit(estimate_log_joint),
+            sample_key,
+            initial_parameters,
+            config=config.mcmc,
+            num_samples=test_samples,
+        ),
     )
     sample_time_end = time.time()
     sample_time_s = sample_time_end - sample_time_start
     time_array_s = init_time_s + (
-        jnp.arange(config.mcmc.num_samples) * (sample_time_s / config.mcmc.num_samples)
+        jnp.arange(test_samples) * (sample_time_s / test_samples)
     )
 
     return time_array_s, samples, None
