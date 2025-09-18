@@ -165,6 +165,12 @@ class FullAutoregressiveVI[
     ParameterT: seqjax.model.typing.Parameters,
     HyperParameterT: seqjax.model.typing.HyperParameters,
 ](eqx.Module):
+    latent_approximation: AmortizedVariationalApproximation[
+        LatentT, tuple[jaxtyping.Array, jaxtyping.Array]
+    ]
+    parameter_approximation: VariationalApproximation[ParameterT, None]
+    embedding: Embedder
+
     def joint_sample_and_log_prob(
         self,
         observations: ObservationT,
@@ -392,7 +398,7 @@ class BufferedSSMVI[
         # vmap down both axes
         parameters, log_q_theta = jax.vmap(
             jax.vmap(self.parameter_approximation.sample_and_log_prob)
-        )(parameter_keys)
+        )(parameter_keys, None)
 
         # sample batches and masks
         approx_start, y_batch, c_batch, theta_mask = jax.vmap(

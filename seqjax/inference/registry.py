@@ -37,6 +37,11 @@ class BufferVI:
         if self.config.control_variate:
             name += "-cv"
 
+        if self.config.control_variate:
+            name += "-cv"
+
+        name += f"-lr{self.config.learning_rate:.0e}"
+
         return name
 
 

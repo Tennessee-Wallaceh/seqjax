@@ -2,10 +2,10 @@ import typing
 from seqjax.inference.vi import transformed
 from seqjax.inference.vi import base
 from seqjax.inference.vi import transformations
-from seqjax.inference.vi import embedder
+from seqjax.inference import embedder
 from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import train
-import optax
+import optax  # type: ignore
 import jax
 import jax.numpy as jnp
 import pandas as pd
@@ -102,7 +102,7 @@ def run_full_path_vi(
         base=base.MeanField,
         constraint=partial(
             transformations.FieldwiseBijector,
-            field_bijections,
+            field_bijections=field_bijections,
         ),
     )
     embed = embedder.WindowEmbedder(

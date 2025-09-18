@@ -268,91 +268,94 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
         return x, log_q_x
 
 
-class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
-    amortizer_mlp: eqx.nn.MLP
+"""
+Multivariate versions below are sketches,  not currently implemented
+"""
+# class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
+#     amortizer_mlp: eqx.nn.MLP
 
-    def __init__(
-        self,
-        *,
-        sample_length: int,
-        context_dim: int,
-        parameter_dim: int,
-        lag_order: int,
-        nn_width: int,
-        nn_depth: int,
-        x_dim: int,
-        key: PRNGKeyArray,
-    ) -> None:
-        super().__init__(
-            sample_length=sample_length,
-            x_dim=x_dim,
-            context_dim=context_dim,
-            parameter_dim=parameter_dim,
-            lag_order=lag_order,
-        )
-        input_dim = lag_order * (1 + x_dim) + context_dim + parameter_dim
-        output_dim = x_dim + int(0.5 * x_dim * (x_dim + 1))
-        self.amortizer_mlp = eqx.nn.MLP(
-            in_size=input_dim,
-            out_size=output_dim,
-            width_size=nn_width,
-            depth=nn_depth,
-            key=key,
-        )
+#     def __init__(
+#         self,
+#         *,
+#         sample_length: int,
+#         context_dim: int,
+#         parameter_dim: int,
+#         lag_order: int,
+#         nn_width: int,
+#         nn_depth: int,
+#         x_dim: int,
+#         key: PRNGKeyArray,
+#     ) -> None:
+#         super().__init__(
+#             sample_length=sample_length,
+#             x_dim=x_dim,
+#             context_dim=context_dim,
+#             parameter_dim=parameter_dim,
+#             lag_order=lag_order,
+#         )
+#         input_dim = lag_order * (1 + x_dim) + context_dim + parameter_dim
+#         output_dim = x_dim + int(0.5 * x_dim * (x_dim + 1))
+#         self.amortizer_mlp = eqx.nn.MLP(
+#             in_size=input_dim,
+#             out_size=output_dim,
+#             width_size=nn_width,
+#             depth=nn_depth,
+#             key=key,
+#         )
 
-    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
-        flat_prev_x = (jnp.ravel(_x) for _x in prev_x)
-        inputs = jnp.concatenate(
-            [*flat_prev_x, previous_available_flag, theta_context, context]
-        )
-        z = jrandom.normal(key, shape=(self.x_dim,))
-        trans_params = self.amortizer_mlp(inputs)
-        loc = trans_params[: self.x_dim]
-        cholesky, cov = flat_to_chol(trans_params[self.x_dim :], self.x_dim)
-        x = cholesky @ z + loc
-        log_q_x = jstats.multivariate_normal.logpdf(x, loc, cov)
-        return x, log_q_x
+#     def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
+#         flat_prev_x = (jnp.ravel(_x) for _x in prev_x)
+#         inputs = jnp.concatenate(
+#             [*flat_prev_x, previous_available_flag, theta_context, context]
+#         )
+#         z = jrandom.normal(key, shape=(self.x_dim,))
+#         trans_params = self.amortizer_mlp(inputs)
+#         loc = trans_params[: self.x_dim]
+#         cholesky, cov = flat_to_chol(trans_params[self.x_dim :], self.x_dim)
+#         x = cholesky @ z + loc
+#         log_q_x = jstats.multivariate_normal.logpdf(x, loc, cov)
+#         return x, log_q_x
 
 
-class AmortizedMultivariateIsotropicAutoregressor(AutoregressiveApproximation):
-    amortizer_mlp: eqx.nn.MLP
+# class AmortizedMultivariateIsotropicAutoregressor(AutoregressiveApproximation):
+#     amortizer_mlp: eqx.nn.MLP
 
-    def __init__(
-        self,
-        *,
-        sample_length: int,
-        context_dim: int,
-        parameter_dim: int,
-        lag_order: int,
-        nn_width: int,
-        nn_depth: int,
-        x_dim: int,
-        key: PRNGKeyArray,
-    ) -> None:
-        super().__init__(
-            sample_length=sample_length,
-            x_dim=x_dim,
-            context_dim=context_dim,
-            parameter_dim=parameter_dim,
-            lag_order=lag_order,
-        )
-        input_dim = lag_order * (1 + x_dim) + context_dim + parameter_dim
-        output_dim = 2 * x_dim
-        self.amortizer_mlp = eqx.nn.MLP(
-            in_size=input_dim,
-            out_size=output_dim,
-            width_size=nn_width,
-            depth=nn_depth,
-            key=key,
-        )
+#     def __init__(
+#         self,
+#         *,
+#         sample_length: int,
+#         context_dim: int,
+#         parameter_dim: int,
+#         lag_order: int,
+#         nn_width: int,
+#         nn_depth: int,
+#         x_dim: int,
+#         key: PRNGKeyArray,
+#     ) -> None:
+#         super().__init__(
+#             sample_length=sample_length,
+#             x_dim=x_dim,
+#             context_dim=context_dim,
+#             parameter_dim=parameter_dim,
+#             lag_order=lag_order,
+#         )
+#         input_dim = lag_order * (1 + x_dim) + context_dim + parameter_dim
+#         output_dim = 2 * x_dim
+#         self.amortizer_mlp = eqx.nn.MLP(
+#             in_size=input_dim,
+#             out_size=output_dim,
+#             width_size=nn_width,
+#             depth=nn_depth,
+#             key=key,
+#         )
 
-    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
-        inputs = jnp.concatenate(
-            [*prev_x, previous_available_flag, theta_context, context]
-        )
-        z = jrandom.normal(key, shape=(self.x_dim,))
-        loc, _unc_scale = jnp.split(self.amortizer_mlp(inputs), [self.x_dim])
-        scale = jax.nn.softplus(_unc_scale)
-        x = z * scale + loc
-        log_q_x = jstats.norm.logpdf(x, loc, scale).sum()
-        return x, log_q_x
+#     def conditional(self, key, prev_x, previous_available_flag, theta_context, context):  # noqa: D401, ANN001
+#         inputs = jnp.concatenate(
+#             [*prev_x, previous_available_flag, theta_context, context]
+#         )
+#         z = jrandom.normal(key, shape=(self.x_dim,))
+#         loc, _unc_scale = jnp.split(self.amortizer_mlp(inputs), [self.x_dim])
+#         scale = jax.nn.softplus(_unc_scale)
+#         x = z * scale + loc
+#         log_q_x = jstats.norm.logpdf(x, loc, scale).sum()
+#         return x, log_q_x

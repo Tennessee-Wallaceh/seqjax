@@ -1,5 +1,8 @@
 import time
 from typing import Optional, Any
+import typing
+
+import jaxtyping
 
 from functools import partial
 import jax
@@ -39,6 +42,7 @@ def loss_buffered_neg_elbo(
         num_context,
         samples_per_context,
         target_posterior,
+        None,
     )
 
 
@@ -55,7 +59,7 @@ def sample_theta_qs(static, trainable, key, metric_samples):
     model: SSMVariationalApproximation = eqx.combine(static, trainable)
     parameter_keys = jrandom.split(key, metric_samples)
     theta, _ = jax.vmap(model.parameter_approximation.sample_and_log_prob)(
-        parameter_keys
+        parameter_keys, None
     )
     qs = jax.tree_util.tree_map(
         lambda x: jnp.quantile(x, jnp.array([0.05, 0.95])), theta
@@ -157,8 +161,20 @@ def train(
         return loss, trainable, opt_state
 
     # compile
-    make_step = (
-        eqx.filter_jit(make_step)
+    compiled_make_step: typing.Callable[
+        [
+            eqx.Module,
+            eqx.Module,
+            typing.Any,
+            seqjax.model.typing.Observation,
+            Optional[seqjax.model.typing.Condition],
+            jaxtyping.PRNGKeyArray,
+        ],
+        tuple[jaxtyping.Scalar, eqx.Module, eqx.Module],
+    ] = (
+        typing.cast(
+            typing.Any, eqx.filter_jit(make_step)
+        )  # mypy can't infer appropriate form
         .lower(trainable, static, opt_state, observations, conditions, step_keys[0])
         .compile()
     )
@@ -171,7 +187,7 @@ def train(
 
     run_tracker.start_run()
     for opt_step in loop:
-        loss, trainable, opt_state = make_step(
+        loss, trainable, opt_state = compiled_make_step(
             trainable, static, opt_state, observations, conditions, step_keys[opt_step]
         )
 
