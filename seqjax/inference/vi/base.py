@@ -40,8 +40,7 @@ class VariationalApproximation[
 
 class AmortizedVariationalApproximation[
     TargetStructT: seqjax.model.typing.Packable,
-    ConditionT: tuple[jaxtyping.Array, jaxtyping.Array],
-](VariationalApproximation[TargetStructT, ConditionT]): ...
+](VariationalApproximation[TargetStructT, tuple[jaxtyping.Array, jaxtyping.Array]]): ...
 
 
 class UnconditionalVariationalApproximation[
@@ -115,9 +114,7 @@ class SSMVariationalApproximation[
     ParameterT: seqjax.model.typing.Parameters,
     HyperParameterT: seqjax.model.typing.HyperParameters,
 ](typing.Protocol):
-    latent_approximation: AmortizedVariationalApproximation[
-        LatentT, tuple[jaxtyping.Array, jaxtyping.Array]
-    ]
+    latent_approximation: AmortizedVariationalApproximation[LatentT]
     parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
     embedding: Embedder
 
@@ -135,8 +132,7 @@ class SSMVariationalApproximation[
         jaxtyping.Float[
             jaxtyping.Array, "context_samples samples_per_context sample_length"
         ],
-        jaxtyping.Int[jaxtyping.Array, " context_samples"],
-        jaxtyping.Float[jaxtyping.Array, "context_samples sample_length"],
+        typing.Any,
     ]: ...
 
     def estimate_loss(
@@ -165,10 +161,8 @@ class FullAutoregressiveVI[
     ParameterT: seqjax.model.typing.Parameters,
     HyperParameterT: seqjax.model.typing.HyperParameters,
 ](eqx.Module):
-    latent_approximation: AmortizedVariationalApproximation[
-        LatentT, tuple[jaxtyping.Array, jaxtyping.Array]
-    ]
-    parameter_approximation: VariationalApproximation[ParameterT, None]
+    latent_approximation: AmortizedVariationalApproximation[LatentT]
+    parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
     embedding: Embedder
 
     def joint_sample_and_log_prob(
