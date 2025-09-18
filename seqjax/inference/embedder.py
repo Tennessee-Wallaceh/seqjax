@@ -108,9 +108,9 @@ class NoReshapeEmbedder(Embedder):
         ]
 
     def embed(
-        self, observations: Float[Array, "batch_length y_dimension"]
-    ) -> Float[Array, "batch_length y_dimension"]:
-        return jnp.ravel(observations)
+        self, observations: seqjax.model.typing.Observation
+    ) -> Float[Array, "batch_length context_dimension"]:
+        return observations.ravel(observations)
 
 
 class SquareDiffEmbedder(WindowEmbedder):
