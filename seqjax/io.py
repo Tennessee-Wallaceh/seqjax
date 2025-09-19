@@ -1,7 +1,10 @@
-import polars as pl
+from collections.abc import Mapping
+from typing import Any
+
+import polars as pl  # type: ignore[import-not-found]
 import numpy as np
 from seqjax.model.typing import Packable
-import wandb
+import wandb  # type: ignore[import-not-found]
 import os
 from seqjax.model.registry import DataConfig
 from seqjax.model import simulate
@@ -10,8 +13,8 @@ import jax.random as jrandom
 SEQJAX_DATA_DIR = "../"
 
 
-def normalize_parquet_metadata(md: dict) -> dict[str, bytes]:
-    out = {}
+def normalize_parquet_metadata(md: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in md.items():
         if k == "elapsed_time_s":
             # this is not brilliant encoding, but the quantity does not
@@ -22,8 +25,8 @@ def normalize_parquet_metadata(md: dict) -> dict[str, bytes]:
     return out
 
 
-def process_parquet_metadata(md: dict) -> dict[str, bytes]:
-    out = {}
+def process_parquet_metadata(md: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in md.items():
         if k == "elapsed_time_s":
             out[k] = float(v)
