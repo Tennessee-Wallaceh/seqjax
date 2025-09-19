@@ -8,7 +8,6 @@ from seqjax.inference.vi import train
 import optax  # type: ignore
 import jax
 import jax.numpy as jnp
-import pandas as pd
 from seqjax.model.base import (
     ConditionType,
     ObservationType,
@@ -18,6 +17,7 @@ from seqjax.model.base import (
     BayesianSequentialModel,
 )
 from seqjax.model.typing import HyperParametersType
+from seqjax.inference.interface import inference_method
 import equinox as eqx
 import jaxtyping
 import jax.random as jrandom
@@ -67,6 +67,7 @@ class BufferedVIConfig(eqx.Module):
     control_variate: bool = False
 
 
+@inference_method
 def run_full_path_vi(
     target_posterior: BayesianSequentialModel[
         ParticleType,
@@ -80,9 +81,9 @@ def run_full_path_vi(
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationType,
     condition_path: ConditionType | None = None,
-    config: FullVIConfig = FullVIConfig(),
     test_samples: int = 1000,
-):
+    config: FullVIConfig = FullVIConfig(),
+) -> tuple[InferenceParametersType, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
 
@@ -121,7 +122,7 @@ def run_full_path_vi(
         key=jrandom.key(10),
     )
 
-    approximation = base.FullAutoregressiveVI(
+    approximation: base.SSMVariationalApproximation = base.FullAutoregressiveVI(
         latent_approximation,
         parameter_approximation,
         embed,
@@ -154,15 +155,13 @@ def run_full_path_vi(
     )
 
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
-    run_data = pd.DataFrame(run_tracker.update_rows)
     return (
-        run_data.elapsed_time_s,
-        x_q,
         flat_theta_q,
-        (run_data, run_tracker),
+        (run_tracker,),
     )
 
 
+@inference_method
 def run_buffered_vi(
     target_posterior: BayesianSequentialModel[
         ParticleType,
@@ -176,9 +175,9 @@ def run_buffered_vi(
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationType,
     condition_path: ConditionType | None = None,
-    config: BufferedVIConfig = BufferedVIConfig(),
     test_samples: int = 1000,
-):
+    config: BufferedVIConfig = BufferedVIConfig(),
+) -> tuple[InferenceParametersType, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
 
@@ -215,7 +214,7 @@ def run_buffered_vi(
         key=jrandom.key(10),
     )
 
-    approximation = base.BufferedSSMVI(
+    approximation: base.SSMVariationalApproximation = base.BufferedSSMVI(
         latent_approximation,
         parameter_approximation,
         embed,
@@ -250,14 +249,11 @@ def run_buffered_vi(
         log_q_x_path,
         (approx_start, theta_mask, y_batch, c_batch),
     ) = fitted_approximation.joint_sample_and_log_prob(
-        observation_path, None, key, n_context, s_per_context
+        observation_path, condition_path, key, n_context, s_per_context
     )
 
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
-    run_data = pd.DataFrame(run_tracker.update_rows)
     return (
-        run_data.elapsed_time_s,
-        x_q,
         flat_theta_q,
-        (run_data, approx_start, run_tracker),
+        (approx_start, x_q, run_tracker),
     )

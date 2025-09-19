@@ -36,14 +36,10 @@ class InferenceMethod(typing.Protocol):
         hyperparameters: HyperParametersType,
         key: jaxtyping.PRNGKeyArray,
         observation_path: ObservationType,
+        condition_path: ConditionType,
+        test_samples: int,
         config: typing.Any,
-        *,
-        condition_path: ConditionType | None = None,
-        initial_latents: ParticleType | None = None,
-        initial_conditions: tuple[ConditionType, ...] | None = None,
-        observation_history: tuple[ObservationType, ...] | None = None,
-        test_samples: int = 1000,
-    ) -> tuple[jaxtyping.Array, InferenceParametersType, typing.Any]: ...
+    ) -> tuple[InferenceParametersType, typing.Any]: ...
 
 
 def inference_method(f: InferenceMethod) -> InferenceMethod:

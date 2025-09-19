@@ -54,3 +54,8 @@ python_version = "3.12"
 
 [mypy]
 mypy_path = "stubs"
+
+
+[[tool.mypy.overrides]]
+module = ["seqjax.experiments.*"]
+ignore_errors = true

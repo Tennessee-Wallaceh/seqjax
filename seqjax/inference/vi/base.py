@@ -121,7 +121,7 @@ class SSMVariationalApproximation[
     def joint_sample_and_log_prob(
         self,
         observations: ObservationT,
-        conditions: seqjax.model.typing.Condition,
+        conditions: ConditionT,
         key: jaxtyping.PRNGKeyArray,
         context_samples: int,
         samples_per_context: int,
@@ -355,9 +355,7 @@ class BufferedSSMVI[
     ParameterT: seqjax.model.typing.Parameters,
     HyperParameterT: seqjax.model.typing.HyperParameters,
 ](eqx.Module):
-    latent_approximation: AmortizedVariationalApproximation[
-        LatentT, tuple[jaxtyping.Array, jaxtyping.Array]
-    ]
+    latent_approximation: AmortizedVariationalApproximation[LatentT]
     parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
     embedding: Embedder
     control_variate: bool = eqx.field(default=False, static=True)

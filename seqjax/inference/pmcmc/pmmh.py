@@ -54,16 +54,12 @@ def run_particle_mcmc(
         HyperParametersType,
     ],
     hyperparameters: HyperParametersType,
-    key: PRNGKeyArray,
+    key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationType,
+    condition_path: ConditionType,
+    test_samples: int,
     config: ParticleMCMCConfig,
-    *,
-    condition_path: ConditionType | None = None,
-    initial_latents: ParticleType | None = None,
-    initial_conditions: tuple[ConditionType, ...] | None = None,
-    observation_history: tuple[ObservationType, ...] | None = None,
-    test_samples: int = 1000,
-) -> tuple[jaxtyping.Array, InferenceParametersType, None]:
+) -> tuple[InferenceParametersType, tuple[jaxtyping.Array]]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
     def estimate_log_joint(
@@ -116,4 +112,4 @@ def run_particle_mcmc(
         jnp.arange(test_samples) * (sample_time_s / test_samples)
     )
 
-    return time_array_s, samples, None
+    return samples, (time_array_s,)

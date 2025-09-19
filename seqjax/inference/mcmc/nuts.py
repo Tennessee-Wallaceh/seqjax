@@ -18,7 +18,6 @@ from seqjax.model.base import (
     ParametersType,
     ParticleType,
     InferenceParametersType,
-    SequentialModel,
     BayesianSequentialModel,
 )
 from seqjax.model.typing import HyperParametersType
@@ -56,78 +55,6 @@ class NUTSConfig(eqx.Module):
     num_chains: int = 1
 
 
-def run_latent_nuts(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
-    key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationType,
-    parameters: ParametersType,
-    condition_path: ConditionType | None = None,
-    *,
-    config: NUTSConfig = NUTSConfig(),
-    initial_latents: ParticleType | None = None,
-    initial_conditions: tuple[ConditionType, ...] | None = None,
-    observation_history: tuple[ObservationType, ...] | None = None,
-) -> tuple[jaxtyping.Array, ParticleType]:
-    """Sample latent paths using the NUTS algorithm from ``blackjax``."""
-
-    log_prob_joint = evaluate.get_log_prob_joint_for_target(target)
-
-    def logdensity(x):
-        return log_prob_joint(x, observation_path, condition_path, parameters)
-
-    if initial_latents is None:
-        key, latent_key = jrandom.split(key)
-        initial_latents, _, _, _ = simulate(
-            latent_key,
-            target,
-            condition_path,
-            parameters,
-            pytree_shape(observation_path)[0][0],
-        )
-
-    flat, _ = jax.flatten_util.ravel_pytree(initial_latents)  # type: ignore[attr-defined]
-    dim = flat.shape[0]
-    inv_mass = (
-        jnp.ones(dim)
-        if config.inverse_mass_matrix is None
-        else config.inverse_mass_matrix
-    )
-
-    nuts = blackjax.nuts(
-        logdensity, step_size=config.step_size, inverse_mass_matrix=inv_mass
-    )
-    state = nuts.init(initial_latents)
-
-    keys = jax.random.split(key, config.num_warmup + config.num_samples)
-
-    def warmup_step(state, key):
-        state, _ = nuts.step(key, state)
-        return state, None
-
-    start_warmup_time = time.time()
-    state, _ = jax.lax.scan(warmup_step, state, keys[: config.num_warmup])
-    jax.block_until_ready(state)
-    end_warmup_time = time.time()
-    warmup_time = end_warmup_time - start_warmup_time
-
-    def sample_step(state, key):
-        state, _ = nuts.step(key, state)
-        return state, state.position
-
-    start_time = time.time()
-    _, samples = jax.lax.scan(sample_step, state, keys[config.num_warmup :])
-    jax.block_until_ready(samples)
-    end_time = time.time()
-    sample_time = end_time - start_time
-    time_array_s = (
-        warmup_time
-        + jnp.ones(config.num_samples) * (sample_time / config.num_samples) * 60
-    )
-    return time_array_s, samples
-
-
 @inference_method
 def run_bayesian_nuts(
     target_posterior: BayesianSequentialModel[
@@ -141,17 +68,12 @@ def run_bayesian_nuts(
     hyperparameters: HyperParametersType,
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationType,
+    condition_path: ConditionType,
+    test_samples: int,
     config: NUTSConfig = NUTSConfig(),
-    *,
-    condition_path: ConditionType | None = None,
-    initial_latents: ParticleType | None = None,
-    initial_conditions: tuple[ConditionType, ...] | None = None,
-    observation_history: tuple[ObservationType, ...] | None = None,
-    test_samples: int = 1000,
 ) -> tuple[
-    jaxtyping.Array,
     InferenceParametersType,
-    ParticleType,
+    tuple[jaxtyping.Array, ParticleType],
 ]:
     """Sample parameters and latent paths jointly using NUTS."""
 
@@ -231,4 +153,4 @@ def run_bayesian_nuts(
         * (sample_time / samples_per_chain)
     )
 
-    return time_array_s, param_samples, latent_samples
+    return param_samples, (time_array_s, latent_samples)

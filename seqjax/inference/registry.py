@@ -2,11 +2,10 @@
 
 import typing
 from dataclasses import dataclass
-from functools import partial
 
 from seqjax.inference import InferenceMethod, mcmc, vi
 
-inference_functions = {
+inference_functions: dict[str, InferenceMethod] = {
     "NUTS": mcmc.run_bayesian_nuts,
     "buffer-vi": vi.run_buffered_vi,
     "full-vi": vi.run_full_path_vi,
@@ -61,5 +60,5 @@ class FullVI:
 InferenceConfig = NUTSInference
 
 
-def build_inference(i_config: InferenceConfig, target_model) -> InferenceMethod:
-    return partial(inference_functions[i_config.method], config=i_config.config)
+def build_inference(i_config: InferenceConfig) -> InferenceMethod:
+    return inference_functions[i_config.method]

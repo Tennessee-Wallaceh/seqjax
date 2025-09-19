@@ -1,9 +1,12 @@
+import typing
+
 import equinox as eqx
 import jaxtyping
 import seqjax.model.typing
 from seqjax.inference.vi.base import (
     VariationalApproximation,
     VariationalApproximationFactory,
+    UnconditionalVariationalApproximation,
 )
 from seqjax.inference.vi.transformations import (
     FieldwiseBijector,
@@ -34,6 +37,28 @@ class TransformedApproximation[T: seqjax.model.typing.Packable, C](
         theta_x, lad = self.constraint.transform_and_lad(theta_z)
         log_q_x = log_q_z - lad
         return theta_x, log_q_x
+
+
+# overload for unconditional approximation
+@typing.overload
+def transform_approximation[
+    T: seqjax.model.typing.Packable,
+](
+    target_struct_class: type[T],
+    base: VariationalApproximationFactory[T, None],
+    constraint: FieldwiseBijectorFactory[T],
+) -> UnconditionalVariationalApproximation[T]: ...
+
+
+@typing.overload
+def transform_approximation[
+    T: seqjax.model.typing.Packable,
+    C,
+](
+    target_struct_class: type[T],
+    base: VariationalApproximationFactory[T, C],
+    constraint: FieldwiseBijectorFactory[T],
+) -> VariationalApproximation[T, C]: ...
 
 
 def transform_approximation[

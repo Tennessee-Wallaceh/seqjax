@@ -401,7 +401,7 @@ def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
     x_path, y_path = io.get_remote_data(wandb_run, experiment_config.data_config)
 
     # inference init
-    inference = inference_registry.build_inference(experiment_config.inference, model)
+    inference = inference_registry.build_inference(experiment_config.inference)
 
     elapsed_time_s, latent_samples, param_samples, extra_data = inference(
         model,
@@ -410,6 +410,7 @@ def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
         observation_path=y_path,
         condition_path=None,
         test_samples=experiment_config.test_samples,
+        config=experiment_config.inference,
     )
 
     process_results(
@@ -437,25 +438,26 @@ inference_methods = {}
 #     "NUTS", mcmc.NUTSConfig(step_size=1e-3, num_warmup=1000, num_chains=1)
 # )
 
-for buffer in [2, 5]:
-    for batch in [10]:
-        for cv in [True]:
-            # for ar_transform in ["interval_spline"]:
-            for ar_transform in ["sigmoid"]:
-                buffviconf = inference_registry.BufferVI(
-                    "buffer-vi",
-                    vi.BufferedVIConfig(
-                        learning_rate=2e-3,
-                        opt_steps=20000,
-                        buffer_length=buffer,
-                        batch_length=batch,
-                        parameter_field_bijections={
-                            "ar": ar_transform,
-                        },
-                        control_variate=cv,
-                    ),
-                )
-                inference_methods[buffviconf.name] = buffviconf
+for buffer in [10]:
+    for batch in [2, 5, 10]:
+        for lr in [1e-2, 1e-3]:
+            for cv in [True, False]:
+                # for ar_transform in ["interval_spline"]:
+                for ar_transform in ["sigmoid"]:
+                    buffviconf = inference_registry.BufferVI(
+                        "buffer-vi",
+                        vi.BufferedVIConfig(
+                            learning_rate=1e-2,
+                            opt_steps=20000,
+                            buffer_length=buffer,
+                            batch_length=batch,
+                            parameter_field_bijections={
+                                "ar": ar_transform,
+                            },
+                            control_variate=cv,
+                        ),
+                    )
+                    inference_methods[buffviconf.name] = buffviconf
 
 
 # full_vi_config = inference_registry.FullVI(
