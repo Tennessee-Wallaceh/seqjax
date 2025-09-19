@@ -11,51 +11,64 @@ from jax_tqdm import scan_tqdm  # type: ignore[import-not-found]
 
 from seqjax import util
 from seqjax.model.base import (
-    ConditionType,
-    ObservationType,
-    ParticleType,
-    ParametersType,
-    InferenceParametersType,
-    HyperParametersType,
     BayesianSequentialModel,
 )
+import seqjax.model.typing as seqjtyping
 from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
 from seqjax.inference import particlefilter
 from seqjax.inference.interface import inference_method
 
 
-class SGLDConfig(
+class SGLDConfig[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
     eqx.Module,
-    typing.Generic[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
     """Configuration for :func:`run_sgld`."""
 
-    particle_filter: SMCSampler[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ]
-    step_size: float | ParametersType = 1e-3
+    particle_filter: SMCSampler
+    step_size: float | ParametersT = 1e-3
     initial_parameter_guesses: int = 20
 
 
-class BufferedSGLDConfig(
+class BufferedSGLDConfig[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
     eqx.Module,
-    typing.Generic[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
     """Configuration for :func:`run_sgld`."""
 
-    particle_filter: SMCSampler[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ]
-    step_size: float | ParametersType = 1e-3
+    particle_filter: SMCSampler
+    step_size: float | ParametersT = 1e-3
     num_samples: int = 100
     initial_parameter_guesses: int = 20
     buffer_length: int = 5
     batch_length: int = 10
 
 
-def _tree_randn_like(
-    key: jaxtyping.PRNGKeyArray, tree: ParametersType
-) -> ParametersType:
+def _tree_randn_like[ParametersT: seqjtyping.Parameters](
+    key: jaxtyping.PRNGKeyArray, tree: ParametersT
+) -> ParametersT:
     leaves, treedef = jax.tree_util.tree_flatten(tree)
     keys = jrandom.split(key, len(leaves))
     new_leaves = [
@@ -145,14 +158,12 @@ def build_score_increment(target_posterior: BayesianSequentialModel):
     return score_increment
 
 
-def run_sgld(
-    grad_estimator: typing.Callable[
-        [ParametersType, jaxtyping.PRNGKeyArray], ParametersType
-    ],
+def run_sgld[ParametersT: seqjtyping.Parameters](
+    grad_estimator: typing.Callable[[ParametersT, jaxtyping.PRNGKeyArray], ParametersT],
     key: jaxtyping.PRNGKeyArray,
-    initial_parameters: ParametersType,
+    initial_parameters: ParametersT,
     config: SGLDConfig,
-) -> ParametersType:
+) -> ParametersT:
     """Run SGLD updates using ``grad_estimator``."""
 
     n_iters = config.num_samples
@@ -171,7 +182,7 @@ def run_sgld(
 
     @scan_tqdm(n_iters)
     def step(
-        carry: tuple[int, ParametersType],
+        carry: tuple[int, ParametersT],
         inp: tuple[jaxtyping.PRNGKeyArray, jaxtyping.PRNGKeyArray],
     ):
         ix, params = carry
@@ -190,43 +201,60 @@ def run_sgld(
     step = typing.cast(
         typing.Callable[
             [
-                tuple[int, ParametersType],
+                tuple[int, ParametersT],
                 tuple[
                     jaxtyping.Array,
                     tuple[jaxtyping.PRNGKeyArray, jaxtyping.PRNGKeyArray],
                 ],
             ],
             tuple[
-                tuple[int, ParametersType],
-                ParametersType,
+                tuple[int, ParametersT],
+                ParametersT,
             ],
         ],
         step,
     )
 
-    samples: ParametersType = jax.lax.scan(
+    samples: ParametersT = jax.lax.scan(
         step, (0, initial_parameters), (jnp.arange(n_iters), (grad_keys, noise_keys))
     )[1]
     return samples
 
 
 @inference_method
-def run_full_sgld_mcmc(
+def run_full_sgld_mcmc[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
     target_posterior: BayesianSequentialModel[
-        ParticleType,
-        ObservationType,
-        ConditionType,
-        ParametersType,
-        InferenceParametersType,
-        HyperParametersType,
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
     ],
-    hyperparameters: HyperParametersType,
+    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationType,
-    condition_path: ConditionType,
+    observation_path: ObservationT,
+    condition_path: ConditionT,
     test_samples: int,
     config: SGLDConfig,
-) -> tuple[InferenceParametersType, typing.Any]:
+) -> tuple[InferenceParametersT, typing.Any]:
     score_increment = build_score_increment(target_posterior)
 
     @jax.jit

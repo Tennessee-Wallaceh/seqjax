@@ -53,18 +53,22 @@ class NUTSConfig(eqx.Module):
 @inference_method
 def run_bayesian_nuts[
     ParticleT: seqjtyping.Particle,
-    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
-    ConditionT: seqjtyping.Condition | None,
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
     target_posterior: BayesianSequentialModel[
         ParticleT,
-        ParticleHistoryT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,
         ConditionHistoryT,

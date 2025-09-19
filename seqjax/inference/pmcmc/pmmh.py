@@ -8,17 +8,9 @@ import jaxtyping
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax
-
+import seqjax.model.typing as seqjtyping
 from seqjax.model.base import (
-    ConditionType,
-    ObservationType,
-    ParametersType,
-    ParticleType,
     BayesianSequentialModel,
-)
-from seqjax.model.typing import (
-    HyperParametersType,
-    InferenceParametersType,
 )
 
 from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
@@ -32,38 +24,52 @@ from seqjax import util
 
 class ParticleMCMCConfig(
     eqx.Module,
-    typing.Generic[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
     """Configuration for :func:`run_particle_mcmc`."""
 
-    particle_filter: SMCSampler[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ]
+    particle_filter: SMCSampler
     mcmc: RandomWalkConfig = RandomWalkConfig()
     initial_parameter_guesses: int = 10
 
 
 @inference_method
-def run_particle_mcmc(
+def run_particle_mcmc[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
     target_posterior: BayesianSequentialModel[
-        ParticleType,
-        ObservationType,
-        ConditionType,
-        ParametersType,
-        InferenceParametersType,
-        HyperParametersType,
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
     ],
-    hyperparameters: HyperParametersType,
+    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationType,
-    condition_path: ConditionType,
+    observation_path: ObservationT,
+    condition_path: ConditionT,
     test_samples: int,
     config: ParticleMCMCConfig,
-) -> tuple[InferenceParametersType, tuple[jaxtyping.Array]]:
+) -> tuple[InferenceParametersT, tuple[jaxtyping.Array]]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
     def estimate_log_joint(
-        params: InferenceParametersType, key: PRNGKeyArray
+        params: InferenceParametersT, key: PRNGKeyArray
     ) -> jaxtyping.Array:
         model_params = target_posterior.target_parameter(params)
         _, _, (log_marginal_increments,) = run_filter(
@@ -89,7 +95,7 @@ def run_particle_mcmc(
     init_time_s = init_time_end - init_time_start
 
     initial_parameters = typing.cast(
-        InferenceParametersType,
+        InferenceParametersT,
         util.index_pytree(
             initial_parameter_samples, jnp.argmax(parameter_init_marginals).item()
         ),
@@ -97,7 +103,7 @@ def run_particle_mcmc(
 
     sample_time_start = time.time()
     samples = typing.cast(
-        InferenceParametersType,
+        InferenceParametersT,
         run_random_walk_metropolis(
             jax.jit(estimate_log_joint),
             sample_key,

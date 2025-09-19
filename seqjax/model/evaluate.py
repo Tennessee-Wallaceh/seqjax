@@ -5,10 +5,6 @@ import jax.numpy as jnp
 from jaxtyping import Scalar
 
 from seqjax.model.base import (
-    ConditionType,
-    ObservationType,
-    ParametersType,
-    ParticleType,
     SequentialModel,
 )
 from seqjax.util import (
@@ -20,14 +16,12 @@ from seqjax.util import (
 
 
 def log_prob_x(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
-    x_path: ParticleType,
-    condition: ConditionType,
-    parameters: ParametersType,
+    target: SequentialModel,
+    x_path,
+    condition,
+    parameters,
     *,
-    x_history: ParticleType | None = None,
+    x_history=None,
 ) -> Scalar:
     """Return ``log p(x)`` for a latent sequence.
 
@@ -81,15 +75,13 @@ def log_prob_x(
 
 
 def log_prob_y_given_x(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
-    x_path: ParticleType,
-    y_path: ObservationType,
-    condition: ConditionType,
-    parameters: ParametersType,
+    target: SequentialModel,
+    x_path,
+    y_path,
+    condition,
+    parameters,
     *,
-    x_history: ParticleType | None = None,
+    x_history=None,
 ) -> Scalar:
     """Return ``log p(y | x)`` for a sequence of observations.
 
@@ -148,12 +140,12 @@ def log_prob_y_given_x(
 
 def log_prob_joint(
     target,
-    x_path: ParticleType,
-    y_path: ObservationType,
-    condition: ConditionType,
+    x_path,
+    y_path,
+    condition,
     parameters,
     *,
-    x_history: ParticleType | None = None,
+    x_history=None,
 ) -> Scalar:
     """Return ``log p(x, y)`` for a path and observations.
 
@@ -181,18 +173,16 @@ def log_prob_joint(
 
 
 def get_log_prob_x_for_target(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
+    target: SequentialModel,
 ):
     """Return a ``log_prob_x`` function bound to ``target``."""
 
     def _log_prob_x(
-        x_path: ParticleType,
-        condition: ConditionType,
-        parameters: ParametersType,
+        x_path,
+        condition,
+        parameters,
         *,
-        x_history: ParticleType | None = None,
+        x_history=None,
     ):
         return log_prob_x(target, x_path, condition, parameters, x_history=x_history)
 
@@ -200,19 +190,17 @@ def get_log_prob_x_for_target(
 
 
 def get_log_prob_joint_for_target(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
+    target: SequentialModel,
 ):
     """Return a ``log_prob_joint`` function bound to ``target``."""
 
     def _log_prob_joint(
-        x_path: ParticleType,
-        y_path: ObservationType,
-        condition: ConditionType,
+        x_path,
+        y_path,
+        condition,
         parameters,
         *,
-        x_history: ParticleType | None = None,
+        x_history=None,
     ):
         return log_prob_joint(
             target,
@@ -227,12 +215,10 @@ def get_log_prob_joint_for_target(
 
 
 def buffered_log_p_x(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
-    x_path: ParticleType,
-    condition: ConditionType,
-    parameters: ParametersType,
+    target,
+    x_path,
+    condition,
+    parameters,
 ) -> Scalar:
     """
     slice out particle histories for vectorised evaluation
@@ -279,13 +265,11 @@ def buffered_log_p_x(
 
 
 def buffered_log_p_y_given_x(
-    target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
-    ],
-    x_path: ParticleType,
-    y_path: ParticleType,
-    condition: ConditionType,
-    parameters: ParametersType,
+    target,
+    x_path,
+    y_path,
+    condition,
+    parameters,
 ) -> Scalar:
     x_length = x_path.batch_shape[0]
 
