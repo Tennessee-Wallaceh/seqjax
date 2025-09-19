@@ -1,8 +1,11 @@
 """Logistic regression SMC sampler example."""
 
+from collections import OrderedDict
 from dataclasses import field
 from typing import ClassVar
 
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
@@ -22,19 +25,31 @@ class LogRegParticle(Particle):
 
     theta: jnp.ndarray  # shape (d,)
 
+    _shape_template: ClassVar = OrderedDict(
+        theta=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
+
 
 class LogRegData(Parameters):
     """Fixed dataset used as model parameters."""
 
-    X: jnp.ndarray  # shape (n, d)
+    X: jnp.ndarray = eqx.field(static=True)  # shape (n, d)
     y: jnp.ndarray  # shape (n,)
     reference_emission: tuple[Observation] = field(default_factory=tuple)
+
+    _shape_template: ClassVar = OrderedDict(
+        y=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class DummyObservation(Observation):
     """Placeholder observation carrying a scalar value."""
 
     dummy: Scalar = field(default_factory=lambda: jnp.array(0.0))
+
+    _shape_template: ClassVar = OrderedDict(
+        dummy=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class AnnealCondition(Condition):
@@ -43,8 +58,13 @@ class AnnealCondition(Condition):
     beta: Scalar
     beta_prev: Scalar
 
+    _shape_template: ClassVar = OrderedDict(
+        beta=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        beta_prev=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
-class GaussianPrior(Prior[LogRegParticle, AnnealCondition, LogRegData]):
+
+class GaussianPrior(Prior[tuple[LogRegParticle], tuple[AnnealCondition], LogRegData]):
     """Wide Gaussian prior over the regression coefficients."""
 
     order: ClassVar[int] = 1
@@ -70,7 +90,9 @@ class GaussianPrior(Prior[LogRegParticle, AnnealCondition, LogRegData]):
         return jstats.norm.logpdf(theta.theta, loc=0.0, scale=10.0).sum()
 
 
-class RWTransition(Transition[LogRegParticle, AnnealCondition, LogRegData]):
+class RWTransition(
+    Transition[LogRegParticle, tuple[LogRegParticle], AnnealCondition, LogRegData]
+):
     """Random walk Metropolis proposal (symmetric)."""
 
     order: ClassVar[int] = 1
@@ -97,7 +119,13 @@ class RWTransition(Transition[LogRegParticle, AnnealCondition, LogRegData]):
 
 
 class TemperedEmission(
-    Emission[LogRegParticle, DummyObservation, AnnealCondition, LogRegData]
+    Emission[
+        tuple[LogRegParticle],
+        DummyObservation,
+        tuple[()],
+        AnnealCondition,
+        LogRegData,
+    ]
 ):
     """Incremental weight using tempering."""
 
@@ -129,9 +157,21 @@ class TemperedEmission(
 
 
 class LogisticRegressionSMC(
-    SequentialModel[LogRegParticle, DummyObservation, AnnealCondition, LogRegData]
+    SequentialModel[
+        LogRegParticle,
+        tuple[LogRegParticle],
+        DummyObservation,
+        tuple[()],
+        tuple[AnnealCondition],
+        AnnealCondition,
+        LogRegData,
+    ]
 ):
     """SequentialModel wrapping the tempered logistic regression components."""
+
+    particle_cls: ClassVar[type[LogRegParticle]] = LogRegParticle
+    observation_cls: ClassVar[type[DummyObservation]] = DummyObservation
+    parameter_cls: ClassVar[type[LogRegData]] = LogRegData
 
     prior = GaussianPrior()
     transition = RWTransition()
