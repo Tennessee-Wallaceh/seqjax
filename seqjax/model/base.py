@@ -9,44 +9,42 @@ provide additional structure and are typically paired in use.
 """
 
 from abc import abstractmethod
-from typing import Generic, Callable
+from typing import Callable
 
 import equinox as eqx
 from jaxtyping import PRNGKeyArray, Scalar
 
-from seqjax.model.typing import (
-    ConditionType,
-    EnforceInterface,
-    HyperParametersType,
-    ObservationType,
-    ParametersType,
-    InferenceParametersType,
-    ParticleType,
-)
+import seqjax.model.typing as seqjtyping
 
 
-class ParameterPrior(eqx.Module, Generic[ParametersType, HyperParametersType]):
+class ParameterPrior[
+    ParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](eqx.Module):
     """Parameter prior specified as utility for specifying Bayesian models."""
 
     @staticmethod
     @abstractmethod
     def log_prob(
-        parameters: ParametersType,
-        hyperparameters: HyperParametersType,
+        parameters: ParametersT,
+        hyperparameters: HyperParametersT,
     ) -> Scalar: ...
 
     @staticmethod
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        hyperparameters: HyperParametersType,
-    ) -> ParametersType: ...
+        hyperparameters: HyperParametersT,
+    ) -> ParametersT: ...
 
 
-class Prior(
+class Prior[
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ParametersT: seqjtyping.Parameters,
+](
     eqx.Module,
-    Generic[ParticleType, ConditionType, ParametersType],
-    EnforceInterface,
+    seqjtyping.EnforceInterface,
 ):
     """Prior must define density + sampling up to the start state t=0.
     As such it receives conditions up to t=0, length corresponding to order.
@@ -64,23 +62,27 @@ class Prior(
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: tuple[ConditionType, ...],
-        parameters: ParametersType,
-    ) -> tuple[ParticleType, ...]: ...
+        conditions: ConditionHistoryT,
+        parameters: ParametersT,
+    ) -> InitialParticleT: ...
 
     @staticmethod
     @abstractmethod
     def log_prob(
-        particle: tuple[ParticleType, ...],
-        conditions: tuple[ConditionType, ...],
-        parameters: ParametersType,
+        particle: InitialParticleT,
+        conditions: ConditionHistoryT,
+        parameters: ParametersT,
     ) -> Scalar: ...
 
 
-class Transition(
+class Transition[
+    ParticleT: seqjtyping.Particle,
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](
     eqx.Module,
-    Generic[ParticleType, ConditionType, ParametersType],
-    EnforceInterface,
+    seqjtyping.EnforceInterface,
 ):
     order: eqx.AbstractClassVar[int]
 
@@ -88,25 +90,30 @@ class Transition(
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        particle_history: tuple[ParticleType, ...],
-        condition: ConditionType,
-        parameters: ParametersType,
-    ) -> ParticleType: ...
+        particle_history: ParticleHistoryT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> ParticleT: ...
 
     @staticmethod
     @abstractmethod
     def log_prob(
-        particle_history: tuple[ParticleType, ...],
-        particle: ParticleType,
-        condition: ConditionType,
-        parameters: ParametersType,
+        particle_history: ParticleHistoryT,
+        particle: ParticleT,
+        condition: ConditionT,
+        parameters: ParametersT,
     ) -> Scalar: ...
 
 
-class Emission(
+class Emission[
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](
     eqx.Module,
-    Generic[ParticleType, ObservationType, ConditionType, ParametersType],
-    EnforceInterface,
+    seqjtyping.EnforceInterface,
 ):
     order: eqx.AbstractClassVar[int]
     observation_dependency: eqx.AbstractClassVar[int]
@@ -115,53 +122,66 @@ class Emission(
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        particle: tuple[ParticleType, ...],
-        observation_history: tuple[ObservationType, ...],
-        condition: ConditionType,
-        parameters: ParametersType,
-    ) -> ObservationType: ...
+        particle: ParticleHistoryT,
+        observation_history: ObservationHistoryT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> ObservationT: ...
 
     @staticmethod
     @abstractmethod
     def log_prob(
-        particle: tuple[ParticleType, ...],
-        observation_history: tuple[ObservationType, ...],
-        observation: ObservationType,
-        condition: ConditionType,
-        parameters: ParametersType,
+        particle: ParticleHistoryT,
+        observation_history: ObservationHistoryT,
+        observation: ObservationT,
+        condition: ConditionT,
+        parameters: ParametersT,
     ) -> Scalar: ...
 
 
-class SequentialModel(
-    Generic[ParticleType, ObservationType, ConditionType, ParametersType]
-):
-    particle_cls: type[ParticleType]
-    observation_cls: type[ObservationType]
-    parameter_cls: type[ParametersType]
-    prior: Prior[ParticleType, ConditionType, ParametersType]
-    transition: Transition[ParticleType, ConditionType, ParametersType]
-    emission: Emission[ParticleType, ObservationType, ConditionType, ParametersType]
-
-
-"""
-There are different usage patterns to support here
-- run inference for latent with fixed 
-"""
-
-
-class BayesianSequentialModel(
-    Generic[
-        ParticleType,
-        ObservationType,
-        ConditionType,
-        ParametersType,
-        InferenceParametersType,
-        HyperParametersType,
+class SequentialModel[
+    ParticleT: seqjtyping.Particle,
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+]:
+    particle_cls: type[ParticleT]
+    observation_cls: type[ObservationT]
+    parameter_cls: type[ParametersT]
+    prior: Prior[ParticleHistoryT, ConditionHistoryT, ParametersT]
+    transition: Transition[ParticleT, ParticleHistoryT, ConditionT, ParametersT]
+    emission: Emission[
+        ParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionT,
+        ParametersT,
     ]
-):
-    inference_parameter_cls: type[InferenceParametersType]
+
+
+class BayesianSequentialModel[
+    ParticleT: seqjtyping.Particle,
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+]:
+    inference_parameter_cls: type[InferenceParametersT]
     target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
+        ParticleT,
+        ParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
     ]
-    parameter_prior: ParameterPrior[InferenceParametersType, HyperParametersType]
-    target_parameter: Callable[[InferenceParametersType], ParametersType]
+    parameter_prior: ParameterPrior[InferenceParametersT, HyperParametersT]
+    target_parameter: Callable[[InferenceParametersT], ParametersT]
