@@ -1,15 +1,18 @@
 """Simple Poisson state space model."""
 
+from collections import OrderedDict
 from dataclasses import field
+from types import NoneType
 from typing import ClassVar
 
+import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from .base import Emission, Prior, SequentialModel, Transition
-from .typing import Condition, Observation, Parameters, Particle
+from .typing import Observation, Parameters, Particle
 
 
 class LogRate(Particle):
@@ -17,11 +20,19 @@ class LogRate(Particle):
 
     log_rate: Scalar
 
+    _shape_template: ClassVar = OrderedDict(
+        log_rate=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
+
 
 class CountObservation(Observation):
     """Observed counts."""
 
     count: Scalar
+
+    _shape_template: ClassVar = OrderedDict(
+        count=jax.ShapeDtypeStruct(shape=(), dtype=jnp.int32),
+    )
 
 
 class PoissonSSMParameters(Parameters):
@@ -30,8 +41,13 @@ class PoissonSSMParameters(Parameters):
     ar_coeff: Scalar = field(default_factory=lambda: jnp.array(0.9))
     transition_std: Scalar = field(default_factory=lambda: jnp.array(0.1))
 
+    _shape_template: ClassVar = OrderedDict(
+        ar_coeff=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        transition_std=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
-class GaussianPrior(Prior[LogRate, Condition, PoissonSSMParameters]):
+
+class GaussianPrior(Prior[tuple[LogRate], None, PoissonSSMParameters]):
     """Gaussian prior over the initial log-rate."""
 
     order: ClassVar[int] = 1
@@ -39,7 +55,7 @@ class GaussianPrior(Prior[LogRate, Condition, PoissonSSMParameters]):
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: tuple[Condition],
+        conditions: NoneType,
         parameters: PoissonSSMParameters,
     ) -> tuple[LogRate]:
         init = parameters.transition_std * jrandom.normal(key)
@@ -48,7 +64,7 @@ class GaussianPrior(Prior[LogRate, Condition, PoissonSSMParameters]):
     @staticmethod
     def log_prob(
         particle: tuple[LogRate],
-        conditions: tuple[Condition],
+        conditions: NoneType,
         parameters: PoissonSSMParameters,
     ) -> Scalar:
         return jstats.norm.logpdf(
@@ -56,7 +72,7 @@ class GaussianPrior(Prior[LogRate, Condition, PoissonSSMParameters]):
         )
 
 
-class GaussianRW(Transition[LogRate, Condition, PoissonSSMParameters]):
+class GaussianRW(Transition[LogRate, tuple[LogRate], None, PoissonSSMParameters]):
     """Gaussian AR(1) transition on the log-rate."""
 
     order: ClassVar[int] = 1
@@ -65,7 +81,7 @@ class GaussianRW(Transition[LogRate, Condition, PoissonSSMParameters]):
     def sample(
         key: PRNGKeyArray,
         particle_history: tuple[LogRate],
-        condition: Condition,
+        condition: NoneType,
         parameters: PoissonSSMParameters,
     ) -> LogRate:
         (prev,) = particle_history
@@ -77,7 +93,7 @@ class GaussianRW(Transition[LogRate, Condition, PoissonSSMParameters]):
     def log_prob(
         particle_history: tuple[LogRate],
         particle: LogRate,
-        condition: Condition,
+        condition: NoneType,
         parameters: PoissonSSMParameters,
     ) -> Scalar:
         (prev,) = particle_history
@@ -88,7 +104,7 @@ class GaussianRW(Transition[LogRate, Condition, PoissonSSMParameters]):
 
 
 class PoissonEmission(
-    Emission[LogRate, CountObservation, Condition, PoissonSSMParameters]
+    Emission[tuple[LogRate], CountObservation, tuple[()], None, PoissonSSMParameters]
 ):
     """Poisson emission with rate ``exp(log_rate)``."""
 
@@ -100,7 +116,7 @@ class PoissonEmission(
         key: PRNGKeyArray,
         particle: tuple[LogRate],
         observation_history: tuple[()],
-        condition: Condition,
+        condition: NoneType,
         parameters: PoissonSSMParameters,
     ) -> CountObservation:
         (current,) = particle
@@ -112,7 +128,7 @@ class PoissonEmission(
         particle: tuple[LogRate],
         observation_history: tuple[()],
         observation: CountObservation,
-        condition: Condition,
+        condition: NoneType,
         parameters: PoissonSSMParameters,
     ) -> Scalar:
         (current,) = particle
@@ -121,9 +137,19 @@ class PoissonEmission(
 
 
 class PoissonSSM(
-    SequentialModel[LogRate, CountObservation, Condition, PoissonSSMParameters]
+    SequentialModel[
+        LogRate,
+        tuple[LogRate],
+        CountObservation,
+        tuple[()],
+        None,
+        None,
+        PoissonSSMParameters,
+    ]
 ):
-    particle_type = LogRate
+    particle_cls = LogRate
+    observation_cls = CountObservation
+    parameter_cls = PoissonSSMParameters
     prior = GaussianPrior()
     transition = GaussianRW()
     emission = PoissonEmission()
