@@ -65,6 +65,7 @@ class BufferedVIConfig(eqx.Module):
     nn_width: int = 20
     nn_depth: int = 2
     control_variate: bool = False
+    pre_training_steps: int = 0
 
 
 @inference_method
@@ -157,7 +158,7 @@ def run_full_path_vi(
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
     return (
         flat_theta_q,
-        (run_tracker,),
+        (run_tracker, x_q),
     )
 
 
@@ -226,6 +227,21 @@ def run_buffered_vi(
     )
 
     run_tracker = train.DefaultTracker()
+
+    if config.pre_training_steps > 0:
+        approximation = train.train(
+            model=approximation,
+            observations=observation_path,
+            conditions=condition_path,
+            key=key,
+            optim=optim,
+            target=target_posterior,
+            num_steps=config.opt_steps,
+            run_tracker=run_tracker,
+            observations_per_step=config.observations_per_step,
+            samples_per_context=config.samples_per_context,
+        )
+
     fitted_approximation = train.train(
         model=approximation,
         observations=observation_path,

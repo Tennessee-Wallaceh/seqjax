@@ -18,6 +18,7 @@ from tqdm.notebook import trange as nbtrange
 from seqjax.model.base import BayesianSequentialModel
 from seqjax.inference.vi.base import (
     SSMVariationalApproximation,
+    BufferedSSMVI,
 )
 import seqjax.model.typing
 
@@ -36,6 +37,30 @@ def loss_buffered_neg_elbo(
     approximation: SSMVariationalApproximation = eqx.combine(trainable, static)
 
     return approximation.estimate_loss(
+        observations,
+        conditions,
+        key,
+        num_context,
+        samples_per_context,
+        target_posterior,
+        None,
+    )
+
+
+def loss_pre_train_neg_elbo(
+    trainable,
+    static,
+    observations,
+    conditions,
+    key,
+    target_posterior,
+    num_context,
+    samples_per_context,
+):
+    # build full model for sampling
+    approximation: BufferedSSMVI = eqx.combine(trainable, static)
+
+    return approximation.estimate_pretrain_loss(
         observations,
         conditions,
         key,
@@ -127,6 +152,7 @@ def train(
     filter_spec=None,
     observations_per_step: int = 5,
     samples_per_context: int = 10,
+    pre_train: bool = False,
     device_sharding: Optional[Any] = None,
     nb_context=False,
 ) -> SSMVariationalApproximation:
@@ -142,9 +168,14 @@ def train(
     opt_state = optim.init(trainable)
 
     # loss configuration
+    if pre_train:
+        loss_fn = loss_pre_train_neg_elbo
+    else:
+        loss_fn = loss_buffered_neg_elbo
+
     loss_and_grad = jax.value_and_grad(
         partial(
-            loss_buffered_neg_elbo,
+            loss_fn,
             target_posterior=target,
             num_context=samples_per_context,
             samples_per_context=observations_per_step,

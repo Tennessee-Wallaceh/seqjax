@@ -495,3 +495,74 @@ class BufferedSSMVI[
         )
 
         return jnp.mean(neg_elbo)
+
+    def estimate_pretrain_loss(
+        self,
+        observations: ObservationT,
+        conditions: ConditionT,
+        key: jaxtyping.PRNGKeyArray,
+        context_samples: int,
+        samples_per_context: int,
+        target_posterior: BayesianSequentialModel,
+        hyperparameters: HyperParameterT,
+    ) -> typing.Any:
+        # read off configuration
+        path_length = observations.batch_shape[0]
+        batch_length = self.latent_approximation.batch_length
+        buffer_length = self.latent_approximation.buffer_length
+
+        # split keys for sampling
+        key, start_key = jrandom.split(key)
+        parameter_keys, latent_keys = jnp.split(
+            jrandom.split(key, (context_samples, samples_per_context * 2)), 2, axis=1
+        )
+
+        # vmap down both axes
+        parameters = jax.vmap(jax.vmap(target_posterior.parameter_prior.sample))(
+            parameter_keys, None
+        )
+
+        # sample batches and masks
+        approx_start, y_batch, c_batch, theta_mask = jax.vmap(
+            partial(
+                sample_batch_and_mask,
+                sequence_length=path_length,
+                batch_length=batch_length,
+                buffer_length=buffer_length,
+                y_path=observations,
+                condition=conditions,
+            )
+        )(jrandom.split(start_key, context_samples))
+
+        buffered_theta = jax.vmap(jax.vmap(self.buffer_params, in_axes=[0, None]))(
+            parameters, theta_mask
+        )
+        buffered_theta_array = parameters.ravel(buffered_theta)
+
+        # vmap down the outer samples
+        # then just latent_keys and the parameter samples
+        x_path, log_q_x_path = jax.vmap(
+            jax.vmap(
+                self.latent_approximation.sample_and_log_prob, in_axes=[0, (0, None)]
+            ),
+        )(
+            latent_keys,
+            (
+                buffered_theta_array,
+                jax.vmap(self.embedding.embed)(y_batch),
+            ),
+        )
+
+        batched_log_p_joint = jax.vmap(
+            partial(buffered_log_p_joint, target_posterior.target),
+            in_axes=[0, None, None, 0],
+        )
+        batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
+
+        log_p_y_x_path = batched_log_p_joint(
+            x_path, y_batch, c_batch, target_posterior.target_parameter(buffered_theta)
+        )
+
+        neg_elbo = jnp.sum(log_q_x_path - log_p_y_x_path, axis=-1)
+
+        return jnp.mean(neg_elbo)
