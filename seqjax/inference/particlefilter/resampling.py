@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, cast
 
 import jax
 import jax.numpy as jnp
@@ -8,28 +8,35 @@ import jax.random as jrandom
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
 from seqjax.util import dynamic_index_pytree_in_dim as index_tree
-from seqjax.model.base import ParticleType
+import seqjax.model.typing as seqjtyping
 
-Resampler = Callable[
-    [PRNGKeyArray, Array, tuple[ParticleType, ...], Scalar, int],
-    tuple[tuple[ParticleType, ...], Array, Array],
+type Resampler[
+    ParticleT: seqjtyping.Particle,
+] = Callable[
+    [PRNGKeyArray, Array, tuple[ParticleT, ...], Scalar, int],
+    tuple[tuple[ParticleT, ...], Array, Array],
 ]
 
 
-def multinomial_resample_from_log_weights(
+def multinomial_resample_from_log_weights[
+    ParticleT: seqjtyping.Particle,
+](
     key: PRNGKeyArray,
     raw_log_weights: Array,
-    particles: tuple[ParticleType, ...],
+    particles: tuple[ParticleT, ...],
     _ess_e: Scalar,
     num_resample: int,
-) -> tuple[tuple[ParticleType, ...], Array, Array]:
+) -> tuple[tuple[ParticleT, ...], Array, Array]:
     """Resample particles using standard multinomial sampling."""
     # jax.random.categorical requires unormalized logits
     particle_ix = jrandom.categorical(key, raw_log_weights, shape=(num_resample,))
-    resampled_particles = jax.vmap(index_tree, in_axes=[None, 0, None])(
-        particles,
-        particle_ix,  # type: ignore[arg-type]
-        0,
+    resampled_particles = cast(
+        tuple[ParticleT, ...],
+        jax.vmap(index_tree, in_axes=[None, 0, None])(
+            particles,
+            particle_ix,  # type: ignore[arg-type]
+            0,
+        ),
     )
     new_log_weights = jax.vmap(index_tree, in_axes=[None, 0, None])(
         raw_log_weights,
@@ -39,16 +46,18 @@ def multinomial_resample_from_log_weights(
     return resampled_particles, new_log_weights, particle_ix
 
 
-def conditional_resample(
+def conditional_resample[
+    ParticleT: seqjtyping.Particle,
+](
     key: PRNGKeyArray,
     log_weights: Array,
-    particles: tuple[ParticleType, ...],
+    particles: tuple[ParticleT, ...],
     ess_e: Scalar,
     num_resample: int,
     *,
-    resampler: Resampler,
+    resampler: Resampler[ParticleT],
     esse_threshold: float,
-) -> tuple[tuple[ParticleType, ...], Array, Array]:
+) -> tuple[tuple[ParticleT, ...], Array, Array]:
     """Resample only when the ESS efficiency falls below ``esse_threshold``."""
 
     def _resample(p):

@@ -6,6 +6,8 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
+import seqjax.model.typing as seqjtyping
+
 from .base import FilterData
 
 
@@ -16,7 +18,12 @@ def _normalised_weights(log_w: Array) -> Array:
     return w / jnp.sum(w)
 
 
-def current_particle_mean(filter_data: FilterData) -> PyTree:
+def current_particle_mean[
+    ParticleT: seqjtyping.Particle,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](filter_data: FilterData[ParticleT, ObservationT, ConditionT, ParametersT]) -> PyTree:
     """Record the weighted mean of the current particles."""
 
     weights = _normalised_weights(filter_data.log_w)
@@ -45,8 +52,13 @@ def _weighted_quantiles(values: Array, weights: Array, qs: Array) -> Array:
     return jnp.stack([_interp(q) for q in qs])
 
 
-def current_particle_quantiles(
-    filter_data: FilterData,
+def current_particle_quantiles[
+    ParticleT: seqjtyping.Particle,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](
+    filter_data: FilterData[ParticleT, ObservationT, ConditionT, ParametersT],
     *,
     quantiles: Sequence[float] = (0.1, 0.9),
 ) -> PyTree:
@@ -64,7 +76,12 @@ def current_particle_quantiles(
     return jax.tree_util.tree_map(_quant, particle)
 
 
-def current_particle_variance(filter_data: FilterData) -> PyTree:
+def current_particle_variance[
+    ParticleT: seqjtyping.Particle,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](filter_data: FilterData[ParticleT, ObservationT, ConditionT, ParametersT]) -> PyTree:
     """Record the weighted variance of the current particles."""
 
     weights = _normalised_weights(filter_data.log_w)
@@ -78,7 +95,12 @@ def current_particle_variance(filter_data: FilterData) -> PyTree:
     return jax.tree_util.tree_map(_var, particle)
 
 
-def log_marginal(filter_data: FilterData) -> PyTree:
+def log_marginal[
+    ParticleT: seqjtyping.Particle,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](filter_data: FilterData[ParticleT, ObservationT, ConditionT, ParametersT]) -> PyTree:
     """Record the log marginal likelihood increment at each step."""
 
     log_w_increment = filter_data.log_weight_increment
@@ -88,7 +110,12 @@ def log_marginal(filter_data: FilterData) -> PyTree:
     return jnp.log(w_sum) + lw_max - jnp.log(filter_data.ancestor_ix.shape[0])
 
 
-def effective_sample_size(filter_data: FilterData) -> PyTree:
+def effective_sample_size[
+    ParticleT: seqjtyping.Particle,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](filter_data: FilterData[ParticleT, ObservationT, ConditionT, ParametersT]) -> PyTree:
     """Record the effective sample size at each step."""
 
     return filter_data.ess_e

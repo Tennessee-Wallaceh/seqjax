@@ -1,16 +1,10 @@
 from functools import partial
+from typing import Callable
 
 from jaxtyping import Array
 
-from typing import Callable
-
-from seqjax.model.base import (
-    ConditionType,
-    ObservationType,
-    ParametersType,
-    ParticleType,
-    SequentialModel,
-)
+import seqjax.model.typing as seqjtyping
+from seqjax.model.base import SequentialModel
 
 from .base import SMCSampler, proposal_from_transition
 from .resampling import (
@@ -19,24 +13,33 @@ from .resampling import (
 )
 
 
-class BootstrapParticleFilter(
-    SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType]
-):
+class BootstrapParticleFilter[
+    ParticleT: seqjtyping.Particle,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](SMCSampler[ParticleT, ObservationT, ConditionT, ParametersT]):
     """Classical bootstrap particle filter."""
 
     def __init__(
         self,
         target: SequentialModel[
-            ParticleType, ObservationType, ConditionType, ParametersType
+            ParticleT,
+            tuple[ParticleT, ...],
+            ObservationT,
+            tuple[ObservationT, ...],
+            tuple[seqjtyping.Condition, ...] | None,
+            ConditionT,
+            ParametersT,
         ],
         num_particles: int,
         ess_threshold: float = 0.5,
-        target_parameters: Callable = lambda x: x,
+        target_parameters: Callable[[ParametersT], ParametersT] = lambda x: x,
     ) -> None:
 
         super().__init__(
             target=target,
-            proposal=proposal_from_transition(target.transition, target_parameters),  # type: ignore[arg-type]
+            proposal=proposal_from_transition(target.transition, target_parameters),
             resampler=partial(
                 conditional_resample,
                 resampler=multinomial_resample_from_log_weights,
@@ -46,21 +49,30 @@ class BootstrapParticleFilter(
         )
 
 
-class AuxiliaryParticleFilter(
-    SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType]
-):
+class AuxiliaryParticleFilter[
+    ParticleT: seqjtyping.Particle,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](SMCSampler[ParticleT, ObservationT, ConditionT, ParametersT]):
     """Bootstrap particle filter with auxiliary resampling."""
 
     def __init__(
         self,
         target: SequentialModel[
-            ParticleType, ObservationType, ConditionType, ParametersType
+            ParticleT,
+            tuple[ParticleT, ...],
+            ObservationT,
+            tuple[ObservationT, ...],
+            tuple[seqjtyping.Condition, ...] | None,
+            ConditionT,
+            ParametersT,
         ],
         num_particles: int,
     ) -> None:
         super().__init__(
             target=target,
-            proposal=proposal_from_transition(target.transition),  # type: ignore[arg-type]
+            proposal=proposal_from_transition(target.transition),
             resampler=partial(
                 conditional_resample,
                 resampler=multinomial_resample_from_log_weights,
@@ -72,11 +84,11 @@ class AuxiliaryParticleFilter(
     def _resample_log_weights(
         self,
         log_w: Array,
-        particles: tuple[ParticleType, ...],
-        observation_history: tuple[ObservationType, ...],
-        observation: ObservationType,
-        condition: ConditionType,
-        params: ParametersType,
+        particles: tuple[ParticleT, ...],
+        observation_history: tuple[ObservationT, ...],
+        observation: ObservationT,
+        condition: ConditionT,
+        params: ParametersT,
     ) -> Array:
         obs_hist = (
             observation_history[-self.target.emission.observation_dependency :]
