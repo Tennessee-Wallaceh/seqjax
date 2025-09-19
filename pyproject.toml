@@ -57,5 +57,15 @@ mypy_path = "stubs"
 
 
 [[tool.mypy.overrides]]
-module = ["seqjax.experiments.*"]
+module = [
+"seqjax.experiments.*",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "seqjax.model.simulate"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "seqjax.model.evaluate"
 ignore_errors = true
