@@ -3,6 +3,7 @@ from typing import Any
 
 import polars as pl  # type: ignore[import-not-found]
 import numpy as np
+import wandb.errors
 from seqjax.model.typing import Packable
 import wandb  # type: ignore[import-not-found]
 import os
@@ -65,7 +66,7 @@ def packable_artifact_present(
 ):
     try:
         artifact = run.use_artifact(f"{artifact_name}:latest")
-    except wandb.CommError:
+    except wandb.errors.CommError:
         return False
 
     if file_name is not None:

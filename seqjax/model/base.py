@@ -141,7 +141,9 @@ class Emission[
 
 class SequentialModel[
     ParticleT: seqjtyping.Particle,
-    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
@@ -151,10 +153,12 @@ class SequentialModel[
     particle_cls: type[ParticleT]
     observation_cls: type[ObservationT]
     parameter_cls: type[ParametersT]
-    prior: Prior[ParticleHistoryT, ConditionHistoryT, ParametersT]
-    transition: Transition[ParticleT, ParticleHistoryT, ConditionT, ParametersT]
+    prior: Prior[InitialParticleT, ConditionHistoryT, ParametersT]
+    transition: Transition[
+        ParticleT, TransitionParticleHistoryT, ConditionT, ParametersT
+    ]
     emission: Emission[
-        ParticleHistoryT,
+        ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,
         ConditionT,
@@ -164,11 +168,13 @@ class SequentialModel[
 
 class BayesianSequentialModel[
     ParticleT: seqjtyping.Particle,
-    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
-    ConditionT: seqjtyping.Condition | None,
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
@@ -176,7 +182,9 @@ class BayesianSequentialModel[
     inference_parameter_cls: type[InferenceParametersT]
     target: SequentialModel[
         ParticleT,
-        ParticleHistoryT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,
         ConditionHistoryT,

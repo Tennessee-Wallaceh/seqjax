@@ -8,15 +8,8 @@ from seqjax.inference.vi import train
 import optax  # type: ignore
 import jax
 import jax.numpy as jnp
-from seqjax.model.base import (
-    ConditionType,
-    ObservationType,
-    ParametersType,
-    ParticleType,
-    InferenceParametersType,
-    BayesianSequentialModel,
-)
-from seqjax.model.typing import HyperParametersType
+from seqjax.model.base import BayesianSequentialModel
+import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import inference_method
 import equinox as eqx
 import jaxtyping
@@ -69,22 +62,35 @@ class BufferedVIConfig(eqx.Module):
 
 
 @inference_method
-def run_full_path_vi(
+def run_full_path_vi[
+    ParticleT: seqjtyping.Particle,
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
     target_posterior: BayesianSequentialModel[
-        ParticleType,
-        ObservationType,
-        ConditionType,
-        ParametersType,
-        InferenceParametersType,
-        HyperParametersType,
+        ParticleT,
+        ParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
     ],
-    hyperparameters: HyperParametersType,
+    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationType,
-    condition_path: ConditionType | None = None,
+    observation_path: ObservationT,
+    condition_path: ConditionT | None = None,
     test_samples: int = 1000,
     config: FullVIConfig = FullVIConfig(),
-) -> tuple[InferenceParametersType, typing.Any]:
+) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
 
@@ -163,22 +169,35 @@ def run_full_path_vi(
 
 
 @inference_method
-def run_buffered_vi(
+def run_buffered_vi[
+    ParticleT: seqjtyping.Particle,
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
     target_posterior: BayesianSequentialModel[
-        ParticleType,
-        ObservationType,
-        ConditionType,
-        ParametersType,
-        InferenceParametersType,
-        HyperParametersType,
+        ParticleT,
+        ParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
     ],
-    hyperparameters: HyperParametersType,
+    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationType,
-    condition_path: ConditionType | None = None,
+    observation_path: ObservationT,
+    condition_path: ConditionT | None = None,
     test_samples: int = 1000,
     config: BufferedVIConfig = BufferedVIConfig(),
-) -> tuple[InferenceParametersType, typing.Any]:
+) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
 

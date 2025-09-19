@@ -20,9 +20,9 @@ from seqjax.model.base import (
     Transition,
 )
 from seqjax.model.typing import (
-    Condition,
     HyperParameters,
     Observation,
+    NoCondition,
     Parameters,
     Particle,
 )
@@ -114,7 +114,7 @@ class AROnlyPrior(ParameterPrior[AROnlyParameters, HyperParameters]):
         return log_p_theta
 
 
-class InitialValue(Prior[tuple[LatentValue], None, ARParameters]):
+class InitialValue(Prior[tuple[LatentValue], tuple[()], ARParameters]):
     """Gaussian prior over the initial latent state."""
 
     order: ClassVar[int] = 1
@@ -122,7 +122,7 @@ class InitialValue(Prior[tuple[LatentValue], None, ARParameters]):
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: None,
+        conditions: tuple[()],
         parameters: ARParameters,
     ) -> tuple[LatentValue]:
         """Sample the initial latent value."""
@@ -137,7 +137,7 @@ class InitialValue(Prior[tuple[LatentValue], None, ARParameters]):
     @staticmethod
     def log_prob(
         particle: tuple[LatentValue],
-        conditions: None,
+        conditions: tuple[()],
         parameters: ARParameters,
     ) -> Scalar:
         """Evaluate the prior log-density."""
@@ -147,7 +147,9 @@ class InitialValue(Prior[tuple[LatentValue], None, ARParameters]):
         return jstats.norm.logpdf(particle[0].x, scale=stationary_scale)
 
 
-class ARRandomWalk(Transition[LatentValue, tuple[LatentValue], None, ARParameters]):
+class ARRandomWalk(
+    Transition[LatentValue, tuple[LatentValue], NoCondition, ARParameters]
+):
     """Gaussian AR(1) transition."""
 
     order: ClassVar[int] = 1
@@ -156,7 +158,7 @@ class ARRandomWalk(Transition[LatentValue, tuple[LatentValue], None, ARParameter
     def sample(
         key: PRNGKeyArray,
         particle_history: tuple[LatentValue],
-        condition: None,
+        condition: NoCondition,
         parameters: ARParameters,
     ) -> LatentValue:
         """Sample the next latent state."""
@@ -171,7 +173,7 @@ class ARRandomWalk(Transition[LatentValue, tuple[LatentValue], None, ARParameter
     def log_prob(
         particle_history: tuple[LatentValue],
         particle: LatentValue,
-        condition: None,
+        condition: NoCondition,
         parameters: ARParameters,
     ) -> Scalar:
         """Return the transition log-density."""
@@ -184,7 +186,7 @@ class ARRandomWalk(Transition[LatentValue, tuple[LatentValue], None, ARParameter
 
 
 class AREmission(
-    Emission[tuple[LatentValue], NoisyEmission, tuple[()], None, ARParameters]
+    Emission[tuple[LatentValue], NoisyEmission, tuple[()], NoCondition, ARParameters]
 ):
     """Normal emission from the latent state."""
 
@@ -196,7 +198,7 @@ class AREmission(
         key: PRNGKeyArray,
         particle: tuple[LatentValue],
         observation_history: tuple[()],
-        condition: Condition,
+        condition: NoCondition,
         parameters: ARParameters,
     ) -> NoisyEmission:
         """Sample an observation."""
@@ -209,7 +211,7 @@ class AREmission(
         particle: tuple[LatentValue],
         observation_history: tuple[()],
         observation: NoisyEmission,
-        condition: Condition,
+        condition: NoCondition,
         parameters: ARParameters,
     ) -> Scalar:
         """Return the emission log-density."""
@@ -225,10 +227,12 @@ class AR1Target(
     SequentialModel[
         LatentValue,
         tuple[LatentValue],
+        tuple[LatentValue],
+        tuple[LatentValue],
         NoisyEmission,
         tuple[()],
-        None,
-        None,
+        tuple[()],
+        NoCondition,
         ARParameters,
     ]
 ):
@@ -252,10 +256,12 @@ class AR1Bayesian(
     BayesianSequentialModel[
         LatentValue,
         tuple[LatentValue],
+        tuple[LatentValue],
+        tuple[LatentValue],
         NoisyEmission,
         tuple[()],
-        None,
-        None,
+        tuple[()],
+        NoCondition,
         ARParameters,
         AROnlyParameters,
         HyperParameters,

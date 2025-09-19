@@ -73,19 +73,15 @@ class StochVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         std_mean = jnp.array(3.0)
         std_scale = jnp.array(1.0)
         std_lower = (0.0 - std_mean) / std_scale
-        std_log_vol = (
-            std_mean
-            + std_scale
-            * jrandom.truncated_normal(std_key, lower=std_lower, upper=jnp.inf)
+        std_log_vol = std_mean + std_scale * jrandom.truncated_normal(
+            std_key, lower=std_lower, upper=jnp.inf
         )
 
         mr_mean = jnp.array(10.0)
         mr_scale = jnp.array(10.0)
         mr_lower = (0.0 - mr_mean) / mr_scale
-        mean_reversion = (
-            mr_mean
-            + mr_scale
-            * jrandom.truncated_normal(mr_key, lower=mr_lower, upper=jnp.inf)
+        mean_reversion = mr_mean + mr_scale * jrandom.truncated_normal(
+            mr_key, lower=mr_lower, upper=jnp.inf
         )
 
         long_term_vol = jnp.exp(
@@ -160,9 +156,7 @@ def _random_walk_loc_scale(
     return move_loc, move_scale
 
 
-class GaussianStart(
-    Prior[tuple[LatentVol], tuple[TimeIncrement], LogVolRW]
-):
+class GaussianStart(Prior[tuple[LatentVol], tuple[TimeIncrement], LogVolRW]):
     order: ClassVar[int] = 1
 
     @staticmethod
@@ -196,7 +190,9 @@ class GaussianStart(
 
 
 class TwoStepGaussianStart(
-    Prior[tuple[LatentVol, LatentVol], tuple[TimeIncrement, TimeIncrement], LogVolWithSkew]
+    Prior[
+        tuple[LatentVol, LatentVol], tuple[TimeIncrement, TimeIncrement], LogVolWithSkew
+    ]
 ):
     """Prior that also samples the first transition step."""
 
@@ -238,9 +234,7 @@ class TwoStepGaussianStart(
         return base_log_p + rw_log_p
 
 
-class RandomWalk(
-    Transition[LatentVol, tuple[LatentVol], TimeIncrement, LogVolRW]
-):
+class RandomWalk(Transition[LatentVol, tuple[LatentVol], TimeIncrement, LogVolRW]):
     order: ClassVar[int] = 1
 
     @staticmethod
@@ -430,6 +424,8 @@ class SimpleStochasticVol(
     SequentialModel[
         LatentVol,
         tuple[LatentVol],
+        tuple[LatentVol],
+        tuple[LatentVol],
         LogReturnObs,
         tuple[()],
         tuple[TimeIncrement],
@@ -450,6 +446,8 @@ class SkewStochasticVol(
     SequentialModel[
         LatentVol,
         tuple[LatentVol, LatentVol],
+        tuple[LatentVol, LatentVol],
+        tuple[LatentVol, LatentVol],
         LogReturnObs,
         tuple[()],
         tuple[TimeIncrement, TimeIncrement],
@@ -469,6 +467,7 @@ class SkewStochasticVol(
 @dataclass
 class StochasticVolConfig:
     """Configuration for generating stochastic volatility data."""
+
     label: Literal["simple_stochastic_vol"] = field(
         init=False,
         default="simple_stochastic_vol",

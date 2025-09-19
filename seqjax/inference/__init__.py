@@ -1,6 +1,5 @@
-from .interface import InferenceMethod, LatentInferenceMethod
+from .interface import InferenceMethod
 
 __all__ = [
     "InferenceMethod",
-    "LatentInferenceMethod",
 ]

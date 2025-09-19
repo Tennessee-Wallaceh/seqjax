@@ -3,7 +3,6 @@
 from collections import OrderedDict
 from dataclasses import field
 from typing import ClassVar
-from types import NoneType
 
 import jax
 import jax.numpy as jnp
@@ -59,7 +58,7 @@ class GaussianPrior(Prior[tuple[VectorState], None, LGSSMParameters]):
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: NoneType,
+        conditions: None,
         parameters: LGSSMParameters,
     ) -> tuple[VectorState]:
         mean = jnp.zeros_like(parameters.transition_noise_scale)
@@ -70,7 +69,7 @@ class GaussianPrior(Prior[tuple[VectorState], None, LGSSMParameters]):
     @staticmethod
     def log_prob(
         particle: tuple[VectorState],
-        conditions: NoneType,
+        conditions: None,
         parameters: LGSSMParameters,
     ) -> Scalar:
         scale = parameters.transition_noise_scale
@@ -89,7 +88,7 @@ class GaussianTransition(
     def sample(
         key: PRNGKeyArray,
         particle_history: tuple[VectorState],
-        condition: NoneType,
+        condition: None,
         parameters: LGSSMParameters,
     ) -> VectorState:
         (last_state,) = particle_history
@@ -103,7 +102,7 @@ class GaussianTransition(
     def log_prob(
         particle_history: tuple[VectorState],
         particle: VectorState,
-        condition: NoneType,
+        condition: None,
         parameters: LGSSMParameters,
     ) -> Scalar:
         (last_state,) = particle_history
@@ -133,7 +132,7 @@ class GaussianEmission(
         key: PRNGKeyArray,
         particle: tuple[VectorState],
         observation_history: tuple[()],
-        condition: NoneType,
+        condition: None,
         parameters: LGSSMParameters,
     ) -> VectorObservation:
         (state,) = particle
@@ -148,7 +147,7 @@ class GaussianEmission(
         particle: tuple[VectorState],
         observation_history: tuple[()],
         observation: VectorObservation,
-        condition: NoneType,
+        condition: None,
         parameters: LGSSMParameters,
     ) -> Scalar:
         (state,) = particle
@@ -162,6 +161,8 @@ class GaussianEmission(
 class LinearGaussianSSM(
     SequentialModel[
         VectorState,
+        tuple[VectorState],
+        tuple[VectorState],
         tuple[VectorState],
         VectorObservation,
         tuple[()],

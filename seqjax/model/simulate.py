@@ -1,5 +1,7 @@
 """Utilities for simulating sequences from a target model."""
 
+import typing
+
 from functools import partial
 
 import jax
@@ -8,28 +10,43 @@ import jax.random as jrandom
 from jaxtyping import PRNGKeyArray, PyTree
 
 from seqjax.model.base import (
-    ConditionType,
-    ObservationType,
-    ParametersType,
-    ParticleType,
     SequentialModel,
 )
-from seqjax.util import concat_pytree, index_pytree, pytree_shape, slice_pytree
+import seqjax.model.typing as seqjtyping
+from seqjax.util import concat_pytree, index_pytree, slice_pytree
 
 
-def step(
+def step[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](
     target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
     ],
-    parameters: ParametersType,
+    parameters: ParametersT,
     state: tuple[
-        tuple[ParticleType, ...],
-        tuple[ObservationType, ...],
+        tuple[ParticleT, ...],
+        ObservationHistoryT,
     ],
     inputs,
 ) -> tuple[
-    tuple[tuple[ParticleType, ...], tuple[ObservationType, ...]],
-    tuple[ParticleType, ObservationType],
+    tuple[tuple[ParticleT, ...], ObservationHistoryT],
+    tuple[ParticleT, ObservationT],
 ]:
     """Single simulation step returning updated state and new sample."""
 
@@ -37,21 +54,26 @@ def step(
     step_key, condition = (inputs + (None,))[:2]
     particles, emissions = state
     transition_key, emission_key = jrandom.split(step_key)
+    particle_history = typing.cast(
+        TransitionParticleHistoryT, particles[-target.transition.order :]
+    )
 
     # last particle is at t
     # sample x_t+1 then y_t+1
     next_particle = target.transition.sample(
         transition_key,
-        particles[-target.transition.order :],
+        particle_history,
         condition,
         parameters,
     )
 
     particles = (*particles, next_particle)
-
+    emission_p_history = typing.cast(
+        ObservationParticleHistoryT, particles[-target.emission.order :]
+    )
     emission = target.emission.sample(
         emission_key,
-        particles[-target.emission.order :],
+        emission_p_history,
         emissions,
         condition,
         parameters,
@@ -63,26 +85,47 @@ def step(
     max_latent_order = max(target.transition.order, target.emission.order)
     particle_history = particles[-max_latent_order:]
     emission_history = (*emissions, emission)
-    emission_history = emission_history[
-        len(emission_history) - target.emission.observation_dependency :
-    ]
+    emission_history = typing.cast(
+        ObservationHistoryT,
+        emission_history[
+            len(emission_history) - target.emission.observation_dependency :
+        ],
+    )
 
     return (particle_history, emission_history), (next_particle, emission)
 
 
-def simulate(
+def simulate[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+](
     key: PRNGKeyArray,
     target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
     ],
     condition: PyTree | None,
-    parameters: ParametersType,
+    parameters: ParametersT,
     sequence_length: int,
 ) -> tuple[
-    ParticleType,
-    ObservationType,
-    PyTree,
-    PyTree,
+    ParticleT,
+    ObservationT,
+    InitialParticleT,
+    ObservationHistoryT,
 ]:
     """Simulate a path of length ``sequence_length`` from ``target``.
 
@@ -121,7 +164,7 @@ def simulate(
         )
 
     if condition is not None:
-        cond_length = pytree_shape(condition)[0][0]
+        cond_length = condition.batch_shape[0]
         required_length = sequence_length + target.prior.order - 1
         if cond_length < required_length:
             raise jax.errors.JaxRuntimeError(

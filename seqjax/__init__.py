@@ -12,7 +12,7 @@ from .model.visualise import graph_model
 from .model.base import Emission, Prior, SequentialModel, Transition
 from .inference.particlefilter import Proposal
 
-from .inference.interface import InferenceMethod, LatentInferenceMethod
+from .inference.interface import InferenceMethod
 
 
 __all__ = [
@@ -25,5 +25,4 @@ __all__ = [
     "Emission",
     "SequentialModel",
     "InferenceMethod",
-    "LatentInferenceMethod",
 ]

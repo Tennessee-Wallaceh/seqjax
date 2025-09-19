@@ -12,16 +12,14 @@ from jax.nn import softplus
 import jax.random as jrandom
 
 
-import seqjax
-import seqjax.model
-import seqjax.model.typing
+import seqjax.model.typing as seqjtyping
 from seqjax.inference.embedder import Embedder
 from seqjax.model.evaluate import buffered_log_p_joint
 from seqjax.model.base import BayesianSequentialModel
 
 
 class VariationalApproximation[
-    TargetStructT: seqjax.model.typing.Packable,
+    TargetStructT: seqjtyping.Packable,
     ConditionT,
 ](eqx.Module):
     target_struct_cls: type[TargetStructT] = eqx.field(static=True)
@@ -39,12 +37,12 @@ class VariationalApproximation[
 
 
 class AmortizedVariationalApproximation[
-    TargetStructT: seqjax.model.typing.Packable,
+    TargetStructT: seqjtyping.Packable,
 ](VariationalApproximation[TargetStructT, tuple[jaxtyping.Array, jaxtyping.Array]]): ...
 
 
 class UnconditionalVariationalApproximation[
-    TargetStructT: seqjax.model.typing.Packable,
+    TargetStructT: seqjtyping.Packable,
 ](VariationalApproximation[TargetStructT, None]):
     @abstractmethod
     def sample_and_log_prob(
@@ -55,7 +53,7 @@ class UnconditionalVariationalApproximation[
 
 
 class VariationalApproximationFactory[
-    TargetStructT: seqjax.model.typing.Packable,
+    TargetStructT: seqjtyping.Packable,
     ConditionT,
 ](typing.Protocol):
     def __call__(
@@ -63,7 +61,7 @@ class VariationalApproximationFactory[
     ) -> VariationalApproximation[TargetStructT, ConditionT]: ...
 
 
-class MeanField[TargetStructT: seqjax.model.typing.Packable](
+class MeanField[TargetStructT: seqjtyping.Packable](
     UnconditionalVariationalApproximation[TargetStructT]
 ):
     target_struct_cls: type[TargetStructT]
@@ -108,14 +106,18 @@ def buffer_params(
 
 
 class SSMVariationalApproximation[
-    LatentT: seqjax.model.typing.Particle,
-    ObservationT: seqjax.model.typing.Observation,
-    ConditionT: seqjax.model.typing.Condition,
-    ParameterT: seqjax.model.typing.Parameters,
-    HyperParameterT: seqjax.model.typing.HyperParameters,
+    ParticleT: seqjtyping.Particle,
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
 ](typing.Protocol):
-    latent_approximation: AmortizedVariationalApproximation[LatentT]
-    parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
+    latent_approximation: AmortizedVariationalApproximation[ParticleT]
+    parameter_approximation: UnconditionalVariationalApproximation[ParametersT]
     embedding: Embedder
 
     def joint_sample_and_log_prob(
@@ -126,9 +128,9 @@ class SSMVariationalApproximation[
         context_samples: int,
         samples_per_context: int,
     ) -> tuple[
-        ParameterT,
+        ParametersT,
         jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
-        LatentT,
+        ParticleT,
         jaxtyping.Float[
             jaxtyping.Array, "context_samples samples_per_context sample_length"
         ],
@@ -143,39 +145,46 @@ class SSMVariationalApproximation[
         context_samples: int,
         samples_per_context: int,
         target_posterior: BayesianSequentialModel[
-            LatentT,
+            ParticleT,
+            ParticleHistoryT,
             ObservationT,
+            ObservationHistoryT,
+            ConditionHistoryT,
             ConditionT,
-            ParameterT,
-            ParameterT,
-            HyperParameterT,
+            ParametersT,
+            InferenceParametersT,
+            HyperParametersT,
         ],
-        hyperparameters: HyperParameterT,
+        hyperparameters: HyperParametersT,
     ) -> typing.Any: ...
 
 
 class FullAutoregressiveVI[
-    LatentT: seqjax.model.typing.Particle,
-    ObservationT: seqjax.model.typing.Observation,
-    ConditionT: seqjax.model.typing.Condition,
-    ParameterT: seqjax.model.typing.Parameters,
-    HyperParameterT: seqjax.model.typing.HyperParameters,
+    ParticleT: seqjtyping.Particle,
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
 ](eqx.Module):
-    latent_approximation: AmortizedVariationalApproximation[LatentT]
-    parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
+    latent_approximation: AmortizedVariationalApproximation[ParticleT]
+    parameter_approximation: UnconditionalVariationalApproximation[ParametersT]
     embedding: Embedder
 
     def joint_sample_and_log_prob(
         self,
         observations: ObservationT,
-        conditions: seqjax.model.typing.Condition,
+        conditions: ConditionT,
         key: jaxtyping.PRNGKeyArray,
         context_samples: int,
         samples_per_context: int,
     ) -> tuple[
-        ParameterT,
+        ParametersT,
         jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
-        LatentT,
+        ParticleT,
         jaxtyping.Float[
             jaxtyping.Array, "context_samples samples_per_context sample_length"
         ],
@@ -214,7 +223,7 @@ class FullAutoregressiveVI[
 
         return (parameters, log_q_theta, x_path, log_q_x_path, None)
 
-    def buffer_params(self, parameters: ParameterT, mask):
+    def buffer_params(self, parameters: ParametersT, mask):
         theta_grad = parameters
         theta_no_grad = jax.lax.stop_gradient(parameters)
 
@@ -232,14 +241,17 @@ class FullAutoregressiveVI[
         context_samples: int,
         samples_per_context: int,
         target_posterior: BayesianSequentialModel[
-            LatentT,
+            ParticleT,
+            ParticleHistoryT,
             ObservationT,
+            ObservationHistoryT,
+            ConditionHistoryT,
             ConditionT,
-            ParameterT,
-            ParameterT,
-            HyperParameterT,
+            ParametersT,
+            InferenceParametersT,
+            HyperParametersT,
         ],
-        hyperparameters: HyperParameterT,
+        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
             self.joint_sample_and_log_prob(
@@ -349,14 +361,18 @@ def sample_batch_and_mask(
 
 
 class BufferedSSMVI[
-    LatentT: seqjax.model.typing.Particle,
-    ObservationT: seqjax.model.typing.Observation,
-    ConditionT: seqjax.model.typing.Condition,
-    ParameterT: seqjax.model.typing.Parameters,
-    HyperParameterT: seqjax.model.typing.HyperParameters,
+    ParticleT: seqjtyping.Particle,
+    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    ConditionT: seqjtyping.Condition | None,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
 ](eqx.Module):
-    latent_approximation: AmortizedVariationalApproximation[LatentT]
-    parameter_approximation: UnconditionalVariationalApproximation[ParameterT]
+    latent_approximation: AmortizedVariationalApproximation[ParticleT]
+    parameter_approximation: UnconditionalVariationalApproximation[ParametersT]
     embedding: Embedder
     control_variate: bool = eqx.field(default=False, static=True)
 
@@ -368,9 +384,9 @@ class BufferedSSMVI[
         context_samples: int,
         samples_per_context: int,
     ) -> tuple[
-        ParameterT,
+        ParametersT,
         jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
-        LatentT,
+        ParticleT,
         jaxtyping.Float[
             jaxtyping.Array, "context_samples samples_per_context sample_length"
         ],
@@ -454,8 +470,18 @@ class BufferedSSMVI[
         key: jaxtyping.PRNGKeyArray,
         context_samples: int,
         samples_per_context: int,
-        target_posterior,
-        hyperparameters: HyperParameterT,
+        target_posterior: BayesianSequentialModel[
+            ParticleT,
+            ParticleHistoryT,
+            ObservationT,
+            ObservationHistoryT,
+            ConditionHistoryT,
+            ConditionT,
+            ParametersT,
+            InferenceParametersT,
+            HyperParametersT,
+        ],
+        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         # each index appears in max batch length batches
         # batches are sampled uniformly, so scale by
@@ -504,7 +530,7 @@ class BufferedSSMVI[
         context_samples: int,
         samples_per_context: int,
         target_posterior: BayesianSequentialModel,
-        hyperparameters: HyperParameterT,
+        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         # read off configuration
         path_length = observations.batch_shape[0]

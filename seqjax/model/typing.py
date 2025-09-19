@@ -139,6 +139,10 @@ class Observation[*BatchAxes](Packable[*BatchAxes]): ...
 class Condition[*BatchAxes](Packable[*BatchAxes]): ...
 
 
+class NoCondition(Condition):
+    __slots__ = ()
+
+
 class Parameters[*BatchAxes](Packable[*BatchAxes]):
     reference_emission = ()
 
