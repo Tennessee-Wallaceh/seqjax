@@ -1,8 +1,10 @@
 """Multidimensional linear Gaussian state space model."""
 
+from collections import OrderedDict
 from dataclasses import field
 from typing import ClassVar
 
+import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
@@ -17,20 +19,65 @@ class VectorState(Particle):
 
     x: Array
 
+    latent_dim: ClassVar[int] = 1
+    _shape_template: ClassVar = OrderedDict(
+        x=jax.ShapeDtypeStruct(shape=(latent_dim,), dtype=jnp.float32),
+    )
+
 
 class VectorObservation(Observation):
     """Vector-valued observation."""
 
     y: Array
 
+    obs_dim: ClassVar[int] = 1
+    _shape_template: ClassVar = OrderedDict(
+        y=jax.ShapeDtypeStruct(shape=(obs_dim,), dtype=jnp.float32),
+    )
+
 
 class LGSSMParameters(Parameters):
     """Parameters of a linear Gaussian state space model."""
 
-    transition_matrix: Array = field(default_factory=lambda: jnp.eye(2))
-    transition_noise_scale: Array = field(default_factory=lambda: jnp.ones(2))
-    emission_matrix: Array = field(default_factory=lambda: jnp.eye(2))
-    emission_noise_scale: Array = field(default_factory=lambda: jnp.ones(2))
+    transition_matrix: Array = field(
+        default_factory=lambda: jnp.eye(
+            VectorState.latent_dim, dtype=jnp.float32
+        )
+    )
+    transition_noise_scale: Array = field(
+        default_factory=lambda: jnp.ones(
+            (VectorState.latent_dim,), dtype=jnp.float32
+        )
+    )
+    emission_matrix: Array = field(
+        default_factory=lambda: jnp.eye(
+            VectorObservation.obs_dim,
+            VectorState.latent_dim,
+            dtype=jnp.float32,
+        )
+    )
+    emission_noise_scale: Array = field(
+        default_factory=lambda: jnp.ones(
+            (VectorObservation.obs_dim,), dtype=jnp.float32
+        )
+    )
+
+    latent_dim: ClassVar[int] = VectorState.latent_dim
+    obs_dim: ClassVar[int] = VectorObservation.obs_dim
+    _shape_template: ClassVar = OrderedDict(
+        transition_matrix=jax.ShapeDtypeStruct(
+            shape=(latent_dim, latent_dim), dtype=jnp.float32
+        ),
+        transition_noise_scale=jax.ShapeDtypeStruct(
+            shape=(latent_dim,), dtype=jnp.float32
+        ),
+        emission_matrix=jax.ShapeDtypeStruct(
+            shape=(obs_dim, latent_dim), dtype=jnp.float32
+        ),
+        emission_noise_scale=jax.ShapeDtypeStruct(
+            shape=(obs_dim,), dtype=jnp.float32
+        ),
+    )
 
 
 class GaussianPrior(Prior[VectorState, Condition, LGSSMParameters]):
@@ -39,7 +86,7 @@ class GaussianPrior(Prior[VectorState, Condition, LGSSMParameters]):
     order: ClassVar[int] = 1
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         conditions: tuple[Condition],
         parameters: LGSSMParameters,
@@ -50,7 +97,7 @@ class GaussianPrior(Prior[VectorState, Condition, LGSSMParameters]):
         return (VectorState(x=x0),)
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle: tuple[VectorState],
         conditions: tuple[Condition],
         parameters: LGSSMParameters,
@@ -66,7 +113,7 @@ class GaussianTransition(Transition[VectorState, Condition, LGSSMParameters]):
     order: ClassVar[int] = 1
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         particle_history: tuple[VectorState],
         condition: Condition,
@@ -80,7 +127,7 @@ class GaussianTransition(Transition[VectorState, Condition, LGSSMParameters]):
         return VectorState(x=mean + noise)
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle_history: tuple[VectorState],
         particle: VectorState,
         condition: Condition,
@@ -101,7 +148,7 @@ class GaussianEmission(Emission[VectorState, VectorObservation, Condition, LGSSM
     observation_dependency: ClassVar[int] = 0
 
     @staticmethod
-    def sample(
+    def sample(  # type: ignore[override]
         key: PRNGKeyArray,
         particle: tuple[VectorState],
         observation_history: tuple[()],
@@ -116,7 +163,7 @@ class GaussianEmission(Emission[VectorState, VectorObservation, Condition, LGSSM
         return VectorObservation(y=mean + noise)
 
     @staticmethod
-    def log_prob(
+    def log_prob(  # type: ignore[override]
         particle: tuple[VectorState],
         observation_history: tuple[()],
         observation: VectorObservation,
@@ -134,7 +181,9 @@ class GaussianEmission(Emission[VectorState, VectorObservation, Condition, LGSSM
 class LinearGaussianSSM(
     SequentialModel[VectorState, VectorObservation, Condition, LGSSMParameters]
 ):
-    particle_type = VectorState
+    particle_cls = VectorState
+    observation_cls = VectorObservation
+    parameter_cls = LGSSMParameters
     prior = GaussianPrior()
     transition = GaussianTransition()
     emission = GaussianEmission()
