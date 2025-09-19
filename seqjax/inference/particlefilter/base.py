@@ -1,7 +1,6 @@
-from __future__ import annotations
-
+import typing
 from functools import cached_property
-from typing import Callable, Generic, Protocol
+from typing import Callable, Protocol
 from abc import abstractmethod
 
 import equinox as eqx
@@ -10,10 +9,6 @@ import jax.numpy as jnp
 import jax.random as jrandom
 from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
 from seqjax.model.base import (
-    ConditionType,
-    ObservationType,
-    ParametersType,
-    ParticleType,
     SequentialModel,
     Transition,
 )
@@ -41,9 +36,13 @@ class FilterData(eqx.Module):
     parameters: seqjtyping.Parameters
 
 
-class Proposal(
+class Proposal[
+    ParticleT: seqjtyping.Particle,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
     eqx.Module,
-    Generic[ParticleType, ObservationType, ConditionType, ParametersType],
     seqjtyping.EnforceInterface,
 ):
     """Proposal distribution for sequential importance sampling."""
@@ -54,62 +53,79 @@ class Proposal(
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        particle_history: tuple[ParticleType, ...],
-        observation: ObservationType,
-        condition: ConditionType,
-        parameters: ParametersType,
-    ) -> ParticleType: ...
+        particle_history: tuple[ParticleT, ...],
+        observation: ObservationT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> ParticleT: ...
 
     @staticmethod
     @abstractmethod
     def log_prob(
-        particle_history: tuple[ParticleType, ...],
-        observation: ObservationType,
-        particle: ParticleType,
-        condition: ConditionType,
-        parameters: ParametersType,
+        particle_history: tuple[ParticleT, ...],
+        observation: ObservationT,
+        particle: ParticleT,
+        condition: ConditionT,
+        parameters: ParametersT,
     ) -> Scalar: ...
 
 
-class TransitionProposal(
+class TransitionProposal[
+    ParticleT: seqjtyping.Particle,
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
     eqx.Module,
-    Generic[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
     """Adapter converting a ``Transition`` to a ``Proposal``."""
 
-    transition: Transition[ParticleType, ConditionType, ParametersType]
+    transition: Transition[
+        ParticleT, TransitionParticleHistoryT, ConditionT, ParametersT
+    ]
     order: int
     target_parameters: Callable = lambda x: x
 
     def sample(
         self,
         key: PRNGKeyArray,
-        particle_history: tuple[ParticleType, ...],
-        observation: ObservationType,
-        condition: ConditionType,
-        parameters: ParametersType,
-    ) -> ParticleType:
+        particle_history: TransitionParticleHistoryT,
+        observation: ObservationT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> ParticleT:
         return self.transition.sample(
             key, particle_history, condition, self.target_parameters(parameters)
         )
 
     def log_prob(
         self,
-        particle_history: tuple[ParticleType, ...],
-        observation: ObservationType,
-        particle: ParticleType,
-        condition: ConditionType,
-        parameters: ParametersType,
+        particle_history: TransitionParticleHistoryT,
+        observation: ObservationT,
+        particle: ParticleT,
+        condition: ConditionT,
+        parameters: ParametersT,
     ) -> Scalar:
         return self.transition.log_prob(
             particle_history, particle, condition, self.target_parameters(parameters)
         )
 
 
-def proposal_from_transition(
-    transition: Transition[ParticleType, ConditionType, ParametersType],
+def proposal_from_transition[
+    ParticleT: seqjtyping.Particle,
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
+    transition: Transition[
+        ParticleT, TransitionParticleHistoryT, ConditionT, ParametersT
+    ],
     target_parameters: Callable = lambda x: x,
-) -> TransitionProposal[ParticleType, ObservationType, ConditionType, ParametersType]:
+) -> TransitionProposal[
+    ParticleT, TransitionParticleHistoryT, ObservationT, ConditionT, ParametersT
+]:
     return TransitionProposal(
         transition=transition,
         order=transition.order,
@@ -121,16 +137,33 @@ class Recorder(Protocol):
     def __call__(self, filter_data: FilterData) -> PyTree: ...
 
 
-class SMCSampler(
+class SMCSampler[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
     eqx.Module,
-    Generic[ParticleType, ObservationType, ConditionType, ParametersType],
 ):
     """Base class implementing sequential Monte Carlo."""
 
     target: SequentialModel[
-        ParticleType, ObservationType, ConditionType, ParametersType
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
     ]
-    proposal: Proposal[ParticleType, ObservationType, ConditionType, ParametersType]
+    proposal: Proposal[ParticleT, ObservationT, ConditionT, ParametersT]
     resampler: Resampler
     num_particles: int
 
@@ -157,16 +190,16 @@ class SMCSampler(
         self,
         step_key: PRNGKeyArray,
         log_w: Array,
-        particles: tuple[ParticleType, ...],
-        observation_history: tuple[ObservationType, ...],
-        observation: ObservationType,
-        condition: ConditionType,
-        params: ParametersType,
+        particles: tuple[ParticleT, ...],
+        observation_history: tuple[ObservationT, ...],
+        observation: ObservationT,
+        condition: ConditionT,
+        params: ParametersT,
         target_parameters: Callable = lambda x: x,
     ) -> tuple[
         Array,
-        tuple[ParticleType, ...],
-        tuple[ObservationType, ...],
+        tuple[ParticleT, ...],
+        tuple[ObservationT, ...],
         Scalar,
         Scalar,
         Array,
@@ -232,20 +265,40 @@ class SMCSampler(
         return (log_w, particles, observation_history, ess_e, ancestor_ix, inc_weight)
 
 
-def run_filter(
-    smc: SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType],
+def run_filter[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
+    smc: SMCSampler[
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
+    ],
     key: PRNGKeyArray,
-    parameters: ParametersType,
-    observation_path: ObservationType,
-    condition_path: ConditionType | None = None,
+    parameters: ParametersT,
+    observation_path: ObservationT,
+    condition_path: ConditionT,
     *,
-    initial_conditions: tuple[ConditionType, ...] | None = None,
-    observation_history: tuple[ObservationType, ...] | None = None,
+    initial_conditions: tuple[ConditionT, ...] | None = None,
+    observation_history: tuple[ObservationT, ...] | None = None,
     recorders: tuple[Recorder, ...] | None = None,
     target_parameters: Callable = lambda x: x,
 ) -> tuple[
     Array,
-    tuple[ParticleType, ...],
+    InitialParticleT,
     tuple[PyTree, ...],
 ]:
     """
@@ -281,7 +334,7 @@ def run_filter(
     # rather than the proposal.
     init_particles = jax.vmap(smc.target.prior.sample, in_axes=[0, None, None])(
         jrandom.split(init_key, smc.num_particles),
-        initial_conditions,
+        typing.cast(ConditionHistoryT, initial_conditions),
         target_parameters(parameters),
     )
     log_weights = smc.emission_logp(
@@ -378,46 +431,4 @@ def run_filter(
         log_weights,
         particles,
         recorder_history,
-    )
-
-
-def vmapped_run_filter(
-    smc: SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType],
-    key: Array,
-    parameters: ParametersType,
-    observation_path: ObservationType,
-    condition_path: ObservationType | None = None,
-    *,
-    initial_conditions: tuple[ConditionType, ...] | None = None,
-    observation_history: tuple[ObservationType, ...] | None = None,
-    recorders: tuple[Recorder, ...] | None = None,
-) -> tuple[
-    Array,
-    tuple[ParticleType, ...],
-    Array,
-    tuple[PyTree, ...],
-]:
-    """Vectorise :func:`run_filter` over a leading batch dimension."""
-
-    cond_axes = 0 if condition_path is not None else None
-
-    def _run(key, params, obs, cond):
-        return run_filter(
-            smc,
-            key,
-            params,
-            obs,
-            cond,
-            initial_conditions=initial_conditions,
-            observation_history=observation_history,
-            recorders=recorders,
-        )
-
-    run_vmap = jax.vmap(_run, in_axes=(0, 0, 0, cond_axes))
-
-    return run_vmap(
-        key,
-        parameters,
-        observation_path,
-        condition_path,
     )

@@ -8,7 +8,7 @@ import jax.random as jrandom
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
 from seqjax.util import dynamic_index_pytree_in_dim as index_tree
-from seqjax.model.base import ParticleType
+from seqjax.model.typing import ParticleType
 
 Resampler = Callable[
     [PRNGKeyArray, Array, tuple[ParticleType, ...], Scalar, int],

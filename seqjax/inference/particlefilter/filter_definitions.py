@@ -5,13 +5,9 @@ from jaxtyping import Array
 from typing import Callable
 
 from seqjax.model.base import (
-    ConditionType,
-    ObservationType,
-    ParametersType,
-    ParticleType,
     SequentialModel,
 )
-
+import seqjax.model.typing as seqjtyping
 from .base import SMCSampler, proposal_from_transition
 from .resampling import (
     conditional_resample,
@@ -19,21 +15,48 @@ from .resampling import (
 )
 
 
-class BootstrapParticleFilter(
-    SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType]
+class BootstrapParticleFilter[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
+    SMCSampler[
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
+    ]
 ):
     """Classical bootstrap particle filter."""
 
     def __init__(
         self,
         target: SequentialModel[
-            ParticleType, ObservationType, ConditionType, ParametersType
+            ParticleT,
+            InitialParticleT,
+            TransitionParticleHistoryT,
+            ObservationParticleHistoryT,
+            ObservationT,
+            ObservationHistoryT,
+            ConditionHistoryT,
+            ConditionT,
+            ParametersT,
         ],
         num_particles: int,
         ess_threshold: float = 0.5,
         target_parameters: Callable = lambda x: x,
     ) -> None:
-
         super().__init__(
             target=target,
             proposal=proposal_from_transition(target.transition, target_parameters),  # type: ignore[arg-type]
@@ -46,15 +69,43 @@ class BootstrapParticleFilter(
         )
 
 
-class AuxiliaryParticleFilter(
-    SMCSampler[ParticleType, ObservationType, ConditionType, ParametersType]
+class AuxiliaryParticleFilter[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
+    SMCSampler[
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
+    ]
 ):
     """Bootstrap particle filter with auxiliary resampling."""
 
     def __init__(
         self,
         target: SequentialModel[
-            ParticleType, ObservationType, ConditionType, ParametersType
+            ParticleT,
+            InitialParticleT,
+            TransitionParticleHistoryT,
+            ObservationParticleHistoryT,
+            ObservationT,
+            ObservationHistoryT,
+            ConditionHistoryT,
+            ConditionT,
+            ParametersT,
         ],
         num_particles: int,
     ) -> None:
@@ -72,11 +123,11 @@ class AuxiliaryParticleFilter(
     def _resample_log_weights(
         self,
         log_w: Array,
-        particles: tuple[ParticleType, ...],
-        observation_history: tuple[ObservationType, ...],
-        observation: ObservationType,
-        condition: ConditionType,
-        params: ParametersType,
+        particles: tuple[ParticleT, ...],
+        observation_history: tuple[ObservationT, ...],
+        observation: ObservationT,
+        condition: ConditionT,
+        params: ParametersT,
     ) -> Array:
         obs_hist = (
             observation_history[-self.target.emission.observation_dependency :]

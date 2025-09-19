@@ -77,6 +77,7 @@ def run_particle_mcmc[
             key,
             model_params,
             observation_path,
+            condition_path,
             recorders=(log_marginal,),
         )
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
