@@ -1,15 +1,24 @@
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Protocol
 
 import polars as pl  # type: ignore[import-not-found]
 import numpy as np
-import wandb.errors
-from seqjax.model.typing import Packable
-import wandb  # type: ignore[import-not-found]
 import os
+from seqjax.model.typing import Packable
 from seqjax.model.registry import DataConfig
 from seqjax.model import simulate
 import jax.random as jrandom
+
+import wandb
+import wandb.errors
+
+
+class WandbRun(Protocol):
+    """Subset of the :mod:`wandb` run API used by this module."""
+
+    def log_artifact(self, artifact: wandb.Artifact) -> None: ...
+
+    def use_artifact(self, artifact_name: str) -> wandb.Artifact: ...
 
 SEQJAX_DATA_DIR = "../"
 
@@ -46,7 +55,7 @@ def df_to_packable(packable_cls: type[Packable], df: pl.DataFrame) -> Packable:
 
 
 def save_packable_artifact(
-    run: wandb.Run,
+    run: WandbRun,
     artifact_name: str,
     wandb_type: str,
     file_names_and_data: list[tuple[str, Packable, dict]],
@@ -62,7 +71,7 @@ def save_packable_artifact(
 
 
 def packable_artifact_present(
-    run: wandb.Run, artifact_name: str, file_name: str | None = None
+    run: WandbRun, artifact_name: str, file_name: str | None = None
 ):
     try:
         artifact = run.use_artifact(f"{artifact_name}:latest")
@@ -81,7 +90,7 @@ def packable_artifact_present(
 
 
 def load_packable_artifact(
-    run: wandb.Run,
+    run: WandbRun,
     artifact_name: str,
     file_names_and_class: list[tuple[str, type[Packable]]],
 ) -> list[tuple[Packable, dict]]:
@@ -100,7 +109,7 @@ def load_packable_artifact(
 
 
 def load_packable_artifact_all(
-    run: wandb.Run,
+    run: WandbRun,
     artifact_name: str,
     packable_cls: type[Packable],
 ) -> list[tuple[Packable, dict]]:
@@ -120,7 +129,7 @@ def load_packable_artifact_all(
     return loaded_data
 
 
-def get_remote_data(run, data_config: DataConfig):
+def get_remote_data(run: WandbRun, data_config: DataConfig):
     artifact_name = data_config.dataset_name
 
     if not packable_artifact_present(run, artifact_name):

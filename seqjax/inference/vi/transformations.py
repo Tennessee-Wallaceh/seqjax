@@ -8,7 +8,8 @@ import jax
 from jax.nn import softplus
 import seqjax.model.typing
 import operator
-import distrax  # type: ignore[import-untyped]
+
+import distrax  # type: ignore[import-untyped, import-not-found]
 
 
 class Bijector(eqx.Module):
@@ -60,11 +61,12 @@ class ConstrainedRQS(Bijector):
         Float[Array, "num_samples x_dim"],
         Float[Array, " num_samples"],
     ]:
-        return distrax.RationalQuadraticSpline(
+        spline = distrax.RationalQuadraticSpline(
             self._unc_params,
             range_min=self.lower,
             range_max=self.upper,
-        ).forward_and_log_det(x)
+        )
+        return spline.forward_and_log_det(x)
 
     def inverse_and_lad(
         self, x: Float[Array, "num_samples x_dim"]
@@ -72,11 +74,12 @@ class ConstrainedRQS(Bijector):
         Float[Array, "num_samples x_dim"],
         Float[Array, " num_samples"],
     ]:
-        return distrax.RationalQuadraticSpline(
+        spline = distrax.RationalQuadraticSpline(
             self._unc_params,
             range_min=self.lower,
             range_max=self.upper,
-        ).inverse_and_log_det(x)
+        )
+        return spline.inverse_and_log_det(x)
 
 
 def log_dsftpls(x):

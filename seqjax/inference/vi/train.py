@@ -1,5 +1,5 @@
 import time
-from typing import Optional, Any
+from typing import Optional, Any, Iterator, Protocol
 import typing
 
 import jaxtyping
@@ -12,8 +12,16 @@ import jax.tree_util as jtu
 
 
 import equinox as eqx
-from tqdm.auto import trange
-from tqdm.notebook import trange as nbtrange
+
+from tqdm.auto import trange  # type: ignore[import-untyped]
+from tqdm.notebook import trange as nbtrange  # type: ignore[import-untyped]
+
+
+class _ProgressIterator(Protocol):
+    def __iter__(self) -> Iterator[int]: ...
+
+    def set_postfix(self, *args: Any, **kwargs: Any) -> None: ...
+
 
 from seqjax.model.base import BayesianSequentialModel
 from seqjax.inference.vi.base import (
@@ -211,6 +219,7 @@ def train(
     )
 
     # train loop
+    loop: _ProgressIterator
     if nb_context:
         loop = nbtrange(num_steps, position=1)
     else:

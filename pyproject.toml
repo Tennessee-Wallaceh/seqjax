@@ -25,6 +25,7 @@ dependencies = [
     "jaxtyping>=0.2.38",
     "graphviz",
     "blackjax",
+    "wandb",
 ]
 
 [project.optional-dependencies]
