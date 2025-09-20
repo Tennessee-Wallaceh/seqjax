@@ -5,6 +5,8 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import arviz as az
 import wandb
+import polars as pl
+
 
 from seqjax import util
 from seqjax.model import registry as model_registry
@@ -260,14 +262,14 @@ def process_buffer_vi(
 def process_full_vi(
     run,
     experiment_config,
-    elapsed_time_s,
-    latent_samples,
     param_samples,
     extra_data,
     x_path,
     y_path,
 ):
-    run_data, run_tracker = extra_data
+    (run_tracker, latent_samples) = extra_data
+    run_data = pl.DataFrame(run_tracker)
+
     experiment_shorthand = f"{experiment_config.inference.name} {experiment_config.data_config.dataset_name}"
     io.save_packable_artifact(
         run,
@@ -362,8 +364,6 @@ results_process = {
 def process_results(
     run,
     experiment_config,
-    elapsed_time_s,
-    latent_samples,
     param_samples,
     extra_data,
     x_path,
@@ -374,8 +374,6 @@ def process_results(
         result_processor(
             run,
             experiment_config,
-            elapsed_time_s,
-            latent_samples,
             param_samples,
             extra_data,
             x_path,
@@ -403,7 +401,7 @@ def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
     # inference init
     inference = inference_registry.build_inference(experiment_config.inference)
 
-    elapsed_time_s, latent_samples, param_samples, extra_data = inference(
+    param_samples, extra_data = inference(
         model,
         hyperparameters=None,
         key=jrandom.key(experiment_config.fit_seed),
@@ -416,8 +414,6 @@ def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
     process_results(
         wandb_run,
         experiment_config,
-        elapsed_time_s,
-        latent_samples,
         param_samples,
         extra_data,
         x_path,
@@ -426,7 +422,7 @@ def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
 
     wandb_run.finish()
 
-    return (elapsed_time_s, latent_samples, param_samples, extra_data, x_path, y_path)
+    return (param_samples, extra_data, x_path, y_path)
 
 
 """
@@ -486,87 +482,3 @@ if __name__ == "__main__":
                 inference=inference_config,
             )
             output = run_experiment(experiment_name, experiment_config)
-
-            # try:
-            #     output = run_experiment(experiment_name, experiment_config)
-
-            # except Exception as e:
-            #     print(e)
-            #     pass
-    # define inference procedures
-    # inference_procedures = {}
-    # mcmc_samplers = ["NUTS", "PMMH", "full_SGLD"]
-
-    # inference_procedures["NUTS"] =
-
-    # inference_procedures["PMMH"] = partial(
-    #     pmcmc.run_particle_mcmc,
-    #     config=pmcmc.ParticleMCMCConfig(
-    #         mcmc=mcmc.RandomWalkConfig(5e-2, samples),
-    #         particle_filter=particlefilter.BootstrapParticleFilter(
-    #             model.target,
-    #             num_particles=10000,
-    #             ess_threshold=1.5,
-    #             target_parameters=model.target_parameter,
-    #         ),
-    #         initial_parameter_guesses=20,
-    #     ),
-    # )
-
-    # inference_procedures["full_SGLD"] = partial(
-    #     sgld.run_full_sgld_mcmc,
-    #     config=sgld.SGLDConfig(
-    #         particle_filter=particlefilter.BootstrapParticleFilter(
-    #             model.target,
-    #             num_particles=10000,
-    #             ess_threshold=-0.5,
-    #             target_parameters=model.target_parameter,
-    #         ),
-    #         step_size=5e-3,
-    #         num_samples=samples,
-    #         initial_parameter_guesses=20,
-    #     ),
-    # )
-
-    # min_ar = 1
-    # max_ar = -1
-    # print(f"TRUE: {true_params.ar:.2f}")
-    # for label, ar_set in ar_sample_sets.items():
-    #     q05, q95 = jnp.quantile(ar_set, jnp.array([0.05, 0.95]))
-    #     print(f"{label}: {jnp.mean(ar_set):.2f} ({q05:.2f}, {q95:.2f})")
-    #     min_ar = min(min_ar, jnp.min(ar_set))
-    #     max_ar = max(max_ar, jnp.max(ar_set))
-
-    # plt.figure(figsize=(6, 3))
-    # bins = jnp.linspace(min_ar, max_ar, 100)
-
-    # candidate_ar = jnp.linspace(-1, 1, 1000)
-
-    # inspect_p = jax.vmap(
-    #     lambda x: ar.AROnlyParameters(
-    #         ar=x,
-    #     )
-    # )(candidate_ar)
-
-    # log_marginal = jax.vmap(analytic_log_marginal, in_axes=[None, 0, None])(
-    #     model, inspect_p, y_path
-    # )
-
-    # plt.plot(
-    #     candidate_ar,
-    #     jnp.exp(log_marginal)
-    #     / jax.scipy.integrate.trapezoid(jnp.exp(log_marginal), candidate_ar),
-    # )
-
-    # for label, ar_set in ar_sample_sets.items():
-    #     plt.hist(ar_set, bins=bins, density=True, alpha=0.5, label=label)
-
-    # plt.xlim([min_ar, max_ar])
-    # plt.axvline(true_params.ar, color="black", linestyle="--", label="true")
-    # plt.xlabel("ar parameter")
-    # plt.ylabel("density")
-    # plt.legend()
-    # plt.grid()
-    # plt.tight_layout()
-    # plt.savefig("approximate_posterior_comparison.png")
-    # plt.show()
