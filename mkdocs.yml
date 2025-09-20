@@ -1,9 +1,25 @@
 site_name: SeqJAX
 nav:
-  - Usage:
+  - Home: index.md
+  - Tutorials:
       - Getting Started: tutorials/getting-started.md
+      - Particle Filtering with SeqJAX: tutorials/particle-filtering.md
+      - Bayesian MCMC with NUTS: tutorials/bayesian-mcmc.md
+      - Variational Inference with Buffers: tutorials/variational-inference.md
   - API Reference:
-      - Models: api.md
+      - Models:
+          - Overview: api.md#models
+          - Core interfaces: api.md#core-interfaces
+          - Simulation: api.md#simulation
+          - Evaluation: api.md#evaluation
+      - Inference:
+          - Interfaces: api.md#inference-interfaces
+          - Kalman filtering: api.md#kalman-filtering
+          - Particle filtering: api.md#particle-filtering
+          - MCMC kernels: api.md#mcmc-kernels
+          - Particle MCMC: api.md#particle-mcmc
+          - Stochastic gradient Langevin dynamics: api.md#stochastic-gradient-langevin-dynamics
+          - Variational inference: api.md#variational-inference
 plugins:
   - search
   - mkdocstrings

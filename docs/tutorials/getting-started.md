@@ -21,3 +21,14 @@ latent_path, observation_path, latent_hist, obs_hist = simulate.simulate(
 )
 print(observation_path)
 ```
+
+## Next steps
+
+Ready to move beyond simulation? Dive into the advanced tutorials:
+
+- [Particle filtering](particle-filtering.md) demonstrates how to track latent
+  state distributions with sequential Monte Carlo.
+- [Bayesian MCMC](bayesian-mcmc.md) walks through running Hamiltonian Monte
+  Carlo with [`seqjax.inference.mcmc`](../api.md#mcmc-kernels).
+- [Variational inference](variational-inference.md) explains the amortised
+  inference utilities in [`seqjax.inference.vi`](../api.md#variational-inference).
