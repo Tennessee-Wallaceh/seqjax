@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import types
 from dataclasses import fields, is_dataclass
-from typing import Iterable
+from typing import Iterable, Union, get_args, get_origin
 
 from graphviz import Digraph  # type: ignore
 
 from .base import SequentialModel
+
+
+_UNION_TYPES = tuple(
+    t for t in (getattr(types, "UnionType", None), Union) if t is not None
+)
 
 
 def _legend_table(name: str, cls: type) -> str:
@@ -30,6 +36,39 @@ def _legend_table(name: str, cls: type) -> str:
 def _add_edges(g: Digraph, srcs: Iterable[str], dst: str) -> None:
     for s in srcs:
         g.edge(s, dst)
+
+
+def _resolve_packable_type(annotation: object) -> type | None:
+    """Resolve the concrete class referenced by a type annotation."""
+
+    if annotation is None or annotation is type(None):  # noqa: E721
+        return None
+    if isinstance(annotation, type):
+        return annotation
+
+    origin = get_origin(annotation)
+
+    if origin is tuple:
+        args = get_args(annotation)
+        return _resolve_packable_type(args[0] if args else None)
+
+    if origin in _UNION_TYPES:
+        for arg in get_args(annotation):
+            resolved = _resolve_packable_type(arg)
+            if resolved is not None:
+                return resolved
+        return None
+
+    if origin is not None:
+        args = get_args(annotation)
+        return _resolve_packable_type(args[0] if args else None)
+
+    if hasattr(annotation, "__args__"):
+        args = getattr(annotation, "__args__")
+        if args:
+            return _resolve_packable_type(args[0])
+
+    return None
 
 
 def graph_model(
@@ -59,14 +98,53 @@ def graph_model(
     # parameter node
     g.node("theta", label="θ", shape="square")
 
-    orig_args = model.__class__.__orig_bases__[0].__args__  # type: ignore[attr-defined]
-    particle_cls, obs_cls, cond_cls, _ = orig_args
+    particle_cls = getattr(model, "particle_cls", None)
+    observation_cls = getattr(model, "observation_cls", None)
+    parameter_cls = getattr(model, "parameter_cls", None)
+    condition_cls = None
+
+    orig_bases = getattr(model.__class__, "__orig_bases__", ())
+    if orig_bases:
+        seq_args = get_args(orig_bases[0])
+        if len(seq_args) >= 1:
+            particle_cls = _resolve_packable_type(seq_args[0]) or particle_cls
+        if len(seq_args) >= 5:
+            observation_cls = (
+                _resolve_packable_type(seq_args[4]) or observation_cls
+            )
+        if len(seq_args) >= 8:
+            condition_cls = _resolve_packable_type(seq_args[7]) or condition_cls
+        if len(seq_args) >= 9:
+            parameter_cls = _resolve_packable_type(seq_args[8]) or parameter_cls
+
+    if condition_cls is None:
+        transition_bases = getattr(model.transition.__class__, "__orig_bases__", ())
+        if transition_bases:
+            cond_args = get_args(transition_bases[0])
+            if len(cond_args) >= 3:
+                condition_cls = _resolve_packable_type(cond_args[2]) or condition_cls
+
+    particle_cls = particle_cls or model.particle_cls
+    observation_cls = observation_cls or model.observation_cls
+    parameter_cls = parameter_cls or model.parameter_cls
 
     start = -model.prior.order + 1
 
-    particle_fields = [f.name for f in fields(particle_cls)] if is_dataclass(particle_cls) else ["x"]
-    obs_fields = [f.name for f in fields(obs_cls)] if is_dataclass(obs_cls) else ["y"]
-    cond_fields = [f.name for f in fields(cond_cls)] if is_dataclass(cond_cls) else []
+    particle_fields = (
+        [f.name for f in fields(particle_cls)]
+        if is_dataclass(particle_cls)
+        else ["x"]
+    )
+    obs_fields = (
+        [f.name for f in fields(observation_cls)]
+        if is_dataclass(observation_cls)
+        else ["y"]
+    )
+    cond_fields = (
+        [f.name for f in fields(condition_cls)]
+        if condition_cls is not None and is_dataclass(condition_cls)
+        else []
+    )
 
     # create nodes grouped by timestep
     for t in range(start, 2):
@@ -142,8 +220,8 @@ def graph_model(
     if legend:
         tables = [
             _legend_table("Particle", particle_cls),
-            _legend_table("Observation", obs_cls),
-            _legend_table("Parameters", orig_args[3]),
+            _legend_table("Observation", observation_cls),
+            _legend_table("Parameters", parameter_cls),
         ]
         label = "|".join(t for t in tables if t)
         if label:
