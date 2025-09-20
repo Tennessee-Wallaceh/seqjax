@@ -11,7 +11,13 @@ from _pytest.mark.structures import ParameterSet
 from tqdm import auto as tqdm_auto
 from tqdm import notebook as tqdm_notebook
 
-from seqjax.inference import mcmc, registry as inference_registry, vi
+from seqjax.inference import (
+    mcmc,
+    particlefilter,
+    pmcmc,
+    registry as inference_registry,
+    vi,
+)
 from seqjax.model import ar, registry as model_registry, simulate
 
 
@@ -73,6 +79,17 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
             samples_per_context=1,
         ),
         200,
+    ),
+    "particle-mcmc": (
+        pmcmc.ParticleMCMCConfig(
+            particle_filter=particlefilter.BootstrapParticleFilter(
+                target=ar.AR1Target(),
+                num_particles=8,
+            ),
+            mcmc=mcmc.RandomWalkConfig(step_size=0.05),
+            initial_parameter_guesses=3,
+        ),
+        20,
     ),
 }
 

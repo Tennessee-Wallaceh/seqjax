@@ -3,12 +3,13 @@
 import typing
 from dataclasses import dataclass
 
-from seqjax.inference import InferenceMethod, mcmc, vi
+from seqjax.inference import InferenceMethod, mcmc, pmcmc, vi
 
 inference_functions: dict[str, InferenceMethod] = {
     "NUTS": mcmc.run_bayesian_nuts,
     "buffer-vi": vi.run_buffered_vi,
     "full-vi": vi.run_full_path_vi,
+    "particle-mcmc": pmcmc.run_particle_mcmc,
 }
 
 
@@ -57,7 +58,27 @@ class FullVI:
         return name
 
 
-InferenceConfig = NUTSInference
+@dataclass
+class ParticleMCMCInference:
+    method: typing.Literal["particle-mcmc"]
+    config: pmcmc.ParticleMCMCConfig
+
+    @property
+    def name(self) -> str:
+        name = "particle-mcmc"
+
+        num_particles = self.config.particle_filter.num_particles
+        if num_particles is not None:
+            name += f"-p{num_particles}"
+
+        step_size = self.config.mcmc.step_size
+        if step_size is not None:
+            name += f"-ss{step_size:.3g}"
+
+        return name
+
+
+InferenceConfig = NUTSInference | BufferVI | FullVI | ParticleMCMCInference
 
 
 def build_inference(i_config: InferenceConfig) -> InferenceMethod:
