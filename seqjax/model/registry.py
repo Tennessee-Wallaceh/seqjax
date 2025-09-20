@@ -1,39 +1,34 @@
+"""Central registry for sequential models, parameter presets, and conditions.
+
+The registries in this module let experiments and tests discover the models
+that ship with :mod:`seqjax` without having to know the implementation
+details.  To register a new model:
+
+1. Add its label to :data:`SequentialModelLabel`.
+2. Insert the model class into :data:`sequential_models` under the same label.
+3. Provide any reusable parameter presets in :data:`parameter_settings` using
+   nested dictionaries where the outer key matches the model label and the
+   inner keys name the presets (e.g. ``"base"``).
+4. If the model requires structured conditioning data, register a callable in
+   :data:`condition_generators` that produces a pytree of conditions for a
+   given sequence length.
+
+Labels must be consistent across all three registries so that
+``sequential_models[label]``, ``parameter_settings[label]``, and
+``condition_generators[label]`` refer to the same model family.
 """
-Central registry of available sequential models and predefined parameter presets.
 
-The module maintains two dictionaries with matching keys:
-
-* ``sequential_models`` maps a short string label to the ``SequentialModel``
-  subclass that implements the model.
-* ``parameter_settings`` maps the same label to a mapping of preset names to
-  parameter dataclass instances.
-
-Experiments first retrieve a model class via ``sequential_models[label]`` and
-then choose a preset through ``parameter_settings[label][preset]``.  Using the
-same label across both dictionaries guarantees that models and presets remain
-compatible.
-
-Registering a new model type and parameter presets
--------------------------------------------------
-1. Implement a ``SequentialModel`` subclass and its associated parameter
-   dataclass.
-2. Pick a unique string label for the model.
-3. Add the class to ``sequential_models`` under that label.
-4. Create one or more parameter presets and add them to
-   ``parameter_settings`` under the same label.
-5. (Optional) expose a ``DataConfig`` helper if the model needs specialised
-   configuration handling.
-"""
+from dataclasses import dataclass, field
+from functools import partial
+import typing
 
 import jax.numpy as jnp
 
-import typing
-from . import ar
-from dataclasses import dataclass, field
+from . import ar, double_well
 from .base import SequentialModel
 from .typing import Parameters
 
-SequentialModelLabel = typing.Literal["ar"]
+SequentialModelLabel = typing.Literal["ar", "double_well"]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
 # must appear in ``SequentialModelLabel`` and are typically accessed via
@@ -41,6 +36,7 @@ SequentialModelLabel = typing.Literal["ar"]
 # ``SequentialModelLabel`` and add the class here with the same label.
 sequential_models: dict[SequentialModelLabel, type[SequentialModel]] = {
     "ar": ar.AR1Target,
+    "double_well": double_well.DoubleWellTarget,
 }
 
 # Predefined parameter presets for each model. The outer keys mirror
@@ -60,7 +56,22 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
             observation_std=jnp.array(0.1),
             transition_std=jnp.array(0.5),
         ),
-    }
+    },
+    "double_well": {
+        "base": double_well.DoubleWellParams(
+            energy_barrier=jnp.array(0.5),
+            observation_std=jnp.array(1.0),
+            transition_std=jnp.array(0.5),
+        ),
+    },
+}
+
+ConditionGenerator = typing.Callable[[int], typing.Any]
+
+# Optional mapping of model labels to callables that generate condition
+# sequences for simulations and likelihood evaluations.
+condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
+    "double_well": partial(double_well.make_unit_time_increments, dt=1.0),
 }
 
 
