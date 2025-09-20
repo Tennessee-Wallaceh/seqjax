@@ -24,13 +24,13 @@ import typing
 
 import jax.numpy as jnp
 
-from . import ar, double_well
+from . import ar, double_well, stochastic_vol
 
 from .base import BayesianSequentialModel, SequentialModel
 from .typing import Parameters
 
 PosteriorFactory = typing.Callable[[Parameters], BayesianSequentialModel]
-SequentialModelLabel = typing.Literal["ar", "double_well"]
+SequentialModelLabel = typing.Literal["ar", "double_well", "simple_stochastic_vol"]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
 # must appear in ``SequentialModelLabel`` and are typically accessed via
@@ -39,6 +39,7 @@ SequentialModelLabel = typing.Literal["ar", "double_well"]
 sequential_models: dict[SequentialModelLabel, type[SequentialModel]] = {
     "ar": ar.AR1Target,
     "double_well": double_well.DoubleWellTarget,
+    "simple_stochastic_vol": stochastic_vol.SimpleStochasticVol,
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model
@@ -47,6 +48,10 @@ sequential_models: dict[SequentialModelLabel, type[SequentialModel]] = {
 posterior_factories: dict[SequentialModelLabel, PosteriorFactory] = {
     "ar": typing.cast(PosteriorFactory, ar.AR1Bayesian),
     "double_well": typing.cast(PosteriorFactory, double_well.DoubleWellBayesian),
+    "simple_stochastic_vol": typing.cast(
+        PosteriorFactory,
+        lambda _ref_params: stochastic_vol.SimpleStochasticVolBayesian(),
+    ),
 }
 
 # Predefined parameter presets for each model. The outer keys mirror
@@ -74,6 +79,13 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
             transition_std=jnp.array(0.5),
         ),
     },
+    "simple_stochastic_vol": {
+        "base": stochastic_vol.LogVolRW(
+            std_log_vol=jnp.array(3.2),
+            mean_reversion=jnp.array(12.0),
+            long_term_vol=jnp.array(0.16),
+        ),
+    },
 }
 
 ConditionGenerator = typing.Callable[[int], typing.Any]
@@ -82,6 +94,10 @@ ConditionGenerator = typing.Callable[[int], typing.Any]
 # sequences for simulations and likelihood evaluations.
 condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
     "double_well": partial(double_well.make_unit_time_increments, dt=1.0),
+    "simple_stochastic_vol": partial(
+        stochastic_vol.make_constant_time_increments,
+        dt=1.0 / (256 * 8),
+    ),
 }
 
 
