@@ -3,13 +3,14 @@
 import typing
 from dataclasses import dataclass
 
-from seqjax.inference import InferenceMethod, mcmc, pmcmc, vi
+from seqjax.inference import InferenceMethod, mcmc, pmcmc, vi, sgld
 
 inference_functions: dict[str, InferenceMethod] = {
     "NUTS": mcmc.run_bayesian_nuts,
     "buffer-vi": vi.run_buffered_vi,
     "full-vi": vi.run_full_path_vi,
     "particle-mcmc": pmcmc.run_particle_mcmc,
+    "full-sgld": sgld.run_full_sgld_mcmc,
 }
 
 
@@ -78,7 +79,21 @@ class ParticleMCMCInference:
         return name
 
 
-InferenceConfig = NUTSInference | BufferVI | FullVI | ParticleMCMCInference
+@dataclass
+class FullSGLDInference:
+    method: typing.Literal["full-sgld"]
+    config: sgld.SGLDConfig
+
+    @property
+    def name(self) -> str:
+        num_particles = self.config.particle_filter.num_particles
+        name = f"full-sgld-n{self.config.num_samples}-p{num_particles}"
+        return name
+
+
+InferenceConfig = (
+    NUTSInference | BufferVI | FullVI | ParticleMCMCInference | FullSGLDInference
+)
 
 
 def build_inference(i_config: InferenceConfig) -> InferenceMethod:

@@ -1,6 +1,7 @@
 """Tests covering all registered inference methods."""
 
 from collections.abc import Iterator
+from functools import partial
 
 import jax.numpy as jnp
 import jax.random as jrandom
@@ -16,6 +17,7 @@ from seqjax.inference import (
     particlefilter,
     pmcmc,
     registry as inference_registry,
+    sgld,
     vi,
 )
 from seqjax.model import ar, registry as model_registry, simulate
@@ -91,7 +93,38 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
         ),
         20,
     ),
+    "full-sgld": (
+        sgld.SGLDConfig(
+            particle_filter=particlefilter.BootstrapParticleFilter(
+                target=ar.AR1Target(),
+                num_particles=8,
+                target_parameters=partial(
+                    ar.fill_parameter,
+                    ref_params=model_registry.parameter_settings["ar"]["base"],
+                ),
+            ),
+            step_size=1e-3,
+            num_samples=20,
+            initial_parameter_guesses=3,
+        ),
+        20,
+    ),
 }
+
+
+def test_full_sgld_inference_name_includes_particle_count() -> None:
+    """The SGLD inference name should encode both samples and particles."""
+
+    config = sgld.SGLDConfig(
+        particle_filter=particlefilter.BootstrapParticleFilter(
+            target=ar.AR1Target(),
+            num_particles=5,
+        ),
+        num_samples=7,
+    )
+    inference = inference_registry.FullSGLDInference(method="full-sgld", config=config)
+
+    assert inference.name == "full-sgld-n7-p5"
 
 
 def _iter_registry_entries() -> list[ParameterSet]:
