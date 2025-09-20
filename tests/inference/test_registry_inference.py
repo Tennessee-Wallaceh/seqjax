@@ -1,6 +1,7 @@
 """Tests covering all registered inference methods."""
 
 from collections.abc import Iterator
+from functools import partial
 
 import jax.numpy as jnp
 import jax.random as jrandom
@@ -16,6 +17,7 @@ from seqjax.inference import (
     particlefilter,
     pmcmc,
     registry as inference_registry,
+    sgld,
     vi,
 )
 from seqjax.model import ar, registry as model_registry, simulate
@@ -90,6 +92,24 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
             initial_parameter_guesses=3,
         ),
         20,
+    ),
+    "buffer-sgld": (
+        sgld.BufferedSGLDConfig(
+            particle_filter=particlefilter.BootstrapParticleFilter(
+                target=ar.AR1Target(),
+                num_particles=16,
+                target_parameters=partial(
+                    ar.fill_parameter,
+                    ref_params=model_registry.parameter_settings["ar"]["base"],
+                ),
+            ),
+            step_size=5e-3,
+            num_samples=25,
+            initial_parameter_guesses=3,
+            buffer_length=2,
+            batch_length=4,
+        ),
+        25,
     ),
 }
 
