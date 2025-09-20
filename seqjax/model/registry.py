@@ -25,9 +25,11 @@ import typing
 import jax.numpy as jnp
 
 from . import ar, double_well
-from .base import SequentialModel
+
+from .base import BayesianSequentialModel, SequentialModel
 from .typing import Parameters
 
+PosteriorFactory = typing.Callable[[Parameters], BayesianSequentialModel]
 SequentialModelLabel = typing.Literal["ar", "double_well"]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
@@ -37,6 +39,14 @@ SequentialModelLabel = typing.Literal["ar", "double_well"]
 sequential_models: dict[SequentialModelLabel, type[SequentialModel]] = {
     "ar": ar.AR1Target,
     "double_well": double_well.DoubleWellTarget,
+}
+
+# Factories that create a ``BayesianSequentialModel`` for each target model
+# label. These factories are typically called with the generative parameters to
+# construct the posterior used by inference algorithms.
+posterior_factories: dict[SequentialModelLabel, PosteriorFactory] = {
+    "ar": typing.cast(PosteriorFactory, ar.AR1Bayesian),
+    "double_well": typing.cast(PosteriorFactory, double_well.DoubleWellBayesian),
 }
 
 # Predefined parameter presets for each model. The outer keys mirror
@@ -99,6 +109,10 @@ class DataConfig:
         return parameter_settings[self.target_model_label][
             self.generative_parameter_label
         ]
+
+    @property
+    def posterior_factory(self) -> PosteriorFactory:
+        return posterior_factories[self.target_model_label]
 
 
 @dataclass(kw_only=True, frozen=True, slots=True)
