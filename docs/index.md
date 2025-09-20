@@ -40,9 +40,12 @@ latent_path, observation_path, latent_hist, obs_hist = simulate.simulate(
 print(observation_path)
 ```
 
-SeqJAX checks at runtime that `AR1Target` and its components implement the required interface, making it easier to extend or customize the library.
+SeqJAX checks at runtime that `AR1Target` and its components implement the required interface, making it easier to extend or customize the library. Once you are comfortable with simulation, explore the advanced inference workflows showcased in the tutorials below to analyse the resulting observation streams.
 
 ## Explore further
 
 - Follow the [Getting Started tutorial](tutorials/getting-started.md) to walk through the autoregressive model step by step.
+- Learn how to track filtering distributions with the [particle filtering walkthrough](tutorials/particle-filtering.md).
+- Infer parameters jointly with latent states in the [Bayesian MCMC guide](tutorials/bayesian-mcmc.md).
+- Optimise amortised posterior approximations using the [variational inference tutorial](tutorials/variational-inference.md).
 - Browse the [API reference](api.md) for detailed documentation of available classes and functions.
