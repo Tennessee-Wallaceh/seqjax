@@ -42,10 +42,17 @@ def test_registered_models_can_simulate_and_evaluate(
     sequence_length = 5
     key = jrandom.PRNGKey(0)
 
+    condition_factory = registry.condition_generators.get(model_label)
+    condition = (
+        None
+        if condition_factory is None
+        else condition_factory(sequence_length)
+    )
+
     latents, observations, latent_history, observation_history = simulate.simulate(
         key,
         target,
-        condition=None,
+        condition=condition,
         parameters=parameters,
         sequence_length=sequence_length,
     )
@@ -58,7 +65,7 @@ def test_registered_models_can_simulate_and_evaluate(
     log_p_x = evaluate.log_prob_x(
         target,
         latents,
-        condition=None,
+        condition=condition,
         parameters=parameters,
         x_history=latent_history,
     )
@@ -66,7 +73,7 @@ def test_registered_models_can_simulate_and_evaluate(
         target,
         latents,
         observation_path,
-        condition=None,
+        condition=condition,
         parameters=parameters,
         x_history=latent_history,
     )
@@ -74,7 +81,7 @@ def test_registered_models_can_simulate_and_evaluate(
         target,
         latents,
         observation_path,
-        condition=None,
+        condition=condition,
         parameters=parameters,
         x_history=latent_history,
     )
