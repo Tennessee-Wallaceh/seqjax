@@ -41,6 +41,12 @@ dev = [
     "pytest",
 ]
 
+[tool.pytest.ini_options]
+addopts = "-m 'not longrun'"
+markers = [
+    "longrun: marks tests as long-running statistical checks",
+]
+
 [tool.hatch.build]
 include = ["seqjax/*", "seqjax/py.typed"]
 
