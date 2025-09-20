@@ -25,11 +25,11 @@ import typing
 import jax.numpy as jnp
 
 from . import ar, double_well
+
 from .base import BayesianSequentialModel, SequentialModel
 from .typing import Parameters
 
 PosteriorFactory = typing.Callable[[Parameters], BayesianSequentialModel]
-
 SequentialModelLabel = typing.Literal["ar", "double_well"]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
