@@ -42,6 +42,7 @@ def get_interval_spline():
 configured_bijections: dict[str, typing.Callable[[], transformations.Bijector]] = {
     "interval_spline": get_interval_spline,
     "sigmoid": partial(transformations.Sigmoid, lower=-1.0, upper=1.0),
+    "softplus": transformations.Softplus,
 }
 
 
