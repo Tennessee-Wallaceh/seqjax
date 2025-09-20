@@ -38,6 +38,7 @@ class SGLDConfig[
 
     particle_filter: SMCSampler
     step_size: float | ParametersT = 1e-3
+    num_samples: int = 100
     initial_parameter_guesses: int = 20
 
 
@@ -257,12 +258,23 @@ def run_full_sgld_mcmc[
 ) -> tuple[InferenceParametersT, typing.Any]:
     score_increment = build_score_increment(target_posterior)
 
+    particle_filter = config.particle_filter
+    if hasattr(particle_filter, "proposal") and hasattr(
+        particle_filter.proposal, "target_parameters"
+    ):
+        particle_filter = eqx.tree_at(
+            lambda pf: pf.proposal.target_parameters,
+            particle_filter,
+            target_posterior.target_parameter,
+        )
+
     @jax.jit
     def grad_estimator(params, key):
+        model_params = target_posterior.target_parameter(params)
         out = particlefilter.run_filter(
-            config.particle_filter,
+            particle_filter,
             key,
-            params,
+            model_params,
             observation_path,
             recorders=(score_increment, lambda x: x.ancestor_ix),
             target_parameters=target_posterior.target_parameter,
@@ -291,15 +303,20 @@ def run_full_sgld_mcmc[
             (util.slice_pytree(score_increments, 1, len(ancestor_ix)), ancestor_ix[1:]),
         )
 
-        return jax.tree_util.tree_map(
+        grad_in_target_space = jax.tree_util.tree_map(
             lambda leaf: jnp.sum(leaf * jax.nn.softmax(log_weights)),
             final_scores,
         )
 
+        _, pullback = jax.vjp(lambda p: target_posterior.target_parameter(p), params)
+        (grad_inference_space,) = pullback(grad_in_target_space)
+
+        return grad_inference_space
+
     def estimate_log_joint(params, key):
         model_params = target_posterior.target_parameter(params)
         _, _, (log_marginal_increments,) = run_filter(
-            config.particle_filter,
+            particle_filter,
             key,
             model_params,
             observation_path,
