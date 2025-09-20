@@ -25,6 +25,9 @@ dependencies = [
     "jaxtyping>=0.2.38",
     "graphviz",
     "blackjax",
+    "distrax",
+    "jax_tqdm",
+    "tqdm",
     "wandb",
 ]
 
