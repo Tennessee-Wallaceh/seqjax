@@ -1,14 +1,17 @@
 """Stochastic volatility models."""
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Protocol
 
+import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
+    BayesianSequentialModel,
     Emission,
     ParameterPrior,
     Prior,
@@ -33,12 +36,18 @@ class LatentVol(Particle):
     """Latent state containing the log volatility."""
 
     log_vol: Scalar
+    _shape_template: ClassVar = OrderedDict(
+        log_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class LogReturnObs(Observation):
     """Observed log return."""
 
     log_return: Scalar
+    _shape_template: ClassVar = OrderedDict(
+        log_return=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 # parameters
@@ -48,6 +57,11 @@ class LogVolRW(Parameters):
     std_log_vol: Scalar
     mean_reversion: Scalar
     long_term_vol: Scalar
+    _shape_template: ClassVar = OrderedDict(
+        std_log_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        mean_reversion=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        long_term_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class LogVolWithSkew(Parameters):
@@ -57,12 +71,21 @@ class LogVolWithSkew(Parameters):
     mean_reversion: Scalar
     long_term_vol: Scalar
     skew: Scalar  # correlation between random variations
+    _shape_template: ClassVar = OrderedDict(
+        std_log_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        mean_reversion=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        long_term_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        skew=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class TimeIncrement(Condition):
     """Time step between observations."""
 
     dt: Scalar  # time since last observation
+    _shape_template: ClassVar = OrderedDict(
+        dt=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 
 class StochVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
@@ -442,6 +465,27 @@ class SimpleStochasticVol(
     emission = LogReturn()
 
 
+class SimpleStochasticVolBayesian(
+    BayesianSequentialModel[
+        LatentVol,
+        tuple[LatentVol],
+        tuple[LatentVol],
+        tuple[LatentVol],
+        LogReturnObs,
+        tuple[()],
+        tuple[TimeIncrement],
+        TimeIncrement,
+        LogVolRW,
+        LogVolRW,
+        HyperParameters,
+    ]
+):
+    inference_parameter_cls = LogVolRW
+    target = SimpleStochasticVol()
+    parameter_prior = StochVolParamPrior()
+    target_parameter = staticmethod(lambda parameters: parameters)
+
+
 class SkewStochasticVol(
     SequentialModel[
         LatentVol,
@@ -462,6 +506,24 @@ class SkewStochasticVol(
     prior = TwoStepGaussianStart()
     transition = SkewRandomWalk()
     emission = SkewLogReturn()
+
+
+def make_constant_time_increments(
+    sequence_length: int,
+    *,
+    dt: float = 1.0,
+) -> TimeIncrement:
+    """Return a ``TimeIncrement`` tree filled with a constant ``dt``."""
+
+    if sequence_length < 1:
+        raise ValueError(
+            f"sequence_length must be >= 1, got {sequence_length}",
+        )
+
+    required_length = sequence_length + SimpleStochasticVol.prior.order - 1
+    dt_value = jnp.asarray(dt, dtype=jnp.float32)
+    increments = jnp.full((required_length,), dt_value, dtype=dt_value.dtype)
+    return TimeIncrement(dt=increments)
 
 
 @dataclass
