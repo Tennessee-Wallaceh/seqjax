@@ -62,7 +62,11 @@ def log_prob_x(
         sequence_start + 1,
         sequence_start + sequence_length,
     )
-    transition_condition = slice_pytree(condition, sequence_start, sequence_length)
+    transition_condition = slice_pytree(
+        condition,
+        sequence_start + 1,
+        sequence_start + sequence_length,
+    )
 
     transition_log_p_x = jax.vmap(target.transition.log_prob, in_axes=[0, 0, 0, None])(
         particle_history,

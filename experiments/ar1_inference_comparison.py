@@ -36,11 +36,15 @@ def cumulative_quantiles_masked(samples, quantiles):
 
 
 @dataclass
-class ARExperimentConfig:
-    data_config: model_registry.ARDataConfig
+class ExperimentConfig:
+    data_config: model_registry.DataConfig
     test_samples: int
     fit_seed: int
     inference: inference_registry.InferenceConfig
+
+    @property
+    def posterior_factory(self) -> model_registry.PosteriorFactory:
+        return self.data_config.posterior_factory
 
 
 def process_mcmc_results(
@@ -381,19 +385,21 @@ def process_results(
         )
 
 
-def run_experiment(experiment_name: str, experiment_config: ARExperimentConfig):
+def run_experiment(experiment_name: str, experiment_config: ExperimentConfig):
     # track run data
+    config_dict = asdict(experiment_config)
+
     wandb_run = wandb.init(
         project=experiment_name,
         config={
-            **asdict(experiment_config),
+            **config_dict,
             "inference_name": experiment_config.inference.name,
         },  # force inference name into config
     )
 
     # define target model
     target_params = experiment_config.data_config.generative_parameters
-    model = ar.AR1Bayesian(target_params)
+    model = experiment_config.posterior_factory(target_params)
 
     # get target data
     x_path, y_path = io.get_remote_data(wandb_run, experiment_config.data_config)
@@ -471,7 +477,7 @@ if __name__ == "__main__":
     experiment_name = "ar1-experimental"
     for data_seed in range(data_repeats):
         for label, inference_config in inference_methods.items():
-            experiment_config = ARExperimentConfig(
+            experiment_config = ExperimentConfig(
                 data_config=model_registry.ARDataConfig(
                     generative_parameter_label="base",
                     sequence_length=1000,

@@ -138,7 +138,8 @@ class DoubleWellWalk(
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
         last_latent = last_particle.latent_state
-        return last_latent + condition.dt * 4 * last_latent * (
+        dt = condition.dt
+        return last_latent + dt * 4 * last_latent * (
             jnp.sqrt(parameters.energy_barrier) - last_latent * last_latent
         )
 
@@ -151,9 +152,10 @@ class DoubleWellWalk(
     ) -> LatentValue:
         (last_particle,) = particle_history
         mean = DoubleWellWalk.mean_fn(last_particle, condition, parameters)
+        dt = condition.dt
         return LatentValue(
             latent_state=mean
-            + jrandom.normal(key) * parameters.transition_std * jnp.sqrt(condition.dt)
+            + jrandom.normal(key) * parameters.transition_std * jnp.sqrt(dt)
         )
 
     @staticmethod
@@ -165,10 +167,11 @@ class DoubleWellWalk(
     ) -> jaxtyping.Scalar:
         (last_particle,) = particle_history
         mean = DoubleWellWalk.mean_fn(last_particle, condition, parameters)
+        dt = condition.dt
         return jstats.norm.logpdf(
             particle.latent_state,
             loc=mean,
-            scale=parameters.transition_std * jnp.sqrt(condition.dt),
+            scale=parameters.transition_std * jnp.sqrt(dt),
         )
 
 
@@ -234,6 +237,24 @@ class DoubleWellTarget(
     prior = InitialValue()
     transition = DoubleWellWalk()
     emission = NoisyEmission()
+
+
+def make_unit_time_increments(
+    sequence_length: int,
+    *,
+    dt: float = 1.0,
+) -> TimeIncrement:
+    """Return a ``TimeIncrement`` tree filled with a constant ``dt``."""
+
+    if sequence_length < 1:
+        raise ValueError(
+            f"sequence_length must be >= 1, got {sequence_length}",
+        )
+
+    required_length = sequence_length + DoubleWellTarget.prior.order - 1
+    dt_value = jnp.asarray(dt, dtype=jnp.float32)
+    increments = jnp.full((required_length,), dt_value, dtype=dt_value.dtype)
+    return TimeIncrement(dt=increments)
 
 
 def fill_parameter(
