@@ -498,7 +498,7 @@ class BufferedSSMVI[
         # each index appears in max batch length batches
         # batches are sampled uniformly, so scale by
         latent_scaling = (
-            self.latent_approximation.batch_length + observations.batch_shape[0] - 1
+            self.latent_approximation.batch_length + observations.batch_shape[0]
         ) / self.latent_approximation.batch_length
 
         theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
