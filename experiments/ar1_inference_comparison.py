@@ -18,7 +18,6 @@ from seqjax import io
 
 # from seqjax.inference.buffered import BufferedSGLDConfig, run_buffered_sgld
 # from seqjax.inference.sgld import SGLDConfig
-from seqjax.model import ar
 
 
 def cumulative_quantiles_masked(samples, quantiles):
@@ -45,8 +44,7 @@ class ResultProcessor(Protocol):
         extra_data,
         x_path,
         y_path,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 @dataclass
@@ -59,7 +57,6 @@ class ExperimentConfig:
     @property
     def posterior_factory(self) -> model_registry.PosteriorFactory:
         return self.data_config.posterior_factory
-
 
 
 class ARResultProcessor:
@@ -260,9 +257,7 @@ class ARResultProcessor:
         run.log({"latent_approximation": wandb.Image(fig)})
         plt.close(fig)
 
-        checkpoint_entries = self._create_mcmc_checkpoint_entries(
-            param_samples, times
-        )
+        checkpoint_entries = self._create_mcmc_checkpoint_entries(param_samples, times)
         if checkpoint_entries:
             io.save_packable_artifact(
                 run,
@@ -291,9 +286,8 @@ class ARResultProcessor:
         run_data = self._get_run_data(run_tracker)
         columns = set(run_data.columns)
 
-        if (
-            run_data.height > 0
-            and {"elapsed_time_s", "ar_q05", "ar_q95"}.issubset(columns)
+        if run_data.height > 0 and {"elapsed_time_s", "ar_q05", "ar_q95"}.issubset(
+            columns
         ):
             fig = plt.figure(figsize=(8, 3))
             plt.plot(
@@ -325,9 +319,7 @@ class ARResultProcessor:
                     )
                 except Exception:
                     break
-                time_axis = range(
-                    int(start_ix), int(start_ix) + len(latent_sample.x)
-                )
+                time_axis = range(int(start_ix), int(start_ix) + len(latent_sample.x))
                 plt.plot(time_axis, jnp.asarray(latent_sample.x), c="blue", alpha=0.5)
                 if len(latent_sample.x):
                     plt.scatter(
@@ -391,9 +383,8 @@ class ARResultProcessor:
         run_data = self._get_run_data(run_tracker)
         columns = set(run_data.columns)
 
-        if (
-            run_data.height > 0
-            and {"elapsed_time_s", "ar_q05", "ar_q95"}.issubset(columns)
+        if run_data.height > 0 and {"elapsed_time_s", "ar_q05", "ar_q95"}.issubset(
+            columns
         ):
             fig = plt.figure(figsize=(8, 3))
             plt.plot(
@@ -546,7 +537,7 @@ def run_experiment(
         observation_path=y_path,
         condition_path=None,
         test_samples=experiment_config.test_samples,
-        config=experiment_config.inference,
+        config=experiment_config.inference.config,
     )
 
     process_results(
@@ -574,15 +565,15 @@ inference_methods = {}
 # )
 
 for buffer in [10]:
-    for batch in [2, 5, 10]:
-        for lr in [1e-2, 1e-3]:
-            for cv in [True, False]:
+    for batch in [10]:
+        for lr in [1e-2]:
+            for cv in [False]:
                 # for ar_transform in ["interval_spline"]:
                 for ar_transform in ["sigmoid"]:
                     buffviconf = inference_registry.BufferVI(
                         "buffer-vi",
                         vi.BufferedVIConfig(
-                            learning_rate=1e-2,
+                            learning_rate=lr,
                             opt_steps=20000,
                             buffer_length=buffer,
                             batch_length=batch,
