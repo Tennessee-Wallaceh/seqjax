@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import jax
 from abc import abstractmethod
 
-import seqjax.model.typing
+import seqjax.model.typing as seqjtyping
 
 
 class Embedder(eqx.Module):
@@ -17,7 +17,7 @@ class Embedder(eqx.Module):
 
     @abstractmethod
     def embed(
-        self, observations: seqjax.model.typing.Observation
+        self, observations: seqjtyping.Observation
     ) -> Float[Array, "batch_length context_dimension"]: ...
 
 
@@ -68,7 +68,7 @@ class WindowEmbedder(Embedder):
         ]
 
     def embed(
-        self, observations: seqjax.model.typing.Observation
+        self, observations: seqjtyping.Observation
     ) -> Float[Array, "batch_length x_dimension context_length"]:
         observation_array = observations.ravel(observations)
         per_dim_context = jax.vmap(self._pad, in_axes=[1])(observation_array)
@@ -108,7 +108,7 @@ class NoReshapeEmbedder(Embedder):
         ]
 
     def embed(
-        self, observations: seqjax.model.typing.Observation
+        self, observations: seqjtyping.Observation
     ) -> Float[Array, "batch_length context_dimension"]:
         return observations.ravel(observations)
 
@@ -208,7 +208,7 @@ class RNNEmbedder(Embedder):
         return hs  # shape (T, hidden)
 
     def embed(
-        self, obs: seqjax.model.typing.Packable
+        self, obs: seqjtyping.Packable
     ) -> Float[Array, "batch_length context_dimension"]:
         seq = obs.ravel(obs)  # (T, y_dim)
         h_fwd = self._scan(self.cell_fwd, seq)

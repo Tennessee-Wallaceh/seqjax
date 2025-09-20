@@ -263,10 +263,11 @@ def run_buffered_vi[
             key=key,
             optim=optim,
             target=target_posterior,
-            num_steps=config.opt_steps,
+            num_steps=config.pre_training_steps,
             run_tracker=run_tracker,
             observations_per_step=config.observations_per_step,
             samples_per_context=config.samples_per_context,
+            pre_train=True,
         )
 
     fitted_approximation = train.train(

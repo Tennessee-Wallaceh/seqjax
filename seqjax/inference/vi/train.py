@@ -216,7 +216,14 @@ def train(
     else:
         loop = trange(num_steps, position=1)
 
+    # init step (to get tracking info)
+    loss, _trainable, _opt_state = compiled_make_step(
+        trainable, static, opt_state, observations, conditions, step_keys[0]
+    )
+
     run_tracker.start_run()
+    run_tracker.track_step(static, _trainable, -1, loss, step_keys[0], loop)
+
     for opt_step in loop:
         loss, trainable, opt_state = compiled_make_step(
             trainable, static, opt_state, observations, conditions, step_keys[opt_step]
