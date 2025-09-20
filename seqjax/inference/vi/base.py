@@ -203,7 +203,7 @@ class FullAutoregressiveVI[
         # vmap down both axes
         parameters, log_q_theta = jax.vmap(
             jax.vmap(self.parameter_approximation.sample_and_log_prob)
-        )(parameter_keys)
+        )(parameter_keys, None)
         theta_array = parameters.ravel(parameters)
         theta_array = jnp.tile(
             theta_array[:, :, None, :], (1, 1, observations.batch_shape[0], 1)

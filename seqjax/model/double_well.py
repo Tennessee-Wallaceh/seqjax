@@ -62,6 +62,10 @@ class TimeIncrement(seqjtyping.Condition):
 
     dt: jaxtyping.Scalar  # time since last observation
 
+    _shape_template: ClassVar = OrderedDict(
+        dt=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
+
 
 class NoisyObservation(seqjtyping.Observation):
     """Observation wrapping a scalar value."""
@@ -105,7 +109,7 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], DoubleWellParams]):
         parameters: DoubleWellParams,
     ) -> tuple[LatentValue]:
         """Sample the initial latent value."""
-        scale = jnp.array(5.0)
+        scale = jnp.array(1.0)
         x0 = scale * jrandom.normal(
             key,
         )
@@ -118,15 +122,13 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], DoubleWellParams]):
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
         """Evaluate the prior log-density."""
-        scale = jnp.array(5.0)
+        scale = jnp.array(1.0)
         return jstats.norm.logpdf(particle[0].latent_state, scale=scale)
 
 
 class DoubleWellWalk(
     Transition[LatentValue, tuple[LatentValue], TimeIncrement, DoubleWellParams]
 ):
-    """Gaussian transition."""
-
     order: ClassVar[int] = 1
 
     @staticmethod
@@ -137,7 +139,7 @@ class DoubleWellWalk(
     ) -> jaxtyping.Scalar:
         last_latent = last_particle.latent_state
         return last_latent + condition.dt * 4 * last_latent * (
-            parameters.energy_barrier - last_latent * last_latent
+            jnp.sqrt(parameters.energy_barrier) - last_latent * last_latent
         )
 
     @staticmethod
@@ -147,11 +149,11 @@ class DoubleWellWalk(
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> LatentValue:
-        """Sample the next latent state."""
         (last_particle,) = particle_history
         mean = DoubleWellWalk.mean_fn(last_particle, condition, parameters)
         return LatentValue(
-            latent_state=mean + jrandom.normal(key) * parameters.transition_std
+            latent_state=mean
+            + jrandom.normal(key) * parameters.transition_std * jnp.sqrt(condition.dt)
         )
 
     @staticmethod
@@ -161,13 +163,12 @@ class DoubleWellWalk(
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
-        """Return the transition log-density."""
         (last_particle,) = particle_history
         mean = DoubleWellWalk.mean_fn(last_particle, condition, parameters)
         return jstats.norm.logpdf(
             particle.latent_state,
             loc=mean,
-            scale=parameters.transition_std,
+            scale=parameters.transition_std * jnp.sqrt(condition.dt),
         )
 
 
@@ -191,7 +192,10 @@ class NoisyEmission(
     ) -> NoisyObservation:
         """Sample an observation."""
         (current_particle,) = particle
-        y = current_particle.x + jrandom.normal(key) * parameters.observation_std
+        y = (
+            current_particle.latent_state
+            + jrandom.normal(key) * parameters.observation_std
+        )
         return NoisyObservation(observation=y)
 
     @staticmethod
@@ -206,7 +210,7 @@ class NoisyEmission(
         (current_particle,) = particle
         return jstats.norm.logpdf(
             observation.observation,
-            loc=current_particle.x,
+            loc=current_particle.latent_state,
             scale=parameters.observation_std,
         )
 
@@ -237,8 +241,10 @@ def fill_parameter(
 ) -> DoubleWellParams:
     return DoubleWellParams(
         eb_only.energy_barrier,
-        observation_std=jnp.ones_like(eb_only.ar) * ref_params.observation_std,
-        transition_std=jnp.ones_like(eb_only.ar) * ref_params.transition_std,
+        observation_std=jnp.ones_like(eb_only.energy_barrier)
+        * ref_params.observation_std,
+        transition_std=jnp.ones_like(eb_only.energy_barrier)
+        * ref_params.transition_std,
     )
 
 

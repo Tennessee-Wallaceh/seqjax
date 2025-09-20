@@ -101,7 +101,7 @@ class Softplus(Bijector):
         Float[Array, "num_samples x_dim"],
         Float[Array, " num_samples"],
     ]:
-        return softplus(x), log_dsftpls(x).sum(axis=1)
+        return softplus(x), log_dsftpls(x)
 
     def inverse_and_lad(
         self, y: Float[Array, "num_samples x_dim"]
@@ -110,7 +110,7 @@ class Softplus(Bijector):
         Float[Array, " num_samples"],
     ]:
         x = inverse_softplus(y)
-        return x, -log_dsftpls(x).sum(axis=1)
+        return x, -log_dsftpls(x)
 
 
 class Sigmoid(Bijector):
