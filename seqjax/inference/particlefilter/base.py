@@ -290,7 +290,7 @@ def run_filter[
     key: PRNGKeyArray,
     parameters: ParametersT,
     observation_path: ObservationT,
-    condition_path: ConditionT,
+    condition_path: ConditionT | None = None,
     *,
     initial_conditions: tuple[ConditionT, ...] | None = None,
     observation_history: tuple[ObservationT, ...] | None = None,
@@ -371,7 +371,11 @@ def run_filter[
 
     # Define the main body
     def body(state, inputs):
-        step_key, observation, condition = inputs
+        if sliced_condition_path is None:
+            step_key, observation = inputs
+            condition = None
+        else:
+            step_key, observation, condition = inputs
         last_log_w, last_particles, obs_hist = state
 
         log_w, particles, obs_hist, ess_e, ancestor_ix, weight_inc = smc.sample_step(
@@ -412,10 +416,20 @@ def run_filter[
     else:
         sliced_condition_path = None
 
+    body_inputs: tuple[typing.Any, ...]
+    if sliced_condition_path is None:
+        body_inputs = (jnp.array(step_keys), observation_path)
+    else:
+        body_inputs = (
+            jnp.array(step_keys),
+            observation_path,
+            sliced_condition_path,
+        )
+
     final_state, recorder_history = jax.lax.scan(
         body,
         (log_weights, init_particles, observation_history),
-        (jnp.array(step_keys), observation_path, sliced_condition_path),
+        body_inputs,
     )
 
     def expand_concat(value, array):
