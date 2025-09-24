@@ -1,4 +1,6 @@
-"""Stochastic volatility models."""
+"""Stochastic volatility models.
+All values are in annualised terms.
+"""
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -25,10 +27,6 @@ from seqjax.model.typing import (
     Parameters,
     Particle,
 )
-
-"""
-All values are in annualised terms.
-"""
 
 
 # Latent Particles

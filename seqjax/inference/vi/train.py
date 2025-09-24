@@ -40,9 +40,7 @@ class _ProgressIterator(Protocol):
 
 
 ParticleT = TypeVar("ParticleT", bound=seqjtyping.Particle)
-InitialParticleT = TypeVar(
-    "InitialParticleT", bound=tuple[seqjtyping.Particle, ...]
-)
+InitialParticleT = TypeVar("InitialParticleT", bound=tuple[seqjtyping.Particle, ...])
 TransitionParticleHistoryT = TypeVar(
     "TransitionParticleHistoryT", bound=tuple[seqjtyping.Particle, ...]
 )
@@ -53,14 +51,10 @@ ObservationT = TypeVar("ObservationT", bound=seqjtyping.Observation)
 ObservationHistoryT = TypeVar(
     "ObservationHistoryT", bound=tuple[seqjtyping.Observation, ...]
 )
-ConditionHistoryT = TypeVar(
-    "ConditionHistoryT", bound=tuple[seqjtyping.Condition, ...]
-)
+ConditionHistoryT = TypeVar("ConditionHistoryT", bound=tuple[seqjtyping.Condition, ...])
 ConditionT = TypeVar("ConditionT", bound=seqjtyping.Condition)
 ParametersT = TypeVar("ParametersT", bound=seqjtyping.Parameters)
-InferenceParametersT = TypeVar(
-    "InferenceParametersT", bound=seqjtyping.Parameters
-)
+InferenceParametersT = TypeVar("InferenceParametersT", bound=seqjtyping.Parameters)
 HyperParametersT = TypeVar("HyperParametersT", bound=seqjtyping.HyperParameters)
 
 SSMApproximationT = SSMVariationalApproximation[
@@ -158,9 +152,7 @@ def loss_buffered_neg_elbo(
     num_context: int,
     samples_per_context: int,
 ) -> jaxtyping.Scalar:
-    approximation = typing.cast(
-        SSMApproximationT, eqx.combine(trainable, static)
-    )
+    approximation = typing.cast(SSMApproximationT, eqx.combine(trainable, static))
 
     return approximation.estimate_loss(
         observations,
@@ -183,9 +175,7 @@ def loss_pre_train_neg_elbo(
     num_context: int,
     samples_per_context: int,
 ) -> jaxtyping.Scalar:
-    approximation = typing.cast(
-        BufferedApproximationT, eqx.combine(trainable, static)
-    )
+    approximation = typing.cast(BufferedApproximationT, eqx.combine(trainable, static))
 
     return approximation.estimate_pretrain_loss(
         observations,
@@ -239,7 +229,7 @@ class DefaultTracker:
     checkpoint_samples: list[tuple[float, ArrayTree]]
     train_phase_start_time: float
 
-    def __init__(self, record_interval: int = 100, metric_samples: int = 100) -> None:
+    def __init__(self, record_interval: int = 5, metric_samples: int = 100) -> None:
         self.record_interval = record_interval
         self.metric_samples = metric_samples
         self.elapsed_time_s = 0.0
@@ -355,9 +345,7 @@ def train(
             typing.cast(ConditionT, conditions_in),
             key_in,
         )
-        updates, opt_state_next = optim.update(
-            grads, opt_state_in, params=trainable_in
-        )
+        updates, opt_state_next = optim.update(grads, opt_state_in, params=trainable_in)
         trainable_next = eqx.apply_updates(trainable_in, updates)
         return (
             loss,
