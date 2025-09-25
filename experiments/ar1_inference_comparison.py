@@ -564,7 +564,7 @@ inference_methods = {}
 #     "NUTS", mcmc.NUTSConfig(step_size=1e-3, num_warmup=1000, num_chains=1)
 # )
 
-for buffer in [10]:
+for buffer in [10, 50]:
     for batch in [10]:
         for lr in [1e-2]:
             for cv in [False]:
@@ -573,8 +573,13 @@ for buffer in [10]:
                     buffviconf = inference_registry.BufferVI(
                         "buffer-vi",
                         vi.BufferedVIConfig(
-                            learning_rate=lr,
-                            opt_steps=20000,
+                            optimization=vi.run.CosineOpt(
+                                peak_lr=lr,
+                                end_lr=1e-5,
+                                warmup_steps=1000,
+                                decay_steps=19_000,
+                                total_steps=50_000,
+                            ),
                             buffer_length=buffer,
                             batch_length=batch,
                             parameter_field_bijections={
@@ -589,7 +594,7 @@ for buffer in [10]:
 # full_vi_config = inference_registry.FullVI(
 #     "full-vi",
 #     vi.FullVIConfig(
-#         learning_rate=2e-3,
+#         learning_rate=3e-3,
 #         opt_steps=20000,
 #         parameter_field_bijections={"ar": "sigmoid"},
 #     ),
@@ -600,20 +605,22 @@ if __name__ == "__main__":
     data_repeats = 1
     experiment_name = "ar1-experimental"
     result_processor = ARResultProcessor()
-    for data_seed in range(data_repeats):
-        for _label, inference_config in inference_methods.items():
-            experiment_config = ExperimentConfig(
-                data_config=model_registry.ARDataConfig(
-                    generative_parameter_label="base",
-                    sequence_length=1000,
-                    seed=data_seed,
-                ),
-                test_samples=10000,
-                fit_seed=1000,
-                inference=inference_config,
-            )
-            output = run_experiment(
-                experiment_name,
-                experiment_config,
-                result_processor=result_processor,
-            )
+    for fit_seed in [1000]:
+        # for fit_seed in [1000]:
+        for data_seed in range(data_repeats):
+            for _label, inference_config in inference_methods.items():
+                experiment_config = ExperimentConfig(
+                    data_config=model_registry.ARDataConfig(
+                        generative_parameter_label="base",
+                        sequence_length=1000,
+                        seed=data_seed,
+                    ),
+                    test_samples=10000,
+                    fit_seed=fit_seed,
+                    inference=inference_config,
+                )
+                output = run_experiment(
+                    experiment_name,
+                    experiment_config,
+                    result_processor=result_processor,
+                )
