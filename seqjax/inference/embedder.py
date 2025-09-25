@@ -205,7 +205,7 @@ class RNNEmbedder(Embedder):
 
         h0 = jnp.zeros((cell.hidden_size,))
         _, hs = jax.lax.scan(step, h0, seq)
-        return hs  # shape (T, hidden)
+        return hs  # shape (T, hidden * 2)
 
     def embed(
         self, obs: seqjtyping.Packable

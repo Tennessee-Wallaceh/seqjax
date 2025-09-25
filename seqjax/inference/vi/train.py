@@ -229,7 +229,7 @@ class DefaultTracker:
     checkpoint_samples: list[tuple[float, ArrayTree]]
     train_phase_start_time: float
 
-    def __init__(self, record_interval: int = 5, metric_samples: int = 100) -> None:
+    def __init__(self, record_interval: int = 100, metric_samples: int = 100) -> None:
         self.record_interval = record_interval
         self.metric_samples = metric_samples
         self.elapsed_time_s = 0.0

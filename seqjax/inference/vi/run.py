@@ -15,7 +15,30 @@ import equinox as eqx
 import jaxtyping
 import jax.random as jrandom
 from functools import partial
-from dataclasses import field
+from dataclasses import dataclass, field
+
+
+@dataclass
+class LongContextEmbedder(eqx.Module):
+    label: str = field(init=False, default="short-window")
+    prev_window: int = field(init=False, default=10)
+    post_window: int = field(init=False, default=10)
+
+
+@dataclass
+class ShortContextEmbedder(eqx.Module):
+    label: str = field(init=False, default="short-window")
+    prev_window: int = field(init=False, default=2)
+    post_window: int = field(init=False, default=2)
+
+
+@dataclass
+class BiRNNEmbedder(eqx.Module):
+    label: str = field(init=False, default="bi-rnn")
+    hidden_dim: int = field(init=False, default=2)
+
+
+Embedder = ShortContextEmbedder | LongContextEmbedder
 
 
 class FullVIConfig(eqx.Module):
@@ -24,8 +47,7 @@ class FullVIConfig(eqx.Module):
     parameter_field_bijections: dict[str, str | transformations.Bijector] = field(
         default_factory=dict
     )
-    prev_window: int = 3
-    post_window: int = 3
+    embedder: Embedder = ShortContextEmbedder()
     observations_per_step: int = 10
     samples_per_context: int = 5
 
@@ -52,14 +74,13 @@ class BufferedVIConfig(eqx.Module):
     parameter_field_bijections: dict[str, str] = field(default_factory=dict)
     buffer_length: int = 15
     batch_length: int = 10
-    prev_window: int = 3
-    post_window: int = 3
     observations_per_step: int = 10
     samples_per_context: int = 5
     nn_width: int = 20
     nn_depth: int = 2
     control_variate: bool = False
     pre_training_steps: int = 0
+    embedder: Embedder = ShortContextEmbedder()
 
 
 @inference_method
@@ -98,6 +119,7 @@ def run_full_path_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
+    approximation_key, embedding_key = jrandom.split(key)
 
     target_param_class = target_posterior.inference_parameter_cls
     target_latent_class = target_posterior.target.particle_cls
@@ -118,9 +140,22 @@ def run_full_path_vi[
             field_bijections=field_bijections,
         ),
     )
-    embed = embedder.WindowEmbedder(
-        sequence_length, config.prev_window, config.post_window, y_dim
-    )
+    if isinstance(config.embedder, ShortContextEmbedder) or isinstance(
+        config.embedder, LongContextEmbedder
+    ):
+        embed = embedder.WindowEmbedder(
+            sequence_length,
+            config.embedder.prev_window,
+            config.embedder.post_window,
+            y_dim,
+        )
+
+    elif isinstance(config.embedder, BiRNNEmbedder):
+        embed = embedder.RNNEmbedder(
+            config.embedder.hidden_dim,
+            y_dim,
+            key=embedding_key,
+        )
 
     latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
         target_latent_class,
@@ -131,7 +166,7 @@ def run_full_path_vi[
         lag_order=1,
         nn_width=10,
         nn_depth=2,
-        key=jrandom.key(10),
+        key=approximation_key,
     )
 
     approximation: base.SSMVariationalApproximation = base.FullAutoregressiveVI(
@@ -210,7 +245,7 @@ def run_buffered_vi[
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
 
-    key, subkey = jrandom.split(key)
+    approximation_key, embedding_key = jrandom.split(key)
 
     target_param_class = target_posterior.inference_parameter_cls
     target_latent_class = target_posterior.target.particle_cls
@@ -227,9 +262,22 @@ def run_buffered_vi[
         ),
     )
 
-    embed = embedder.WindowEmbedder(
-        sequence_length, config.prev_window, config.post_window, y_dim
-    )
+    if isinstance(config.embedder, ShortContextEmbedder) or isinstance(
+        config.embedder, LongContextEmbedder
+    ):
+        embed = embedder.WindowEmbedder(
+            sequence_length,
+            config.embedder.prev_window,
+            config.embedder.post_window,
+            y_dim,
+        )
+
+    elif isinstance(config.embedder, BiRNNEmbedder):
+        embed = embedder.RNNEmbedder(
+            config.embedder.hidden_dim,
+            y_dim,
+            key=embedding_key,
+        )
 
     latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
         target_latent_class,
@@ -240,7 +288,7 @@ def run_buffered_vi[
         lag_order=1,
         nn_width=config.nn_width,
         nn_depth=config.nn_depth,
-        key=jrandom.key(10),
+        key=approximation_key,
     )
 
     approximation: base.SSMVariationalApproximation = base.BufferedSSMVI(
