@@ -11,7 +11,6 @@ import jax.numpy as jnp
 from seqjax.model.base import BayesianSequentialModel
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import inference_method
-import equinox as eqx
 import jaxtyping
 import jax.random as jrandom
 from functools import partial
@@ -19,21 +18,21 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class LongContextEmbedder(eqx.Module):
-    label: str = field(init=False, default="short-window")
+class LongContextEmbedder:
+    label: str = field(init=False, default="long-window")
     prev_window: int = field(init=False, default=10)
     post_window: int = field(init=False, default=10)
 
 
 @dataclass
-class ShortContextEmbedder(eqx.Module):
+class ShortContextEmbedder:
     label: str = field(init=False, default="short-window")
     prev_window: int = field(init=False, default=2)
     post_window: int = field(init=False, default=2)
 
 
 @dataclass
-class BiRNNEmbedder(eqx.Module):
+class BiRNNEmbedder:
     label: str = field(init=False, default="bi-rnn")
     hidden_dim: int = field(init=False, default=2)
 
@@ -41,9 +40,33 @@ class BiRNNEmbedder(eqx.Module):
 Embedder = ShortContextEmbedder | LongContextEmbedder
 
 
-class FullVIConfig(eqx.Module):
-    learning_rate: float = 1e-2
-    opt_steps: int = 5000
+@dataclass
+class CosineOpt:
+    label: str = field(init=False, default="cosine-sched")
+    warmup_steps: int = 1000
+    peak_lr: float = 1e-2
+    total_steps: int = 10_000
+
+    def __repr__(self) -> str:
+        return f"{self.label}({self.peak_lr:.0e},{self.warmup_steps})"
+
+
+@dataclass
+class AdamOpt:
+    label: str = field(init=False, default="adam-plain")
+    lr: float = 1e-3
+    total_steps: int = 10_000
+
+    def __repr__(self) -> str:
+        return f"{self.label}({self.lr:.0e})"
+
+
+OptConfig = CosineOpt | AdamOpt
+
+
+@dataclass
+class FullVIConfig:
+    optimization: OptConfig = field(default_factory=AdamOpt)
     parameter_field_bijections: dict[str, str | transformations.Bijector] = field(
         default_factory=dict
     )
@@ -68,9 +91,9 @@ configured_bijections: dict[str, typing.Callable[[], transformations.Bijector]] 
 }
 
 
-class BufferedVIConfig(eqx.Module):
-    learning_rate: float = 1e-2
-    opt_steps: int = 5000
+@dataclass
+class BufferedVIConfig:
+    optimization: OptConfig = field(default_factory=AdamOpt)
     parameter_field_bijections: dict[str, str] = field(default_factory=dict)
     buffer_length: int = 15
     batch_length: int = 10
@@ -298,9 +321,23 @@ def run_buffered_vi[
         control_variate=config.control_variate,
     )
 
-    optim = optax.apply_if_finite(
-        optax.adam(config.learning_rate), max_consecutive_errors=100
-    )
+    if isinstance(config.optimization, AdamOpt):
+        optim = optax.apply_if_finite(
+            optax.adam(config.optimization.lr), max_consecutive_errors=100
+        )
+    elif isinstance(config.optimization, CosineOpt):
+        schedule = optax.warmup_cosine_decay_schedule(
+            init_value=config.optimization.peak_lr * 0.01,
+            peak_value=config.optimization.peak_lr,
+            warmup_steps=config.optimization.warmup_steps,
+            decay_steps=config.optimization.total_steps
+            - config.optimization.warmup_steps,
+            end_value=config.optimization.peak_lr * 0.001,
+        )
+
+        optim = optax.apply_if_finite(
+            optax.adam(learning_rate=schedule), max_consecutive_errors=100
+        )
 
     run_tracker = train.DefaultTracker()
 
@@ -326,7 +363,7 @@ def run_buffered_vi[
         key=key,
         optim=optim,
         target=target_posterior,
-        num_steps=config.opt_steps,
+        num_steps=config.optimization.total_steps,
         run_tracker=run_tracker,
         observations_per_step=config.observations_per_step,
         samples_per_context=config.samples_per_context,
