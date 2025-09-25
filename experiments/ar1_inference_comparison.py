@@ -225,7 +225,6 @@ class ARResultProcessor:
         ax = fig.add_axes((0.1, 0.1, 0.9, 0.9))
         az.plot_autocorr(asdict(param_samples), ax=ax)
         plt.title(f"{experiment_shorthand} autocorrelation")
-        plt.tight_layout()
         run.log({"autocorrelation": wandb.Image(fig)})
         plt.close(fig)
 
