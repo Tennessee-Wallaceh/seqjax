@@ -43,12 +43,14 @@ Embedder = ShortContextEmbedder | LongContextEmbedder
 @dataclass
 class CosineOpt:
     label: str = field(init=False, default="cosine-sched")
-    warmup_steps: int = 1000
+    warmup_steps: int = 0
+    decay_steps: int = 5000
     peak_lr: float = 1e-2
+    end_lr: float = 1e-5
     total_steps: int = 10_000
 
     def __repr__(self) -> str:
-        return f"{self.label}({self.peak_lr:.0e},{self.warmup_steps})"
+        return f"{self.label}({self.peak_lr:.0e},{self.end_lr:.0e},{self.warmup_steps},{self.decay_steps})"
 
 
 @dataclass
@@ -327,12 +329,11 @@ def run_buffered_vi[
         )
     elif isinstance(config.optimization, CosineOpt):
         schedule = optax.warmup_cosine_decay_schedule(
-            init_value=config.optimization.peak_lr * 0.01,
+            init_value=config.optimization.peak_lr,
             peak_value=config.optimization.peak_lr,
             warmup_steps=config.optimization.warmup_steps,
-            decay_steps=config.optimization.total_steps
-            - config.optimization.warmup_steps,
-            end_value=config.optimization.peak_lr * 0.001,
+            decay_steps=config.optimization.decay_steps,
+            end_value=config.optimization.end_lr,
         )
 
         optim = optax.apply_if_finite(
