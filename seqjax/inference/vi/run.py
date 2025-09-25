@@ -47,7 +47,7 @@ class FullVIConfig(eqx.Module):
     parameter_field_bijections: dict[str, str | transformations.Bijector] = field(
         default_factory=dict
     )
-    embedder: Embedder = ShortContextEmbedder()
+    embedder: Embedder = field(default_factory=ShortContextEmbedder)
     observations_per_step: int = 10
     samples_per_context: int = 5
 
@@ -80,7 +80,7 @@ class BufferedVIConfig(eqx.Module):
     nn_depth: int = 2
     control_variate: bool = False
     pre_training_steps: int = 0
-    embedder: Embedder = ShortContextEmbedder()
+    embedder: Embedder = field(default_factory=ShortContextEmbedder)
 
 
 @inference_method
