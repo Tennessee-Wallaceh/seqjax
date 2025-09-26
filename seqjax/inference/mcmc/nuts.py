@@ -108,7 +108,7 @@ def run_bayesian_nuts[
         initial_latents, _, _, _ = simulate(
             latent_key,
             target_posterior.target,
-            None,
+            condition_path,
             target_posterior.target_parameter(initial_parameters),
             pytree_shape(observation_path)[0][0],
         )
