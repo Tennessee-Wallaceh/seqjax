@@ -5,7 +5,7 @@ import polars as pl  # type: ignore[import-not-found]
 import numpy as np
 import os
 from seqjax.model.typing import Packable
-from seqjax.model.registry import DataConfig
+from seqjax.model.registry import DataConfig, condition_generators
 from seqjax.model import simulate
 import jax.random as jrandom
 
@@ -19,6 +19,7 @@ class WandbRun(Protocol):
     def log_artifact(self, artifact: wandb.Artifact) -> None: ...
 
     def use_artifact(self, artifact_name: str) -> wandb.Artifact: ...
+
 
 SEQJAX_DATA_DIR = "../"
 
@@ -131,38 +132,50 @@ def load_packable_artifact_all(
 
 def get_remote_data(run: WandbRun, data_config: DataConfig):
     artifact_name = data_config.dataset_name
+    condition = None
 
     if not packable_artifact_present(run, artifact_name):
         print(f"{artifact_name} not present on remote, generating...")
         data_key = jrandom.PRNGKey(data_config.seed)
+
+        if data_config.target_model_label in condition_generators:
+            condition = condition_generators[data_config.target_model_label](
+                data_config.sequence_length
+            )
+
         x_path, y_path, _, _ = simulate.simulate(
             data_key,
             data_config.target,
-            None,
+            condition,
             data_config.generative_parameters,  # needs params
             sequence_length=data_config.sequence_length,
         )
 
         print(f"saving {artifact_name} on remote...")
-        save_packable_artifact(
-            run,
-            artifact_name,
-            "dataset",
-            [
-                ("x_path", x_path, {}),
-                ("y_path", y_path, {}),
-            ],
-        )
-        return x_path, y_path
+        to_save = [
+            ("x_path", x_path, {}),
+            ("y_path", y_path, {}),
+        ]
+        if condition is not None:
+            to_save.append(
+                ("condition", condition, {}),
+            )
+        save_packable_artifact(run, artifact_name, "dataset", to_save)
+        return x_path, y_path, condition
 
     print(f"{artifact_name} present on remote, downloading...")
-    (x_path, _), (y_path, _) = load_packable_artifact(
-        run,
-        artifact_name,
-        [
-            ("x_path", data_config.target.particle_cls),
-            ("y_path", data_config.target.observation_cls),
-        ],
-    )
+    to_load = [
+        ("x_path", data_config.target.particle_cls),
+        ("y_path", data_config.target.observation_cls),
+    ]
+    if data_config.target_model_label in condition_generators:
+        to_load.append(("condition", data_config.target.condition_cls))
 
-    return x_path, y_path
+    loaded = load_packable_artifact(run, artifact_name, to_load)
+
+    if data_config.target_model_label in condition_generators:
+        (x_path, _), (y_path, _), (condition, _) = loaded
+    else:
+        (x_path, _), (y_path, _) = loaded
+
+    return x_path, y_path, condition

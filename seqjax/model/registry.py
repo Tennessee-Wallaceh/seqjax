@@ -74,9 +74,9 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
     },
     "double_well": {
         "base": double_well.DoubleWellParams(
-            energy_barrier=jnp.array(0.5),
-            observation_std=jnp.array(1.0),
-            transition_std=jnp.array(0.5),
+            energy_barrier=jnp.array(2.0),
+            observation_std=jnp.array(0.2),
+            transition_std=jnp.array(1.0),
         ),
     },
     "simple_stochastic_vol": {
@@ -93,7 +93,7 @@ ConditionGenerator = typing.Callable[[int], typing.Any]
 # Optional mapping of model labels to callables that generate condition
 # sequences for simulations and likelihood evaluations.
 condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
-    "double_well": partial(double_well.make_unit_time_increments, dt=1.0),
+    "double_well": partial(double_well.make_unit_time_increments, dt=0.1),
     "simple_stochastic_vol": partial(
         stochastic_vol.make_constant_time_increments,
         dt=1.0 / (256 * 8),

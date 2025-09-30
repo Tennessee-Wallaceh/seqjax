@@ -153,6 +153,7 @@ class SequentialModel[
     particle_cls: type[ParticleT]
     observation_cls: type[ObservationT]
     parameter_cls: type[ParametersT]
+    condition_cls: type[ConditionT]
     prior: Prior[InitialParticleT, ConditionHistoryT, ParametersT]
     transition: Transition[
         ParticleT, TransitionParticleHistoryT, ConditionT, ParametersT

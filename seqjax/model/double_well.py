@@ -234,6 +234,7 @@ class DoubleWellTarget(
     particle_cls = LatentValue
     observation_cls = NoisyObservation
     parameter_cls = DoubleWellParams
+    condition_cls = TimeIncrement
     prior = InitialValue()
     transition = DoubleWellWalk()
     emission = NoisyEmission()

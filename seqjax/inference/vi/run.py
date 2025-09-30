@@ -200,9 +200,23 @@ def run_full_path_vi[
         embed,
     )
 
-    optim = optax.apply_if_finite(
-        optax.adam(config.learning_rate), max_consecutive_errors=100
-    )
+    if isinstance(config.optimization, AdamOpt):
+        optim = optax.apply_if_finite(
+            optax.adam(config.optimization.lr), max_consecutive_errors=100
+        )
+    elif isinstance(config.optimization, CosineOpt):
+        schedule = optax.warmup_cosine_decay_schedule(
+            init_value=config.optimization.peak_lr,
+            peak_value=config.optimization.peak_lr,
+            warmup_steps=config.optimization.warmup_steps,
+            decay_steps=config.optimization.decay_steps,
+            end_value=config.optimization.end_lr,
+        )
+
+        optim = optax.apply_if_finite(
+            optax.adam(learning_rate=schedule), max_consecutive_errors=100
+        )
+
     run_tracker = train.DefaultTracker()
     fitted_approximation = train.train(
         model=approximation,
@@ -211,7 +225,7 @@ def run_full_path_vi[
         key=key,
         optim=optim,
         target=target_posterior,
-        num_steps=config.opt_steps,
+        num_steps=config.optimization.total_steps,
         run_tracker=run_tracker,
         observations_per_step=config.observations_per_step,
         samples_per_context=config.samples_per_context,

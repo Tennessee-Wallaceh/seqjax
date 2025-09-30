@@ -239,6 +239,7 @@ class AR1Target(
     particle_cls = LatentValue
     observation_cls = NoisyEmission
     parameter_cls = ARParameters
+    condition_cls = None
     prior = InitialValue()
     transition = ARRandomWalk()
     emission = AREmission()
