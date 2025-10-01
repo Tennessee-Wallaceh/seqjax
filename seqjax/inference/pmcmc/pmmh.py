@@ -1,3 +1,4 @@
+import functools
 import typing
 import time
 
@@ -20,6 +21,10 @@ from seqjax.inference.mcmc.metropolis import (
 )
 from seqjax.inference.interface import inference_method
 from seqjax import util
+from .tuning import (
+    ParticleFilterTuningConfig,
+    tune_particle_filter_variance,
+)
 
 
 class ParticleMCMCConfig(
@@ -30,6 +35,67 @@ class ParticleMCMCConfig(
     particle_filter: SMCSampler
     mcmc: RandomWalkConfig = RandomWalkConfig()
     initial_parameter_guesses: int = 10
+    tuning: ParticleFilterTuningConfig | None = None
+
+
+def _make_log_joint_estimator[
+    ParticleT: seqjtyping.Particle,
+    InitialParticleT: tuple[seqjtyping.Particle, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ObservationT: seqjtyping.Observation,
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
+    target_posterior: BayesianSequentialModel[
+        ParticleT,
+        InitialParticleT,
+        TransitionParticleHistoryT,
+        ObservationParticleHistoryT,
+        ObservationT,
+        ObservationHistoryT,
+        ConditionHistoryT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
+    ],
+    hyperparameters: HyperParametersT,
+    observation_path: ObservationT,
+    condition_path: ConditionT | None,
+):
+    def estimate_log_joint(
+        particle_filter: SMCSampler[
+            ParticleT,
+            InitialParticleT,
+            TransitionParticleHistoryT,
+            ObservationParticleHistoryT,
+            ObservationT,
+            ObservationHistoryT,
+            ConditionHistoryT,
+            ConditionT,
+            ParametersT,
+        ],
+        params: InferenceParametersT,
+        key: PRNGKeyArray,
+    ) -> jaxtyping.Array:
+        model_params = target_posterior.target_parameter(params)
+        _, _, (log_marginal_increments,) = run_filter(
+            particle_filter,
+            key,
+            model_params,
+            observation_path,
+            condition_path,
+            recorders=(log_marginal,),
+        )
+        log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
+        return jnp.sum(log_marginal_increments) + log_prior
+
+    return estimate_log_joint
 
 
 @inference_method
@@ -68,27 +134,38 @@ def run_particle_mcmc[
 ) -> tuple[InferenceParametersT, tuple[jaxtyping.Array]]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
-    def estimate_log_joint(
-        params: InferenceParametersT, key: PRNGKeyArray
-    ) -> jaxtyping.Array:
-        model_params = target_posterior.target_parameter(params)
-        _, _, (log_marginal_increments,) = run_filter(
+    estimate_log_joint = _make_log_joint_estimator(
+        target_posterior, hyperparameters, observation_path, condition_path
+    )
+
+    tuning_diagnostics = None
+    working_config = config
+    if config.tuning is not None:
+        key, tuning_key = jrandom.split(key)
+        tuned_filter, tuning_diagnostics = tune_particle_filter_variance(
+            estimate_log_joint,
             config.particle_filter,
-            key,
-            model_params,
-            observation_path,
-            condition_path,
-            recorders=(log_marginal,),
+            target_posterior,
+            hyperparameters,
+            config.tuning,
+            tuning_key,
         )
-        log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
-        return jnp.sum(log_marginal_increments) + log_prior
+        working_config = eqx.tree_at(
+            lambda c: c.particle_filter,
+            config,
+            tuned_filter,
+        )
+
+    particle_filter = working_config.particle_filter
+    log_joint_fn = functools.partial(estimate_log_joint, particle_filter)
+    jit_log_joint_fn = jax.jit(log_joint_fn)
 
     init_time_start = time.time()
     init_key, sample_key = jrandom.split(key)
     initial_parameter_samples = jax.vmap(
         target_posterior.parameter_prior.sample, in_axes=[0, None]
     )(jrandom.split(init_key, config.initial_parameter_guesses), hyperparameters)
-    parameter_init_marginals = jax.vmap(jax.jit(estimate_log_joint), in_axes=[0, None])(
+    parameter_init_marginals = jax.vmap(jit_log_joint_fn, in_axes=[0, None])(
         initial_parameter_samples,
         key,
     )
@@ -106,7 +183,7 @@ def run_particle_mcmc[
     samples = typing.cast(
         InferenceParametersT,
         run_random_walk_metropolis(
-            jax.jit(estimate_log_joint),
+            jit_log_joint_fn,
             sample_key,
             initial_parameters,
             config=config.mcmc,
@@ -119,4 +196,8 @@ def run_particle_mcmc[
         jnp.arange(test_samples) * (sample_time_s / test_samples)
     )
 
-    return samples, (time_array_s,)
+    diagnostics: list[typing.Any] = [time_array_s]
+    if tuning_diagnostics is not None:
+        diagnostics.append(tuning_diagnostics)
+
+    return samples, tuple(diagnostics)
