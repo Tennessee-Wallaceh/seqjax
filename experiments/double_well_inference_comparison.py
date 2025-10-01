@@ -1,13 +1,12 @@
 import matplotlib.pyplot as plt
 import jax
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 import jax.numpy as jnp
-import jax.random as jrandom
 import arviz as az
 import wandb
 import polars as pl
-from typing import Protocol
 
+from experiments.core import ExperimentConfig, ResultProcessor, run_experiment
 from seqjax import util
 from seqjax.model import registry as model_registry
 
@@ -33,31 +32,6 @@ def cumulative_quantiles_masked(samples, quantiles):
 
     return jax.vmap(compute_row)(full_samples, mask)
 
-
-class ResultProcessor(Protocol):
-    def process(
-        self,
-        run,
-        config,
-        param_samples,
-        extra_data,
-        x_path,
-        y_path,
-    ) -> None: ...
-
-
-@dataclass
-class ExperimentConfig:
-    data_config: model_registry.DataConfig
-    test_samples: int
-    fit_seed: int
-    inference: inference_registry.InferenceConfig
-
-    @property
-    def posterior_factory(self) -> model_registry.PosteriorFactory:
-        return self.data_config.posterior_factory
-
-
 class DoubleWellResultProcessor:
     def process(
         self,
@@ -67,6 +41,7 @@ class DoubleWellResultProcessor:
         extra_data,
         x_path,
         y_path,
+        condition=None,
     ) -> None:
         experiment_shorthand = (
             f"{experiment_config.inference.name} "
@@ -498,77 +473,6 @@ class DoubleWellResultProcessor:
         if rows is None:
             return pl.DataFrame()
         return pl.DataFrame(rows)
-
-
-def process_results(
-    run,
-    experiment_config,
-    param_samples,
-    extra_data,
-    x_path,
-    y_path,
-    result_processor: ResultProcessor | None,
-):
-    if result_processor is None:
-        return
-    result_processor.process(
-        run, experiment_config, param_samples, extra_data, x_path, y_path
-    )
-
-
-def run_experiment(
-    experiment_name: str,
-    experiment_config: ExperimentConfig,
-    result_processor: ResultProcessor | None = None,
-):
-    # track run data
-    config_dict = asdict(experiment_config)
-
-    wandb_run = wandb.init(
-        project=experiment_name,
-        config={
-            **config_dict,
-            "inference_name": experiment_config.inference.name,
-        },  # force inference name into config
-    )
-
-    # define target model
-    target_params = experiment_config.data_config.generative_parameters
-    model = experiment_config.posterior_factory(target_params)
-
-    # get target data
-    x_path, y_path, condition = io.get_remote_data(
-        wandb_run, experiment_config.data_config
-    )
-
-    # inference init
-    inference = inference_registry.build_inference(experiment_config.inference)
-
-    param_samples, extra_data = inference(
-        model,
-        hyperparameters=None,
-        key=jrandom.key(experiment_config.fit_seed),
-        observation_path=y_path,
-        condition_path=condition,
-        test_samples=experiment_config.test_samples,
-        config=experiment_config.inference.config,
-    )
-
-    process_results(
-        wandb_run,
-        experiment_config,
-        param_samples,
-        extra_data,
-        x_path,
-        y_path,
-        result_processor,
-    )
-
-    wandb_run.finish()
-
-    return (param_samples, extra_data, x_path, y_path)
-
-
 """
 Select inference methods to run
 """
