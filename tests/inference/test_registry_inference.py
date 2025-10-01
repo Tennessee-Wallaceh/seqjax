@@ -56,8 +56,7 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
     ),
     "buffer-vi": (
         vi.BufferedVIConfig(
-            learning_rate=1e-2,
-            opt_steps=2,
+            optimization=vi.run.AdamOpt(lr=1e-2, total_steps=2),
             buffer_length=2,
             batch_length=4,
             parameter_field_bijections={"ar": "sigmoid"},
@@ -72,11 +71,8 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
     ),
     "full-vi": (
         vi.FullVIConfig(
-            learning_rate=1e-2,
-            opt_steps=2,
+            optimization=vi.run.AdamOpt(lr=1e-2, total_steps=2),
             parameter_field_bijections={"ar": "sigmoid"},
-            prev_window=1,
-            post_window=1,
             observations_per_step=1,
             samples_per_context=1,
         ),
