@@ -37,7 +37,7 @@ class BiRNNEmbedder:
     hidden_dim: int = field(init=False, default=2)
 
 
-Embedder = ShortContextEmbedder | LongContextEmbedder
+Embedder = ShortContextEmbedder | LongContextEmbedder | BiRNNEmbedder
 
 
 @dataclass
