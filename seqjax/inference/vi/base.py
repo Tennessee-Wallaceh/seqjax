@@ -21,6 +21,14 @@ from seqjax.model.evaluate import buffered_log_p_joint
 from seqjax.model.base import BayesianSequentialModel
 
 
+def _ensure_prng_key(key: jaxtyping.PRNGKeyArray) -> jaxtyping.PRNGKeyArray:
+    """Convert legacy uint32 keys to typed JAX keys for FlowJax."""
+
+    if hasattr(key, "dtype") and getattr(key, "shape", ()) == (2,) and key.dtype == jnp.dtype("uint32"):
+        return jrandom.wrap_key_data(jnp.asarray(key, dtype=jnp.uint32))
+    return key
+
+
 class VariationalApproximation[
     TargetStructT: seqjtyping.Packable,
     ConditionT,
@@ -121,8 +129,9 @@ class MaskedAutoregressiveFlow[
         if transformer is None:
             transformer = Affine()
 
+        flow_key = _ensure_prng_key(key)
         self.flow = FlowjaxMAF(
-            key,
+            flow_key,
             transformer=transformer,
             dim=dim,
             nn_width=nn_width,
@@ -135,7 +144,8 @@ class MaskedAutoregressiveFlow[
         self.distribution = distribution
 
     def sample_and_log_prob(self, key, condition=None):
-        flat_sample = self.distribution.sample(key)
+        flow_key = _ensure_prng_key(key)
+        flat_sample = self.distribution.sample(flow_key)
         log_q = self.distribution.log_prob(flat_sample)
         return self.target_struct_cls.unravel(flat_sample), log_q
 
@@ -172,6 +182,132 @@ class MaskedAutoregressiveFlowFactory[
             base_scale=self._base_scale,
             transformer=self._transformer,
         )
+
+
+class AmortizedMaskedAutoregressiveFlow[
+    TargetStructT: seqjtyping.Packable,
+](AmortizedVariationalApproximation[TargetStructT]):
+    """Conditional masked autoregressive flow over buffered latent paths."""
+
+    target_struct_cls: type[TargetStructT]
+    base_distribution: FlowjaxNormal
+    flow: FlowjaxMAF
+    distribution: FlowjaxTransformed
+    conditioner: eqx.nn.MLP
+    _flat_sample_dim: int = eqx.field(static=True)
+    _condition_input_dim: int = eqx.field(static=True)
+    _condition_dim: int = eqx.field(static=True)
+    _parameter_dim: int = eqx.field(static=True)
+    _context_dim: int = eqx.field(static=True)
+
+    def __init__(
+        self,
+        target_struct_cls: type[TargetStructT],
+        *,
+        buffer_length: int,
+        batch_length: int,
+        context_dim: int,
+        parameter_dim: int,
+        key: jaxtyping.PRNGKeyArray,
+        nn_width: int,
+        nn_depth: int,
+        conditioner_width: int,
+        conditioner_depth: int,
+        conditioner_out_dim: int,
+        base_loc: jaxtyping.Array | float = 0.0,
+        base_scale: jaxtyping.Array | float = 1.0,
+        transformer: AbstractBijection | None = None,
+    ) -> None:
+        sample_length = 2 * buffer_length + batch_length
+        shape = (sample_length, target_struct_cls.flat_dim)
+        super().__init__(
+            target_struct_cls,
+            shape=shape,
+            batch_length=batch_length,
+            buffer_length=buffer_length,
+        )
+        self.target_struct_cls = target_struct_cls
+        flat_sample_dim = sample_length * target_struct_cls.flat_dim
+        self._flat_sample_dim = flat_sample_dim
+        self._parameter_dim = parameter_dim
+        self._context_dim = context_dim
+
+        if transformer is None:
+            transformer = Affine()
+
+        loc = jnp.broadcast_to(jnp.asarray(base_loc), (flat_sample_dim,))
+        scale = jnp.broadcast_to(jnp.asarray(base_scale), (flat_sample_dim,))
+        self.base_distribution = FlowjaxNormal(loc, scale)
+
+        cond_input_dim = sample_length * (parameter_dim + context_dim)
+        if cond_input_dim <= 0:
+            raise ValueError("Conditioner input dimension must be positive")
+
+        key = _ensure_prng_key(key)
+        cond_key, flow_key = jrandom.split(key)
+        self.conditioner = eqx.nn.MLP(
+            in_size=cond_input_dim,
+            out_size=conditioner_out_dim,
+            width_size=conditioner_width,
+            depth=conditioner_depth,
+            key=cond_key,
+        )
+        self._condition_input_dim = cond_input_dim
+        self._condition_dim = conditioner_out_dim
+
+        self.flow = FlowjaxMAF(
+            flow_key,
+            transformer=transformer,
+            dim=flat_sample_dim,
+            cond_dim=conditioner_out_dim,
+            nn_width=nn_width,
+            nn_depth=nn_depth,
+        )
+        distribution = typing.cast(
+            FlowjaxTransformed,
+            FlowjaxTransformed(self.base_distribution, self.flow),  # type: ignore[arg-type, call-arg]
+        )
+        self.distribution = distribution
+
+    def _build_condition(
+        self,
+        theta_context: jaxtyping.Array,
+        observation_context: jaxtyping.Array,
+    ) -> jaxtyping.Array:
+        sample_length = self.shape[0]
+        theta_flat = jnp.ravel(theta_context)
+        obs_flat = jnp.ravel(observation_context)
+
+        expected_theta = sample_length * self._parameter_dim
+        expected_obs = sample_length * self._context_dim
+
+        if theta_flat.size < expected_theta or obs_flat.size < expected_obs:
+            raise ValueError(
+                "Condition tensors shorter than required for flow conditioning"
+            )
+
+        theta_features = theta_flat[:expected_theta]
+        observation_features = obs_flat[:expected_obs]
+        conditioning_input = jnp.concatenate(
+            [theta_features, observation_features], axis=0
+        )
+        return self.conditioner(conditioning_input)
+
+    def sample_and_log_prob(
+        self,
+        key: jaxtyping.PRNGKeyArray,
+        condition: tuple[jaxtyping.Array, jaxtyping.Array],
+    ) -> tuple[TargetStructT, jaxtyping.Scalar]:
+        theta_context, observation_context = condition
+        cond = self._build_condition(theta_context, observation_context)
+        flow_key = _ensure_prng_key(key)
+        flat_sample = self.distribution.sample(flow_key, condition=cond)
+        log_q = self.distribution.log_prob(flat_sample, condition=cond)
+        reshaped_sample = jnp.reshape(flat_sample, self.shape)
+        latent_sample = typing.cast(
+            TargetStructT, self.target_struct_cls.unravel(reshaped_sample)
+        )
+        return latent_sample, log_q
 
 
 def buffer_params(
@@ -620,9 +756,12 @@ class BufferedSSMVI[
             x_path, y_batch, c_batch, target_posterior.target_parameter(buffered_theta)
         )
 
-        neg_elbo = (log_q_theta - log_p_theta) + latent_scaling * jnp.sum(
-            log_q_x_path - log_p_y_x_path, axis=-1
-        )
+        if log_q_x_path.ndim == log_p_y_x_path.ndim:
+            latent_terms = jnp.sum(log_q_x_path - log_p_y_x_path, axis=-1)
+        else:
+            latent_terms = log_q_x_path - jnp.sum(log_p_y_x_path, axis=-1)
+
+        neg_elbo = (log_q_theta - log_p_theta) + latent_scaling * latent_terms
 
         return jnp.mean(neg_elbo)
 
@@ -693,6 +832,9 @@ class BufferedSSMVI[
             x_path, y_batch, c_batch, target_posterior.target_parameter(buffered_theta)
         )
 
-        neg_elbo = jnp.sum(log_q_x_path - log_p_y_x_path, axis=-1)
+        if log_q_x_path.ndim == log_p_y_x_path.ndim:
+            neg_elbo = jnp.sum(log_q_x_path - log_p_y_x_path, axis=-1)
+        else:
+            neg_elbo = log_q_x_path - jnp.sum(log_p_y_x_path, axis=-1)
 
         return jnp.mean(neg_elbo)

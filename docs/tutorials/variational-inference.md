@@ -20,7 +20,7 @@ import jax.random as jrandom
 from seqjax import simulate
 from seqjax.model.ar import AR1Target, ARParameters, AR1Bayesian
 
-key = jrandom.key(0)
+key = jrandom.PRNGKey(0)
 true_parameters = ARParameters(
     ar=jnp.array(0.7),
     observation_std=jnp.array(0.6),
@@ -50,18 +50,19 @@ bijection so that the AR coefficient remains in $(-1, 1)$ and reduces the
 network width to speed up the demonstration run.
 
 ```python
-from seqjax.inference.vi import BufferedVIConfig
+from seqjax.inference.vi import BufferedVIConfig, run
 
 vi_config = BufferedVIConfig(
-    learning_rate=5e-3,
-    opt_steps=500,
+    optimization=run.AdamOpt(lr=5e-3, total_steps=500),
     buffer_length=20,
     batch_length=30,
     parameter_field_bijections={"ar": "sigmoid"},
     observations_per_step=5,
     samples_per_context=5,
-    nn_width=16,
-    nn_depth=2,
+    latent_approximation=run.AutoregressiveLatentApproximation(
+        nn_width=16,
+        nn_depth=2,
+    ),
 )
 ```
 
@@ -83,7 +84,7 @@ from seqjax.inference.vi import run_buffered_vi
 parameter_samples, (buffer_start, latent_posterior, tracker) = run_buffered_vi(
     target_posterior=posterior,
     hyperparameters=None,
-    key=jrandom.key(1),
+    key=jrandom.PRNGKey(1),
     observation_path=observations,
     condition_path=None,
     test_samples=500,
