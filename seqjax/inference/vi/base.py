@@ -10,6 +10,9 @@ import jax.numpy as jnp
 import jax
 from jax.nn import softplus
 import jax.random as jrandom
+from flowjax.bijections import Affine, AbstractBijection
+from flowjax.bijections.masked_autoregressive import MaskedAutoregressive as FlowjaxMAF
+from flowjax.distributions import Normal as FlowjaxNormal, Transformed as FlowjaxTransformed
 
 
 import seqjax.model.typing as seqjtyping
@@ -82,6 +85,93 @@ class MeanField[TargetStructT: seqjtyping.Packable](
         x = z * scale + self.loc
         log_q_x = jstats.norm.logpdf(x, loc=self.loc, scale=scale)
         return self.target_struct_cls.unravel(x), jnp.sum(log_q_x)
+
+
+class MaskedAutoregressiveFlow[
+    TargetStructT: seqjtyping.Packable,
+](
+    UnconditionalVariationalApproximation[TargetStructT]
+):
+    """Masked autoregressive flow over the flattened parameter space."""
+
+    target_struct_cls: type[TargetStructT]
+    base_distribution: FlowjaxNormal
+    flow: FlowjaxMAF
+    distribution: FlowjaxTransformed
+
+    def __init__(
+        self,
+        target_struct_cls: type[TargetStructT],
+        *,
+        key: jaxtyping.PRNGKeyArray,
+        nn_width: int,
+        nn_depth: int,
+        base_loc: jaxtyping.Array | float = 0.0,
+        base_scale: jaxtyping.Array | float = 1.0,
+        transformer: AbstractBijection | None = None,
+    ) -> None:
+        super().__init__(target_struct_cls, shape=(target_struct_cls.flat_dim,))
+        self.target_struct_cls = target_struct_cls
+        dim = target_struct_cls.flat_dim
+
+        loc = jnp.broadcast_to(jnp.asarray(base_loc), (dim,))
+        scale = jnp.broadcast_to(jnp.asarray(base_scale), (dim,))
+        self.base_distribution = FlowjaxNormal(loc, scale)
+
+        if transformer is None:
+            transformer = Affine()
+
+        self.flow = FlowjaxMAF(
+            key,
+            transformer=transformer,
+            dim=dim,
+            nn_width=nn_width,
+            nn_depth=nn_depth,
+        )
+        distribution = typing.cast(
+            FlowjaxTransformed,
+            FlowjaxTransformed(self.base_distribution, self.flow),  # type: ignore[arg-type, call-arg]
+        )
+        self.distribution = distribution
+
+    def sample_and_log_prob(self, key, condition=None):
+        flat_sample = self.distribution.sample(key)
+        log_q = self.distribution.log_prob(flat_sample)
+        return self.target_struct_cls.unravel(flat_sample), log_q
+
+
+class MaskedAutoregressiveFlowFactory[
+    TargetStructT: seqjtyping.Packable
+](VariationalApproximationFactory[TargetStructT, None]):
+    def __init__(
+        self,
+        *,
+        key: jaxtyping.PRNGKeyArray,
+        nn_width: int,
+        nn_depth: int,
+        base_loc: jaxtyping.Array | float = 0.0,
+        base_scale: jaxtyping.Array | float = 1.0,
+        transformer: AbstractBijection | None = None,
+    ) -> None:
+        self._key = key
+        self._nn_width = nn_width
+        self._nn_depth = nn_depth
+        self._base_loc = base_loc
+        self._base_scale = base_scale
+        self._transformer = transformer
+
+    def __call__(
+        self, target_struct_cls: type[TargetStructT]
+    ) -> MaskedAutoregressiveFlow[TargetStructT]:
+        return MaskedAutoregressiveFlow(
+            target_struct_cls,
+            key=self._key,
+            nn_width=self._nn_width,
+            nn_depth=self._nn_depth,
+            base_loc=self._base_loc,
+            base_scale=self._base_scale,
+            transformer=self._transformer,
+        )
 
 
 def buffer_params(
