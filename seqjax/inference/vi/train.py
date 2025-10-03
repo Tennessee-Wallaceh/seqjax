@@ -97,8 +97,8 @@ TargetModelT = BayesianSequentialModel[
     HyperParametersT,
 ]
 
-TrainableModuleT = TypeVar("TrainableModuleT", bound=eqx.Module)
-StaticModuleT = TypeVar("StaticModuleT", bound=eqx.Module)
+TrainableModuleT = TypeVar("TrainableModuleT", bound=SSMVariationalApproximation)
+StaticModuleT = TypeVar("StaticModuleT", bound=SSMVariationalApproximation)
 OptStateT = TypeVar("OptStateT")
 
 LoggedArray = jaxtyping.Float[jaxtyping.Array, "..."]

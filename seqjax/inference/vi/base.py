@@ -38,7 +38,9 @@ class VariationalApproximation[
 
 class AmortizedVariationalApproximation[
     TargetStructT: seqjtyping.Packable,
-](VariationalApproximation[TargetStructT, tuple[jaxtyping.Array, jaxtyping.Array]]): ...
+](VariationalApproximation[TargetStructT, tuple[jaxtyping.Array, jaxtyping.Array]]):
+    batch_length: int
+    buffer_length: int
 
 
 class UnconditionalVariationalApproximation[

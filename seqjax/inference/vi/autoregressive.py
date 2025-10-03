@@ -143,20 +143,22 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     def __init__(
         self,
         target_struct_cls,
-        *,
-        buffer_length: int,
         batch_length: int,
+        buffer_length: int,
         context_dim: int,
         parameter_dim: int,
         lag_order: int,
     ) -> None:
         sample_length = 2 * buffer_length + batch_length
-        super().__init__(target_struct_cls, (sample_length, target_struct_cls.flat_dim))
+        super().__init__(
+            target_struct_cls,
+            (sample_length, target_struct_cls.flat_dim),
+            batch_length,
+            buffer_length,
+        )
         self.context_dim = context_dim
         self.parameter_dim = parameter_dim
         self.lag_order = lag_order
-        self.buffer_length = buffer_length
-        self.batch_length = batch_length
 
     def conditional(
         self,
