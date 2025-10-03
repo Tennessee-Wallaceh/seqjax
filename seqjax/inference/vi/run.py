@@ -41,6 +41,23 @@ Embedder = ShortContextEmbedder | LongContextEmbedder | BiRNNEmbedder
 
 
 @dataclass
+class MeanFieldParameterApproximation:
+    label: str = field(init=False, default="mean-field")
+
+
+@dataclass
+class MaskedAutoregressiveParameterApproximation:
+    label: str = field(init=False, default="maf")
+    nn_width: int = 32
+    nn_depth: int = 2
+
+
+ParameterApproximation = (
+    MeanFieldParameterApproximation | MaskedAutoregressiveParameterApproximation
+)
+
+
+@dataclass
 class CosineOpt:
     label: str = field(init=False, default="cosine-sched")
     warmup_steps: int = 0
@@ -75,6 +92,9 @@ class FullVIConfig:
     embedder: Embedder = field(default_factory=ShortContextEmbedder)
     observations_per_step: int = 10
     samples_per_context: int = 5
+    parameter_approximation: ParameterApproximation = field(
+        default_factory=MeanFieldParameterApproximation
+    )
 
 
 def get_interval_spline():
@@ -93,6 +113,40 @@ configured_bijections: dict[str, typing.Callable[[], transformations.Bijector]] 
 }
 
 
+def _build_parameter_approximation[
+    ParametersT: seqjtyping.Parameters,
+](
+    target_struct_cls: type[ParametersT],
+    approximation: ParameterApproximation,
+    field_bijections: dict[str, transformations.Bijector],
+    *,
+    key: jaxtyping.PRNGKeyArray,
+) -> base.UnconditionalVariationalApproximation[ParametersT]:
+    constraint_factory = partial(
+        transformations.FieldwiseBijector,
+        field_bijections=field_bijections,
+    )
+
+    if isinstance(approximation, MeanFieldParameterApproximation):
+        base_factory: base.VariationalApproximationFactory[ParametersT, None] = base.MeanField
+    elif isinstance(approximation, MaskedAutoregressiveParameterApproximation):
+        base_factory = base.MaskedAutoregressiveFlowFactory[
+            ParametersT
+        ](
+            key=key,
+            nn_width=approximation.nn_width,
+            nn_depth=approximation.nn_depth,
+        )
+    else:  # pragma: no cover
+        raise ValueError(f"Unsupported parameter approximation: {approximation}")
+
+    return transformed.transform_approximation(
+        target_struct_class=target_struct_cls,
+        base=base_factory,
+        constraint=constraint_factory,
+    )
+
+
 @dataclass
 class BufferedVIConfig:
     optimization: OptConfig = field(default_factory=AdamOpt)
@@ -106,6 +160,9 @@ class BufferedVIConfig:
     control_variate: bool = False
     pre_training_steps: int = 0
     embedder: Embedder = field(default_factory=ShortContextEmbedder)
+    parameter_approximation: ParameterApproximation = field(
+        default_factory=MeanFieldParameterApproximation
+    )
 
 
 @inference_method
@@ -144,7 +201,7 @@ def run_full_path_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
-    approximation_key, embedding_key = jrandom.split(key)
+    parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
 
     target_param_class = target_posterior.inference_parameter_cls
     target_latent_class = target_posterior.target.particle_cls
@@ -157,13 +214,11 @@ def run_full_path_vi[
         else:
             field_bijections[parameter_field] = bijection
 
-    parameter_approximation = transformed.transform_approximation(
-        target_struct_class=target_param_class,
-        base=base.MeanField,
-        constraint=partial(
-            transformations.FieldwiseBijector,
-            field_bijections=field_bijections,
-        ),
+    parameter_approximation = _build_parameter_approximation(
+        target_param_class,
+        config.parameter_approximation,
+        field_bijections,
+        key=parameter_key,
     )
 
     embed: embedder.Embedder
@@ -288,21 +343,21 @@ def run_buffered_vi[
     sequence_length = observation_path.batch_shape[0]
     y_dim = observation_path.flat_dim
 
-    approximation_key, embedding_key = jrandom.split(key)
+    parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
 
     target_param_class = target_posterior.inference_parameter_cls
     target_latent_class = target_posterior.target.particle_cls
 
-    parameter_approximation = transformed.transform_approximation(
-        target_struct_class=target_param_class,
-        base=base.MeanField,
-        constraint=partial(
-            transformations.FieldwiseBijector,
-            field_bijections={
-                field: configured_bijections[bijection_label]()
-                for field, bijection_label in config.parameter_field_bijections.items()
-            },
-        ),
+    parameter_field_bijections = {
+        field: configured_bijections[bijection_label]()
+        for field, bijection_label in config.parameter_field_bijections.items()
+    }
+
+    parameter_approximation = _build_parameter_approximation(
+        target_param_class,
+        config.parameter_approximation,
+        parameter_field_bijections,
+        key=parameter_key,
     )
 
     embed: embedder.Embedder
