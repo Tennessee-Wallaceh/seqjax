@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from typing import Any, Protocol
+import typing
 
 import polars as pl  # type: ignore[import-not-found]
 import numpy as np
@@ -152,7 +153,7 @@ def get_remote_data(run: WandbRun, data_config: DataConfig):
         )
 
         print(f"saving {artifact_name} on remote...")
-        to_save = [
+        to_save: typing.Any = [
             ("x_path", x_path, {}),
             ("y_path", y_path, {}),
         ]

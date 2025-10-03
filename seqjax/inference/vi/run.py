@@ -165,6 +165,8 @@ def run_full_path_vi[
             field_bijections=field_bijections,
         ),
     )
+
+    embed: embedder.Embedder
     if isinstance(config.embedder, ShortContextEmbedder) or isinstance(
         config.embedder, LongContextEmbedder
     ):
@@ -181,6 +183,8 @@ def run_full_path_vi[
             y_dim,
             key=embedding_key,
         )
+    else:
+        raise ValueError(f"Unknown embedder type: {config.embedder}")
 
     latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
         target_latent_class,
@@ -301,6 +305,7 @@ def run_buffered_vi[
         ),
     )
 
+    embed: embedder.Embedder
     if isinstance(config.embedder, ShortContextEmbedder) or isinstance(
         config.embedder, LongContextEmbedder
     ):
@@ -317,6 +322,8 @@ def run_buffered_vi[
             y_dim,
             key=embedding_key,
         )
+    else:
+        raise ValueError(f"Unknown embedder type: {config.embedder}")
 
     latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
         target_latent_class,
