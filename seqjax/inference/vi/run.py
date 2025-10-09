@@ -34,7 +34,7 @@ class ShortContextEmbedder:
 @dataclass
 class BiRNNEmbedder:
     label: str = field(init=False, default="bi-rnn")
-    hidden_dim: int = field(init=False, default=2)
+    hidden_dim: int = field(init=False, default=5)
 
 
 Embedder = ShortContextEmbedder | LongContextEmbedder | BiRNNEmbedder
@@ -95,6 +95,7 @@ class FullVIConfig:
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
     )
+    num_tracker_steps: int = 100
 
 
 def get_interval_spline():
@@ -128,16 +129,16 @@ def _build_parameter_approximation[
     )
 
     if isinstance(approximation, MeanFieldParameterApproximation):
-        base_factory: base.VariationalApproximationFactory[ParametersT, None] = base.MeanField
+        base_factory: base.VariationalApproximationFactory[ParametersT, None] = (
+            base.MeanField
+        )
     elif isinstance(approximation, MaskedAutoregressiveParameterApproximation):
-        base_factory = base.MaskedAutoregressiveFlowFactory[
-            ParametersT
-        ](
+        base_factory = base.MaskedAutoregressiveFlowFactory[ParametersT](
             key=key,
             nn_width=approximation.nn_width,
             nn_depth=approximation.nn_depth,
         )
-    else:  # pragma: no cover
+    else:
         raise ValueError(f"Unsupported parameter approximation: {approximation}")
 
     return transformed.transform_approximation(
@@ -163,6 +164,7 @@ class BufferedVIConfig:
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
     )
+    num_tracker_steps: int = 100
 
 
 @inference_method
@@ -276,7 +278,10 @@ def run_full_path_vi[
             optax.adam(learning_rate=schedule), max_consecutive_errors=100
         )
 
-    run_tracker = train.DefaultTracker()
+    run_tracker = train.DefaultTracker(
+        record_interval=int(config.optimization.total_steps / config.num_tracker_steps),
+        metric_samples=test_samples,
+    )
     fitted_approximation = train.train(
         model=approximation,
         observations=observation_path,
@@ -416,7 +421,10 @@ def run_buffered_vi[
             optax.adam(learning_rate=schedule), max_consecutive_errors=100
         )
 
-    run_tracker = train.DefaultTracker()
+    run_tracker = train.DefaultTracker(
+        record_interval=int(config.optimization.total_steps / config.num_tracker_steps),
+        metric_samples=test_samples,
+    )
 
     if config.pre_training_steps > 0:
         approximation = train.train(
