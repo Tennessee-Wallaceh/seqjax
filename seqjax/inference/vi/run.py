@@ -58,6 +58,31 @@ ParameterApproximation = (
 
 
 @dataclass
+class AutoregressiveLatentApproximation:
+    label: str = field(init=False, default="autoregressive")
+    nn_width: int = 20
+    nn_depth: int = 2
+    lag_order: int = 1
+
+
+@dataclass
+class MaskedAutoregressiveFlowLatentApproximation:
+    label: str = field(init=False, default="masked-autoregressive-flow")
+    nn_width: int = 20
+    nn_depth: int = 2
+    conditioner_width: int = 32
+    conditioner_depth: int = 2
+    conditioner_out_dim: int = 32
+    base_loc: float = 0.0
+    base_scale: float = 1.0
+
+
+LatentApproximation = (
+    AutoregressiveLatentApproximation | MaskedAutoregressiveFlowLatentApproximation
+)
+
+
+@dataclass
 class CosineOpt:
     label: str = field(init=False, default="cosine-sched")
     warmup_steps: int = 0
@@ -156,13 +181,14 @@ class BufferedVIConfig:
     batch_length: int = 10
     observations_per_step: int = 10
     samples_per_context: int = 5
-    nn_width: int = 20
-    nn_depth: int = 2
     control_variate: bool = False
     pre_training_steps: int = 0
     embedder: Embedder = field(default_factory=ShortContextEmbedder)
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
+    )
+    latent_approximation: LatentApproximation = field(
+        default_factory=AutoregressiveLatentApproximation
     )
     num_tracker_steps: int = 100
 
@@ -385,17 +411,40 @@ def run_buffered_vi[
     else:
         raise ValueError(f"Unknown embedder type: {config.embedder}")
 
-    latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
-        target_latent_class,
-        buffer_length=config.buffer_length,
-        batch_length=config.batch_length,
-        context_dim=embed.context_dimension,
-        parameter_dim=target_param_class.flat_dim,
-        lag_order=1,
-        nn_width=config.nn_width,
-        nn_depth=config.nn_depth,
-        key=approximation_key,
-    )
+    latent_config = config.latent_approximation
+    latent_approximation: base.AmortizedVariationalApproximation[ParticleT]
+    if isinstance(latent_config, AutoregressiveLatentApproximation):
+        latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
+            target_latent_class,
+            buffer_length=config.buffer_length,
+            batch_length=config.batch_length,
+            context_dim=embed.context_dimension,
+            parameter_dim=target_param_class.flat_dim,
+            lag_order=latent_config.lag_order,
+            nn_width=latent_config.nn_width,
+            nn_depth=latent_config.nn_depth,
+            key=approximation_key,
+        )
+    elif isinstance(latent_config, MaskedAutoregressiveFlowLatentApproximation):
+        latent_approximation = base.AmortizedMaskedAutoregressiveFlow(
+            target_latent_class,
+            buffer_length=config.buffer_length,
+            batch_length=config.batch_length,
+            context_dim=embed.context_dimension,
+            parameter_dim=target_param_class.flat_dim,
+            key=approximation_key,
+            nn_width=latent_config.nn_width,
+            nn_depth=latent_config.nn_depth,
+            conditioner_width=latent_config.conditioner_width,
+            conditioner_depth=latent_config.conditioner_depth,
+            conditioner_out_dim=latent_config.conditioner_out_dim,
+            base_loc=latent_config.base_loc,
+            base_scale=latent_config.base_scale,
+        )
+    else:  # pragma: no cover
+        raise ValueError(
+            f"Unknown latent approximation configuration: {latent_config!r}"
+        )
 
     approximation: base.SSMVariationalApproximation = base.BufferedSSMVI(
         latent_approximation,
