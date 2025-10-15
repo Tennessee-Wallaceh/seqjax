@@ -1,4 +1,5 @@
 """Shared experiment harness utilities."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -74,20 +75,16 @@ def run_experiment(
 
     config_dict = asdict(experiment_config)
 
-    wandb_run = wandb.init(
-        project=experiment_name,
-        config={
-            **config_dict,
-            "inference_name": experiment_config.inference.name,
-        },
-    )
+    data_wandb_run = wandb.init(project=experiment_name)
 
     target_params = experiment_config.data_config.generative_parameters
     model = experiment_config.posterior_factory(target_params)
 
     x_path, y_path, condition = io.get_remote_data(
-        wandb_run, experiment_config.data_config
+        data_wandb_run, experiment_config.data_config
     )
+
+    data_wandb_run.finish()
 
     inference = inference_registry.build_inference(experiment_config.inference)
 
@@ -101,6 +98,13 @@ def run_experiment(
         config=experiment_config.inference.config,
     )
 
+    wandb_run = wandb.init(
+        project=experiment_name,
+        config={
+            **config_dict,
+            "inference_name": experiment_config.inference.name,
+        },
+    )
     process_results(
         wandb_run,
         experiment_config,
