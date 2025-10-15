@@ -221,21 +221,46 @@ def sample_theta_qs(
     )
 
 
-class DefaultTracker:
-    record_interval: int
+class DefaultTracker[StaticModuleT, TrainableModuleT]:
     metric_samples: int
     elapsed_time_s: float
     update_rows: list[TrackerLogRow]
     checkpoint_samples: list[tuple[float, ArrayTree]]
     train_phase_start_time: float
+    end_trigger: Callable[[int, float], bool]
+    record_trigger: Callable[[int, float], bool]
+    custom_record_fcns: list[
+        Callable[
+            [
+                TrackerLogRow,
+                StaticModuleT,
+                TrainableModuleT,
+                int,
+                jaxtyping.Scalar,
+            ],
+            tuple[list[str], list[LoggedValue]],
+        ]
+    ]
 
-    def __init__(self, record_interval: int = 100, metric_samples: int = 100) -> None:
-        self.record_interval = record_interval
-        self.metric_samples = metric_samples
+    def __init__(
+        self,
+        metric_samples: int = 100,
+        end_trigger=None,
+        record_trigger=None,
+        custom_record_fcns=None,
+    ) -> None:
         self.elapsed_time_s = 0.0
         self.update_rows = []
         self.checkpoint_samples = []
         self.train_phase_start_time = 0.0
+        self.metric_samples = metric_samples
+
+        # configure triggers and custom record functions
+        self.end_trigger = end_trigger or (lambda step, elapsed_time_s: False)
+        self.record_trigger = record_trigger or (
+            lambda step, elapsed_time_s: step % 100 == 0
+        )
+        self.custom_record_fcns = custom_record_fcns or []
 
     def start_run(self) -> None:
         self.train_phase_start_time = time.time()
@@ -248,8 +273,12 @@ class DefaultTracker:
         loss: jaxtyping.Scalar,
         key: jaxtyping.PRNGKeyArray,
         loop: _ProgressIterator,
+        force_record: bool = False,
     ) -> None:
-        if (opt_step + 1) % self.record_interval == 0:
+        _elapsed_time_s = (
+            self.elapsed_time_s + time.time() - self.train_phase_start_time
+        )
+        if force_record or self.record_trigger(opt_step, _elapsed_time_s):
             jax.device_get(loss)  # sync
 
             # increment elapsed time by the time of this train phase
@@ -259,9 +288,12 @@ class DefaultTracker:
                 "step": int(opt_step + 1),
                 "loss": float(loss),
                 "elapsed_time_s": self.elapsed_time_s,
-                # "phase_time_s": elapsed_time_s - time_offset,
-                # "loss_label": loss_label,
             }
+            for fcn in self.custom_record_fcns:
+                labels, values = fcn(update, static, trainable, opt_step, loss, key)
+
+                for label, value in zip(labels, values):
+                    update[label] = value
 
             qs, means, theta = sample_theta_qs(
                 static, trainable, key, self.metric_samples
@@ -281,6 +313,8 @@ class DefaultTracker:
 
             # start the train phase timer
             self.train_phase_start_time = time.time()
+
+        return self.end_trigger(opt_step, _elapsed_time_s)
 
 
 def train(
@@ -381,8 +415,16 @@ def train(
             trainable, static, opt_state, observations, conditions, step_keys[opt_step]
         )
 
-        run_tracker.track_step(
+        end_run = run_tracker.track_step(
             static, trainable, opt_step, loss, step_keys[opt_step], loop
         )
+        if end_run:
+            print("Early stopping triggered.")
+            break
+
+    # add final record
+    run_tracker.track_step(
+        static, _trainable, opt_step + 1, loss, step_keys[0], loop, force_record=True
+    )
 
     return typing.cast(SSMApproximationT, eqx.combine(static, trainable))

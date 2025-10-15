@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from seqjax.model.base import BayesianSequentialModel
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import inference_method
+
 import jaxtyping
 import jax.random as jrandom
 from functools import partial
@@ -90,6 +91,7 @@ class CosineOpt:
     peak_lr: float = 1e-2
     end_lr: float = 1e-5
     total_steps: int = 10_000
+    time_limit_s: int | None = None
 
     def __repr__(self) -> str:
         return f"{self.label}({self.peak_lr:.0e},{self.end_lr:.0e},{self.warmup_steps},{self.decay_steps})"
@@ -100,6 +102,7 @@ class AdamOpt:
     label: str = field(init=False, default="adam-plain")
     lr: float = 1e-3
     total_steps: int = 10_000
+    time_limit_s: int | None = None
 
     def __repr__(self) -> str:
         return f"{self.label}({self.lr:.0e})"
@@ -193,6 +196,130 @@ class BufferedVIConfig:
     num_tracker_steps: int = 100
 
 
+def build_approximation(
+    config: FullVIConfig | BufferedVIConfig,
+    sequence_length: int,
+    target_posterior: BayesianSequentialModel,
+    key: jaxtyping.PRNGKeyArray,
+) -> base.SSMVariationalApproximation:
+    parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
+
+    target_observation_class = target_posterior.target.observation_cls
+    target_param_class = target_posterior.inference_parameter_cls
+    target_latent_class = target_posterior.target.particle_cls
+
+    # handle parameter constrainsts with specified constraint transforms
+    field_bijections = {}
+    for parameter_field, bijection in config.parameter_field_bijections.items():
+        if isinstance(bijection, str):
+            field_bijections[parameter_field] = configured_bijections[bijection]()
+        else:
+            field_bijections[parameter_field] = bijection
+
+    parameter_approximation = _build_parameter_approximation(
+        target_param_class,
+        config.parameter_approximation,
+        field_bijections,
+        key=parameter_key,
+    )
+
+    embed: embedder.Embedder
+    if isinstance(config.embedder, ShortContextEmbedder) or isinstance(
+        config.embedder, LongContextEmbedder
+    ):
+        embed = embedder.WindowEmbedder(
+            sequence_length,
+            config.embedder.prev_window,
+            config.embedder.post_window,
+            target_observation_class.flat_dim,
+        )
+
+    elif isinstance(config.embedder, BiRNNEmbedder):
+        embed = embedder.RNNEmbedder(
+            config.embedder.hidden_dim,
+            target_observation_class.flat_dim,
+            key=embedding_key,
+        )
+    else:
+        raise ValueError(f"Unknown embedder type: {config.embedder}")
+
+    if isinstance(config, FullVIConfig):
+        latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
+            target_latent_class,
+            buffer_length=0,
+            batch_length=sequence_length,
+            context_dim=embed.context_dimension + 1,  # just location
+            parameter_dim=target_param_class.flat_dim,
+            lag_order=1,
+            nn_width=10,
+            nn_depth=2,
+            key=approximation_key,
+        )
+
+        approximation: base.SSMVariationalApproximation = base.FullAutoregressiveVI(
+            latent_approximation,
+            parameter_approximation,
+            embed,
+        )
+
+    elif isinstance(config, BufferedVIConfig):
+        latent_config = config.latent_approximation
+        latent_approximation: base.AmortizedVariationalApproximation
+
+        if isinstance(latent_config, AutoregressiveLatentApproximation):
+            latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
+                target_latent_class,
+                buffer_length=config.buffer_length,
+                batch_length=config.batch_length,
+                context_dim=embed.context_dimension,
+                parameter_dim=target_param_class.flat_dim,
+                lag_order=latent_config.lag_order,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                key=approximation_key,
+            )
+        elif isinstance(latent_config, MaskedAutoregressiveFlowLatentApproximation):
+            latent_approximation = base.AmortizedMaskedAutoregressiveFlow(
+                target_latent_class,
+                buffer_length=config.buffer_length,
+                batch_length=config.batch_length,
+                context_dim=embed.context_dimension,
+                parameter_dim=target_param_class.flat_dim,
+                key=approximation_key,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                conditioner_width=latent_config.conditioner_width,
+                conditioner_depth=latent_config.conditioner_depth,
+                conditioner_out_dim=latent_config.conditioner_out_dim,
+                base_loc=latent_config.base_loc,
+                base_scale=latent_config.base_scale,
+            )
+        else:  # pragma: no cover
+            raise ValueError(
+                f"Unknown latent approximation configuration: {latent_config!r}"
+            )
+        approximation: base.SSMVariationalApproximation = base.BufferedSSMVI(
+            latent_approximation,
+            parameter_approximation,
+            embed,
+            control_variate=config.control_variate,
+        )
+    return approximation
+
+
+def make_record_trigger(interval_seconds: int):
+    last_trigger = [-1]
+
+    def trigger(step, elapsed_time):
+        current = int(elapsed_time) // interval_seconds
+        if current != last_trigger[0]:
+            last_trigger[0] = current
+            return True
+        return False
+
+    return trigger
+
+
 @inference_method
 def run_full_path_vi[
     ParticleT: seqjtyping.Particle,
@@ -228,63 +355,12 @@ def run_full_path_vi[
     config: FullVIConfig = FullVIConfig(),
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
-    y_dim = observation_path.flat_dim
-    parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
 
-    target_param_class = target_posterior.inference_parameter_cls
-    target_latent_class = target_posterior.target.particle_cls
-
-    # handle parameter constrainsts with specified constraint transforms
-    field_bijections = {}
-    for parameter_field, bijection in config.parameter_field_bijections.items():
-        if isinstance(bijection, str):
-            field_bijections[parameter_field] = configured_bijections[bijection]()
-        else:
-            field_bijections[parameter_field] = bijection
-
-    parameter_approximation = _build_parameter_approximation(
-        target_param_class,
-        config.parameter_approximation,
-        field_bijections,
-        key=parameter_key,
-    )
-
-    embed: embedder.Embedder
-    if isinstance(config.embedder, ShortContextEmbedder) or isinstance(
-        config.embedder, LongContextEmbedder
-    ):
-        embed = embedder.WindowEmbedder(
-            sequence_length,
-            config.embedder.prev_window,
-            config.embedder.post_window,
-            y_dim,
-        )
-
-    elif isinstance(config.embedder, BiRNNEmbedder):
-        embed = embedder.RNNEmbedder(
-            config.embedder.hidden_dim,
-            y_dim,
-            key=embedding_key,
-        )
-    else:
-        raise ValueError(f"Unknown embedder type: {config.embedder}")
-
-    latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
-        target_latent_class,
-        buffer_length=0,
-        batch_length=sequence_length,
-        context_dim=embed.context_dimension + 1,  # just location
-        parameter_dim=target_param_class.flat_dim,
-        lag_order=1,
-        nn_width=10,
-        nn_depth=2,
-        key=approximation_key,
-    )
-
-    approximation: base.SSMVariationalApproximation = base.FullAutoregressiveVI(
-        latent_approximation,
-        parameter_approximation,
-        embed,
+    approximation = build_approximation(
+        config,
+        sequence_length,
+        target_posterior,
+        key,
     )
 
     if isinstance(config.optimization, AdamOpt):
@@ -304,8 +380,17 @@ def run_full_path_vi[
             optax.adam(learning_rate=schedule), max_consecutive_errors=100
         )
 
+    if config.optimization.time_limit_s is not None:
+
+        def end_trigger(step, elapsed_time_s):
+            return elapsed_time_s >= config.optimization.time_limit_s
+
+    else:
+        end_trigger = None
+
     run_tracker = train.DefaultTracker(
-        record_interval=int(config.optimization.total_steps / config.num_tracker_steps),
+        record_trigger=make_record_trigger(60),
+        end_trigger=end_trigger,
         metric_samples=test_samples,
     )
     fitted_approximation = train.train(
@@ -372,85 +457,12 @@ def run_buffered_vi[
     config: BufferedVIConfig = BufferedVIConfig(),
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
-    y_dim = observation_path.flat_dim
 
-    parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
-
-    target_param_class = target_posterior.inference_parameter_cls
-    target_latent_class = target_posterior.target.particle_cls
-
-    parameter_field_bijections = {
-        field: configured_bijections[bijection_label]()
-        for field, bijection_label in config.parameter_field_bijections.items()
-    }
-
-    parameter_approximation = _build_parameter_approximation(
-        target_param_class,
-        config.parameter_approximation,
-        parameter_field_bijections,
-        key=parameter_key,
-    )
-
-    embed: embedder.Embedder
-    if isinstance(config.embedder, ShortContextEmbedder) or isinstance(
-        config.embedder, LongContextEmbedder
-    ):
-        embed = embedder.WindowEmbedder(
-            sequence_length,
-            config.embedder.prev_window,
-            config.embedder.post_window,
-            y_dim,
-        )
-
-    elif isinstance(config.embedder, BiRNNEmbedder):
-        embed = embedder.RNNEmbedder(
-            config.embedder.hidden_dim,
-            y_dim,
-            key=embedding_key,
-        )
-    else:
-        raise ValueError(f"Unknown embedder type: {config.embedder}")
-
-    latent_config = config.latent_approximation
-    latent_approximation: base.AmortizedVariationalApproximation[ParticleT]
-    if isinstance(latent_config, AutoregressiveLatentApproximation):
-        latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
-            target_latent_class,
-            buffer_length=config.buffer_length,
-            batch_length=config.batch_length,
-            context_dim=embed.context_dimension,
-            parameter_dim=target_param_class.flat_dim,
-            lag_order=latent_config.lag_order,
-            nn_width=latent_config.nn_width,
-            nn_depth=latent_config.nn_depth,
-            key=approximation_key,
-        )
-    elif isinstance(latent_config, MaskedAutoregressiveFlowLatentApproximation):
-        latent_approximation = base.AmortizedMaskedAutoregressiveFlow(
-            target_latent_class,
-            buffer_length=config.buffer_length,
-            batch_length=config.batch_length,
-            context_dim=embed.context_dimension,
-            parameter_dim=target_param_class.flat_dim,
-            key=approximation_key,
-            nn_width=latent_config.nn_width,
-            nn_depth=latent_config.nn_depth,
-            conditioner_width=latent_config.conditioner_width,
-            conditioner_depth=latent_config.conditioner_depth,
-            conditioner_out_dim=latent_config.conditioner_out_dim,
-            base_loc=latent_config.base_loc,
-            base_scale=latent_config.base_scale,
-        )
-    else:  # pragma: no cover
-        raise ValueError(
-            f"Unknown latent approximation configuration: {latent_config!r}"
-        )
-
-    approximation: base.SSMVariationalApproximation = base.BufferedSSMVI(
-        latent_approximation,
-        parameter_approximation,
-        embed,
-        control_variate=config.control_variate,
+    approximation = build_approximation(
+        config,
+        sequence_length,
+        target_posterior,
+        key,
     )
 
     if isinstance(config.optimization, AdamOpt):
@@ -470,9 +482,18 @@ def run_buffered_vi[
             optax.adam(learning_rate=schedule), max_consecutive_errors=100
         )
 
+    if config.optimization.time_limit_s is not None:
+
+        def end_trigger(step, elapsed_time_s):
+            return elapsed_time_s >= config.optimization.time_limit_s
+
+    else:
+        end_trigger = None
+
     run_tracker = train.DefaultTracker(
-        record_interval=int(config.optimization.total_steps / config.num_tracker_steps),
+        record_trigger=make_record_trigger(60),
         metric_samples=test_samples,
+        end_trigger=end_trigger,
     )
 
     if config.pre_training_steps > 0:

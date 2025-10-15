@@ -2,6 +2,8 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 import typing
 
+import equinox as eqx
+
 import polars as pl  # type: ignore[import-not-found]
 import numpy as np
 import os
@@ -70,6 +72,37 @@ def save_packable_artifact(
         df.write_parquet(file_loc, metadata=normalize_parquet_metadata(metadata))
         artifact.add_file(local_path=file_loc)
     run.log_artifact(artifact)
+
+
+def save_model_artifact(
+    run: WandbRun,
+    artifact_name: str,
+    wandb_type: str,
+    model: eqx.Module,
+):
+    artifact = wandb.Artifact(name=artifact_name, type=wandb_type)
+    file_loc = f"{SEQJAX_DATA_DIR}/{artifact_name}.eqx"
+
+    with open(file_loc, "wb") as f:
+        eqx.tree_serialise_leaves(f, model)
+
+    artifact.add_file(local_path=file_loc)
+    run.log_artifact(artifact)
+
+
+def load_model_artifact(
+    run: WandbRun,
+    artifact_name: str,
+    model: eqx.Module,
+) -> eqx.Module:
+    artifact = run.use_artifact(f"{artifact_name}:latest")
+    artifact_dir = artifact.download()
+    file_path = os.path.join(artifact_dir, f"{artifact_name}.eqx")
+
+    with open(file_path, "rb") as f:
+        model = eqx.tree_deserialise_leaves(f, like=model)
+
+    return model
 
 
 def packable_artifact_present(
