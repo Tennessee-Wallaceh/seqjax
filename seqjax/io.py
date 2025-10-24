@@ -19,9 +19,14 @@ import wandb.errors
 class WandbRun(Protocol):
     """Subset of the :mod:`wandb` run API used by this module."""
 
+    name: str
+    project: str
+
     def log_artifact(self, artifact: wandb.Artifact) -> None: ...
 
     def use_artifact(self, artifact_name: str) -> wandb.Artifact: ...
+
+    def finish(self) -> None: ...
 
 
 SEQJAX_DATA_DIR = "../"
