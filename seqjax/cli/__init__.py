@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, is_dataclass, replace
-from pathlib import Path
 from typing import Any, Callable, List, cast
 
 import typer
@@ -109,46 +108,6 @@ DEFAULT_INFERENCE_BUILDERS: dict[str, InferenceBuilder] = {
 }
 
 
-def _load_inference_config(
-    method: str, config_path: Path | None
-) -> inference_registry.InferenceConfig:
-    canonical = _resolve_inference_label(method)
-    if config_path is None:
-        builder = DEFAULT_INFERENCE_BUILDERS.get(canonical)
-        if builder is None:
-            available = ", ".join(sorted(DEFAULT_INFERENCE_BUILDERS))
-            raise typer.BadParameter(
-                "No default configuration is available for "
-                f"'{canonical}'. Provide --inference-config. "
-                f"Defaults exist for: {available}."
-            )
-        return builder()
-
-    try:
-        raw_text = config_path.read_text()
-    except OSError as exc:  # pragma: no cover - exercised indirectly
-        raise typer.BadParameter(f"Could not read config file: {exc}") from exc
-
-    try:
-        loaded = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
-        raise typer.BadParameter(
-            f"Invalid JSON in config file '{config_path}': {exc}"
-        ) from exc
-
-    if "method" not in loaded:
-        loaded = {"method": canonical, "config": loaded}
-    else:
-        file_method = _resolve_inference_label(str(loaded["method"]))
-        if file_method != canonical:
-            raise typer.BadParameter(
-                "Inference method mismatch between CLI selection and config file "
-                f"('{canonical}' vs '{loaded['method']}')."
-            )
-
-    return inference_registry.from_dict(loaded)
-
-
 @app.command("list-models")
 def list_models() -> None:
     """Display registered models and their parameter presets."""
@@ -178,8 +137,10 @@ def show_config(method: str) -> None:
     canonical = _resolve_inference_label(method)
     builder = DEFAULT_INFERENCE_BUILDERS.get(canonical)
     if builder is None:
+        available = ", ".join(sorted(DEFAULT_INFERENCE_BUILDERS))
+        suffix = f" Defaults exist for: {available}." if available else ""
         raise typer.BadParameter(
-            f"No default configuration for '{canonical}'. Provide a config file."
+            f"No default configuration for '{canonical}'.{suffix}"
         )
 
     config = builder()
@@ -199,17 +160,6 @@ def run(
     data_seed: int = typer.Option(..., "--data-seed", help="Seed for data simulation."),
     fit_seed: int = typer.Option(..., "--fit-seed", help="Seed for inference."),
     inference_method: str = typer.Option(..., "--inference", help="Inference method."),
-    inference_config: Path | None = typer.Option(
-        None,
-        "--inference-config",
-        "-i",
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        resolve_path=True,
-        help="JSON file describing the inference configuration.",
-    ),
     test_samples: int = typer.Option(
         1000, "--test-samples", min=1, help="Number of posterior samples to draw."
     ),
@@ -249,7 +199,16 @@ def run(
         seed=data_seed,
     )
 
-    inference_config_obj = _load_inference_config(canonical_inference, inference_config)
+    builder = DEFAULT_INFERENCE_BUILDERS.get(canonical_inference)
+    if builder is None:
+        available = ", ".join(sorted(DEFAULT_INFERENCE_BUILDERS))
+        suffix = f" Defaults exist for: {available}." if available else ""
+        raise typer.BadParameter(
+            "No default configuration is available for "
+            f"'{canonical_inference}'.{suffix}"
+        )
+
+    inference_config_obj = builder()
 
     if code_tokens:
         if inference_config_obj.method == "buffer-vi":
