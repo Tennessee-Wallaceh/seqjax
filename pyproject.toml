@@ -30,6 +30,7 @@ dependencies = [
     "jax_tqdm",
     "tqdm",
     "wandb",
+    "typer>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,9 @@ markers = [
 [tool.hatch.build]
 include = ["seqjax/*", "seqjax/py.typed"]
 
+[project.scripts]
+seqjax = "seqjax.cli:main"
+
 [tool.ruff]
 extend-exclude = ["sketch.ipynb", "notebooks/*"]
 
@@ -72,6 +76,13 @@ mypy_path = "stubs"
 [[tool.mypy.overrides]]
 module = [
 "seqjax.experiments.*",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+"seqjax.inference.*",
+"seqjax.io",
 ]
 ignore_errors = true
 
