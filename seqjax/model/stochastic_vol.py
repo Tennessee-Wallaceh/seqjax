@@ -158,6 +158,49 @@ class StochVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         return std_log_vol_lpdf + base_log_lpdf + mean_reversion_lpdf
 
 
+class SkewStochVolParamPrior(ParameterPrior[LogVolWithSkew, HyperParameters]):
+    @staticmethod
+    def _base_parameters(parameters: LogVolWithSkew) -> LogVolRW:
+        return LogVolRW(
+            std_log_vol=parameters.std_log_vol,
+            mean_reversion=parameters.mean_reversion,
+            long_term_vol=parameters.long_term_vol,
+        )
+
+    @staticmethod
+    def sample(key: PRNGKeyArray, hyperparameters: HyperParameters) -> LogVolWithSkew:
+        base_key, skew_key = jrandom.split(key)
+        base_parameters = StochVolParamPrior.sample(base_key, hyperparameters)
+
+        skew = jrandom.uniform(
+            skew_key,
+            shape=(),
+            minval=jnp.array(-1.0, dtype=jnp.float32),
+            maxval=jnp.array(1.0, dtype=jnp.float32),
+        )
+
+        return LogVolWithSkew(
+            std_log_vol=base_parameters.std_log_vol,
+            mean_reversion=base_parameters.mean_reversion,
+            long_term_vol=base_parameters.long_term_vol,
+            skew=skew,
+        )
+
+    @staticmethod
+    def log_prob(parameters: LogVolWithSkew, hyperparameters: HyperParameters) -> Scalar:
+        base_parameters = SkewStochVolParamPrior._base_parameters(parameters)
+        base_log_prob = StochVolParamPrior.log_prob(base_parameters, hyperparameters)
+
+        skew = parameters.skew
+        skew_log_prob = jnp.where(
+            (skew >= -1.0) & (skew <= 1.0),
+            -jnp.log(2.0),
+            -jnp.inf,
+        )
+
+        return base_log_prob + skew_log_prob
+
+
 class _RandomWalkParameters(Protocol):
     std_log_vol: Scalar
     mean_reversion: Scalar
@@ -507,10 +550,32 @@ class SkewStochasticVol(
     emission = SkewLogReturn()
 
 
+class SkewStochasticVolBayesian(
+    BayesianSequentialModel[
+        LatentVol,
+        tuple[LatentVol, LatentVol],
+        tuple[LatentVol, LatentVol],
+        tuple[LatentVol, LatentVol],
+        LogReturnObs,
+        tuple[()],
+        tuple[TimeIncrement, TimeIncrement],
+        TimeIncrement,
+        LogVolWithSkew,
+        LogVolWithSkew,
+        HyperParameters,
+    ]
+):
+    inference_parameter_cls = LogVolWithSkew
+    target = SkewStochasticVol()
+    parameter_prior = SkewStochVolParamPrior()
+    target_parameter = staticmethod(lambda parameters: parameters)
+
+
 def make_constant_time_increments(
     sequence_length: int,
     *,
     dt: float = 1.0,
+    prior_order: int | None = None,
 ) -> TimeIncrement:
     """Return a ``TimeIncrement`` tree filled with a constant ``dt``."""
 
@@ -519,7 +584,12 @@ def make_constant_time_increments(
             f"sequence_length must be >= 1, got {sequence_length}",
         )
 
-    required_length = sequence_length + SimpleStochasticVol.prior.order - 1
+    effective_prior_order = (
+        SimpleStochasticVol.prior.order
+        if prior_order is None
+        else prior_order
+    )
+    required_length = sequence_length + effective_prior_order - 1
     dt_value = jnp.asarray(dt, dtype=jnp.float32)
     increments = jnp.full((required_length,), dt_value, dtype=dt_value.dtype)
     return TimeIncrement(dt=increments)
