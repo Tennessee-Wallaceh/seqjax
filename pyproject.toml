@@ -40,6 +40,8 @@ dev = [
     "pre-commit",
     "matplotlib",
     "pytest",
+    "arxiv",
+    "polars",
 ]
 
 [tool.pytest.ini_options]

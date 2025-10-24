@@ -3,8 +3,7 @@ All values are in annualised terms.
 """
 
 from collections import OrderedDict
-from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Protocol
+from typing import ClassVar, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -456,6 +455,7 @@ class SimpleStochasticVol(
 ):
     particle_cls: type[LatentVol] = LatentVol
     observation_cls: type[LogReturnObs] = LogReturnObs
+    condition_cls: type[TimeIncrement] = TimeIncrement
     parameter_cls: type[LogVolRW] = LogVolRW
 
     prior = GaussianStart()
@@ -498,6 +498,7 @@ class SkewStochasticVol(
     ]
 ):
     particle_cls: type[LatentVol] = LatentVol
+    condition_cls: type[TimeIncrement] = TimeIncrement
     observation_cls: type[LogReturnObs] = LogReturnObs
     parameter_cls: type[LogVolWithSkew] = LogVolWithSkew
 
@@ -522,35 +523,3 @@ def make_constant_time_increments(
     dt_value = jnp.asarray(dt, dtype=jnp.float32)
     increments = jnp.full((required_length,), dt_value, dtype=dt_value.dtype)
     return TimeIncrement(dt=increments)
-
-
-@dataclass
-class StochasticVolConfig:
-    """Configuration for generating stochastic volatility data."""
-
-    label: Literal["simple_stochastic_vol"] = field(
-        init=False,
-        default="simple_stochastic_vol",
-    )
-    path_length: int
-    data_seed: int
-
-    @property
-    def data_key(self):
-        return jrandom.split(jrandom.key(self.data_seed))[0]
-
-    @property
-    def hyperparam_key(self):
-        return jrandom.split(jrandom.key(self.data_seed))[1]
-
-    @property
-    def generative_parameters(self) -> LogVolRW:
-        return LogVolRW(
-            std_log_vol=jnp.array(3.2),
-            mean_reversion=jnp.array(12.0),
-            long_term_vol=jnp.array(0.16),
-        )
-
-    @property
-    def hyperparameters(self) -> HyperParameters:
-        return HyperParameters()

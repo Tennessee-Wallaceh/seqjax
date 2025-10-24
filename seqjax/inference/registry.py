@@ -95,5 +95,36 @@ InferenceConfig = (
 )
 
 
+def from_dict(config_dict: dict[str, typing.Any]) -> InferenceConfig:
+    method = config_dict["method"]
+    if method == "NUTS":
+        return NUTSInference(
+            method="NUTS",
+            config=mcmc.NUTSConfig.from_dict(config_dict["config"]),
+        )
+    elif method == "buffer-vi":
+        return BufferVI(
+            method="buffer-vi",
+            config=vi.BufferedVIConfig.from_dict(config_dict["config"]),
+        )
+    elif method == "full-vi":
+        return FullVI(
+            method="full-vi",
+            config=vi.FullVIConfig.from_dict(config_dict["config"]),
+        )
+    elif method == "particle-mcmc":
+        return ParticleMCMCInference(
+            method="particle-mcmc",
+            config=pmcmc.ParticleMCMCConfig.from_dict(config_dict["config"]),
+        )
+    elif method == "full-sgld":
+        return FullSGLDInference(
+            method="full-sgld",
+            config=sgld.SGLDConfig.from_dict(config_dict["config"]),
+        )
+    else:
+        raise ValueError(f"Unknown inference method: {method}")
+
+
 def build_inference(i_config: InferenceConfig) -> InferenceMethod:
     return inference_functions[i_config.method]

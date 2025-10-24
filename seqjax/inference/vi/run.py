@@ -18,27 +18,43 @@ from functools import partial
 from dataclasses import dataclass, field
 
 
-@dataclass
-class LongContextEmbedder:
-    label: str = field(init=False, default="long-window")
-    prev_window: int = field(init=False, default=10)
-    post_window: int = field(init=False, default=10)
+"""
+Embedding configurations
+"""
+EmbedderName = typing.Literal["short-window", "long-window", "bi-rnn"]
 
 
 @dataclass
 class ShortContextEmbedder:
-    label: str = field(init=False, default="short-window")
-    prev_window: int = field(init=False, default=2)
-    post_window: int = field(init=False, default=2)
+    label: EmbedderName = field(init=False, default="short-window")
+    prev_window: int = 2
+    post_window: int = 2
 
 
 @dataclass
-class BiRNNEmbedder:
-    label: str = field(init=False, default="bi-rnn")
-    hidden_dim: int = field(init=False, default=5)
+class LongContextEmbedder:
+    label: EmbedderName = field(init=False, default="long-window")
+    prev_window: int = 10
+    post_window: int = 10
 
 
-Embedder = ShortContextEmbedder | LongContextEmbedder | BiRNNEmbedder
+@dataclass
+class BiRNNContextEmbedder:
+    label: EmbedderName = field(init=False, default="bi-rnn")
+    hidden_dim: int = 10
+
+
+EmbedderConfig = ShortContextEmbedder | LongContextEmbedder | BiRNNContextEmbedder
+
+embedder_registry: dict[EmbedderName, EmbedderConfig] = {
+    "short-window": ShortContextEmbedder(),
+    "long-window": LongContextEmbedder(),
+    "bi-rnn": BiRNNContextEmbedder(),
+}
+
+"""
+Parameter configurations
+"""
 
 
 @dataclass
@@ -53,9 +69,21 @@ class MaskedAutoregressiveParameterApproximation:
     nn_depth: int = 2
 
 
+ParameterApproximationLabels = typing.Literal["mean-field", "maf"]
 ParameterApproximation = (
     MeanFieldParameterApproximation | MaskedAutoregressiveParameterApproximation
 )
+
+parameter_approximation_registry: dict[
+    ParameterApproximationLabels, ParameterApproximation
+] = {
+    "mean-field": MeanFieldParameterApproximation(),
+    "maf": MaskedAutoregressiveParameterApproximation(),
+}
+
+"""
+Latent configurations
+"""
 
 
 @dataclass
@@ -81,6 +109,17 @@ class MaskedAutoregressiveFlowLatentApproximation:
 LatentApproximation = (
     AutoregressiveLatentApproximation | MaskedAutoregressiveFlowLatentApproximation
 )
+LatentApproximationLabels = typing.Literal[
+    "autoregressive", "masked-autoregressive-flow"
+]
+latent_approximation_registry: dict[LatentApproximationLabels, LatentApproximation] = {
+    "autoregressive": AutoregressiveLatentApproximation(),
+    "masked-autoregressive-flow": MaskedAutoregressiveFlowLatentApproximation(),
+}
+
+"""
+Optimization configurations
+"""
 
 
 @dataclass
@@ -96,6 +135,17 @@ class CosineOpt:
     def __repr__(self) -> str:
         return f"{self.label}({self.peak_lr:.0e},{self.end_lr:.0e},{self.warmup_steps},{self.decay_steps})"
 
+    @classmethod
+    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "CosineOpt":
+        return cls(
+            warmup_steps=config_dict.get("warmup_steps", 0),
+            decay_steps=config_dict.get("decay_steps", 5000),
+            peak_lr=config_dict.get("peak_lr", 1e-2),
+            end_lr=config_dict.get("end_lr", 1e-5),
+            total_steps=config_dict.get("total_steps", 10_000),
+            time_limit_s=config_dict.get("time_limit_s", None),
+        )
+
 
 @dataclass
 class AdamOpt:
@@ -107,8 +157,21 @@ class AdamOpt:
     def __repr__(self) -> str:
         return f"{self.label}({self.lr:.0e})"
 
+    @classmethod
+    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "AdamOpt":
+        return cls(
+            lr=config_dict.get("lr", 1e-3),
+            total_steps=config_dict.get("total_steps", 10_000),
+            time_limit_s=config_dict.get("time_limit_s", None),
+        )
 
+
+OptConfigLabels = typing.Literal["cosine-sched", "adam-plain"]
 OptConfig = CosineOpt | AdamOpt
+opt_config_registry: dict[OptConfigLabels, OptConfig] = {
+    "cosine-sched": CosineOpt(),
+    "adam-plain": AdamOpt(),
+}
 
 
 @dataclass
@@ -117,13 +180,51 @@ class FullVIConfig:
     parameter_field_bijections: dict[str, str | transformations.Bijector] = field(
         default_factory=dict
     )
-    embedder: Embedder = field(default_factory=ShortContextEmbedder)
+    embedder: EmbedderConfig = field(default_factory=ShortContextEmbedder)
     observations_per_step: int = 10
     samples_per_context: int = 5
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
     )
     num_tracker_steps: int = 100
+
+    @classmethod
+    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "FullVIConfig":
+        if config_dict["embedder"]["label"] not in embedder_registry:
+            raise ValueError(
+                f"Unknown embedder type: {config_dict['embedder']}. "
+                f"Available embedders: {list(embedder_registry.keys())}"
+            )
+
+        if (
+            config_dict["parameter_approximation"]["label"]
+            not in parameter_approximation_registry
+        ):
+            raise ValueError(
+                f"Unknown parameter approximation type: {config_dict['parameter_approximation']}. "
+                f"Available parameter approximations: {list(parameter_approximation_registry.keys())}"
+            )
+
+        if config_dict["optimization"]["label"] not in opt_config_registry:
+            raise ValueError(
+                f"Unknown optimization type: {config_dict['optimization']}. "
+                f"Available optimizations: {list(opt_config_registry.keys())}"
+            )
+
+        optimization = opt_config_registry[
+            config_dict["optimization"]["label"]
+        ].from_dict(config_dict["optimization"])
+
+        return cls(
+            optimization=optimization,
+            parameter_field_bijections=config_dict["parameter_field_bijections"],
+            embedder=embedder_registry[config_dict["embedder"]["label"]],
+            observations_per_step=config_dict["observations_per_step"],
+            samples_per_context=config_dict["samples_per_context"],
+            parameter_approximation=parameter_approximation_registry[
+                config_dict["parameter_approximation"]["label"]
+            ],
+        )
 
 
 def get_interval_spline():
@@ -176,6 +277,39 @@ def _build_parameter_approximation[
     )
 
 
+def _build_embedder(
+    embedder_config: EmbedderConfig,
+    target_dim: int,
+    sequence_length: int,
+    embedding_key: jaxtyping.PRNGKeyArray,
+) -> embedder.Embedder:
+    embed: embedder.Embedder
+    if embedder_config.label == "short-window":
+        embed = embedder.WindowEmbedder(
+            sequence_length,
+            embedder_config.prev_window,
+            embedder_config.post_window,
+            target_dim,
+        )
+    elif embedder_config.label == "long-window":
+        embed = embedder.WindowEmbedder(
+            sequence_length,
+            embedder_config.prev_window,
+            embedder_config.post_window,
+            target_dim,
+        )
+    elif embedder_config.label == "bi-rnn":
+        embed = embedder.RNNEmbedder(
+            embedder_config.hidden_dim,
+            target_dim,
+            key=embedding_key,
+        )
+    else:
+        raise ValueError(f"Unknown embedder type: {embedder_config.label}")
+
+    return embed
+
+
 @dataclass
 class BufferedVIConfig:
     optimization: OptConfig = field(default_factory=AdamOpt)
@@ -186,7 +320,7 @@ class BufferedVIConfig:
     samples_per_context: int = 5
     control_variate: bool = False
     pre_training_steps: int = 0
-    embedder: Embedder = field(default_factory=ShortContextEmbedder)
+    embedder: EmbedderConfig = field(default_factory=ShortContextEmbedder)
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
     )
@@ -194,6 +328,61 @@ class BufferedVIConfig:
         default_factory=AutoregressiveLatentApproximation
     )
     num_tracker_steps: int = 100
+
+    @classmethod
+    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "BufferedVIConfig":
+        if config_dict["embedder"]["label"] not in embedder_registry:
+            raise ValueError(
+                f"Unknown embedder type: {config_dict['embedder']}. "
+                f"Available embedders: {list(embedder_registry.keys())}"
+            )
+
+        if (
+            config_dict["parameter_approximation"]["label"]
+            not in parameter_approximation_registry
+        ):
+            raise ValueError(
+                f"Unknown parameter approximation type: {config_dict['parameter_approximation']}. "
+                f"Available parameter approximations: {list(parameter_approximation_registry.keys())}"
+            )
+
+        if (
+            config_dict["latent_approximation"]["label"]
+            not in latent_approximation_registry
+        ):
+            raise ValueError(
+                f"Unknown latent approximation type: {config_dict['latent_approximation']}. "
+                f"Available latent approximations: {list(latent_approximation_registry.keys())}"
+            )
+
+        if config_dict["optimization"]["label"] not in opt_config_registry:
+            raise ValueError(
+                f"Unknown optimization type: {config_dict['optimization']}. "
+                f"Available optimizations: {list(opt_config_registry.keys())}"
+            )
+
+        optimization = opt_config_registry[
+            config_dict["optimization"]["label"]
+        ].from_dict(config_dict["optimization"])
+
+        return cls(
+            optimization=optimization,
+            parameter_field_bijections=config_dict["parameter_field_bijections"],
+            buffer_length=config_dict["buffer_length"],
+            batch_length=config_dict["batch_length"],
+            observations_per_step=config_dict["observations_per_step"],
+            samples_per_context=config_dict["samples_per_context"],
+            control_variate=config_dict["control_variate"],
+            pre_training_steps=config_dict["pre_training_steps"],
+            embedder=embedder_registry[config_dict["embedder"]["label"]],
+            parameter_approximation=parameter_approximation_registry[
+                config_dict["parameter_approximation"]["label"]
+            ],
+            latent_approximation=latent_approximation_registry[
+                config_dict["latent_approximation"]["label"]
+            ],
+            num_tracker_steps=config_dict.get("num_tracker_steps", 100),
+        )
 
 
 def build_approximation(
@@ -222,26 +411,12 @@ def build_approximation(
         field_bijections,
         key=parameter_key,
     )
-
-    embed: embedder.Embedder
-    if isinstance(config.embedder, ShortContextEmbedder) or isinstance(
-        config.embedder, LongContextEmbedder
-    ):
-        embed = embedder.WindowEmbedder(
-            sequence_length,
-            config.embedder.prev_window,
-            config.embedder.post_window,
-            target_observation_class.flat_dim,
-        )
-
-    elif isinstance(config.embedder, BiRNNEmbedder):
-        embed = embedder.RNNEmbedder(
-            config.embedder.hidden_dim,
-            target_observation_class.flat_dim,
-            key=embedding_key,
-        )
-    else:
-        raise ValueError(f"Unknown embedder type: {config.embedder}")
+    embed = _build_embedder(
+        config.embedder,
+        target_observation_class.flat_dim,
+        sequence_length,
+        embedding_key,
+    )
 
     if isinstance(config, FullVIConfig):
         latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
@@ -294,7 +469,7 @@ def build_approximation(
                 base_loc=latent_config.base_loc,
                 base_scale=latent_config.base_scale,
             )
-        else:  # pragma: no cover
+        else:
             raise ValueError(
                 f"Unknown latent approximation configuration: {latent_config!r}"
             )
@@ -353,6 +528,7 @@ def run_full_path_vi[
     condition_path: ConditionT | None = None,
     test_samples: int = 1000,
     config: FullVIConfig = FullVIConfig(),
+    wandb_run: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
 
@@ -388,10 +564,33 @@ def run_full_path_vi[
     else:
         end_trigger = None
 
+    if wandb_run is not None:
+
+        def wandb_update(update, static, trainable, opt_step, loss, key):
+            elapsed_time_s = getattr(update, "elapsed_time_s", 0.0)
+            wandb_update = {
+                "step": opt_step,
+                "elapsed_time_s": elapsed_time_s,
+                "loss": loss,
+            }
+            for label, value in update.items():
+                if label.endswith("_q05"):
+                    wandb_update[label] = value
+                if label.endswith("_q95"):
+                    wandb_update[label] = value
+                if label.endswith("_mean"):
+                    wandb_update[label] = value
+            wandb_run.log(wandb_update)
+
+        custom_record_fcns = [wandb_update]
+    else:
+        custom_record_fcns = None
+
     run_tracker = train.DefaultTracker(
-        record_trigger=make_record_trigger(60),
+        record_trigger=make_record_trigger(30),
         end_trigger=end_trigger,
         metric_samples=test_samples,
+        custom_record_fcns=custom_record_fcns,
     )
     fitted_approximation = train.train(
         model=approximation,
@@ -418,7 +617,7 @@ def run_full_path_vi[
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
     return (
         flat_theta_q,
-        (run_tracker, x_q),
+        (run_tracker, x_q, fitted_approximation),
     )
 
 
@@ -455,6 +654,7 @@ def run_buffered_vi[
     condition_path: ConditionT | None = None,
     test_samples: int = 1000,
     config: BufferedVIConfig = BufferedVIConfig(),
+    wandb_run: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
 
@@ -490,10 +690,33 @@ def run_buffered_vi[
     else:
         end_trigger = None
 
+    if wandb_run is not None:
+
+        def wandb_update(update, static, trainable, opt_step, loss, key):
+            elapsed_time_s = getattr(update, "elapsed_time_s", 0.0)
+            wandb_update = {
+                "step": opt_step,
+                "elapsed_time_s": elapsed_time_s,
+                "loss": loss,
+            }
+            for label, value in update.items():
+                if label.endswith("_q05"):
+                    wandb_update[label] = value
+                if label.endswith("_q95"):
+                    wandb_update[label] = value
+                if label.endswith("_mean"):
+                    wandb_update[label] = value
+            wandb_run.log(wandb_update)
+
+        custom_record_fcns = [wandb_update]
+    else:
+        custom_record_fcns = None
+
     run_tracker = train.DefaultTracker(
-        record_trigger=make_record_trigger(60),
-        metric_samples=test_samples,
+        record_trigger=make_record_trigger(30),
         end_trigger=end_trigger,
+        metric_samples=test_samples,
+        custom_record_fcns=custom_record_fcns,
     )
 
     if config.pre_training_steps > 0:
@@ -540,5 +763,5 @@ def run_buffered_vi[
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
     return (
         flat_theta_q,
-        (approx_start, x_q, run_tracker),
+        (approx_start, x_q, run_tracker, fitted_approximation),
     )

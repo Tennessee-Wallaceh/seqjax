@@ -49,6 +49,16 @@ class NUTSConfig(eqx.Module):
     inverse_mass_matrix: Any | None = None
     num_chains: int = 1
 
+    @classmethod
+    def from_dict(cls, config_dict: dict[str, Any]) -> "NUTSConfig":
+        return cls(
+            step_size=config_dict.get("step_size", 1e-3),
+            num_adaptation=config_dict.get("num_adaptation", 1000),
+            num_warmup=config_dict.get("num_warmup", 1000),
+            inverse_mass_matrix=config_dict.get("inverse_mass_matrix", None),
+            num_chains=config_dict.get("num_chains", 1),
+        )
+
 
 @inference_method
 def run_bayesian_nuts[
@@ -83,6 +93,7 @@ def run_bayesian_nuts[
     condition_path: ConditionT,
     test_samples: int,
     config: NUTSConfig = NUTSConfig(),
+    wandb_run: Any = None,
 ) -> tuple[
     InferenceParametersT,
     tuple[jaxtyping.Array, ParticleT],

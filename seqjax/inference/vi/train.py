@@ -289,11 +289,6 @@ class DefaultTracker[StaticModuleT, TrainableModuleT]:
                 "loss": float(loss),
                 "elapsed_time_s": self.elapsed_time_s,
             }
-            for fcn in self.custom_record_fcns:
-                labels, values = fcn(update, static, trainable, opt_step, loss, key)
-
-                for label, value in zip(labels, values):
-                    update[label] = value
 
             qs, means, theta = sample_theta_qs(
                 static, trainable, key, self.metric_samples
@@ -306,6 +301,14 @@ class DefaultTracker[StaticModuleT, TrainableModuleT]:
                 update[f"{param}_mean"] = getattr(means, param)
                 _reads.append(f"{param}: {update[f'{param}_mean']:.2f}")
             mean_str = " , ".join(_reads)
+
+            for fcn in self.custom_record_fcns:
+                out = fcn(update, static, trainable, opt_step, loss, key)
+                if out is None:
+                    continue
+                labels, values = out
+                for label, value in zip(labels, values):
+                    update[label] = value
 
             self.update_rows.append(update)
 

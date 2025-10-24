@@ -77,10 +77,9 @@ def save_packable_artifact(
 def save_model_artifact(
     run: WandbRun,
     artifact_name: str,
-    wandb_type: str,
     model: eqx.Module,
 ):
-    artifact = wandb.Artifact(name=artifact_name, type=wandb_type)
+    artifact = wandb.Artifact(name=artifact_name, type="approximation")
     file_loc = f"{SEQJAX_DATA_DIR}/{artifact_name}.eqx"
 
     with open(file_loc, "wb") as f:
@@ -91,13 +90,19 @@ def save_model_artifact(
 
 
 def load_model_artifact(
-    run: WandbRun,
+    target_run: WandbRun,
     artifact_name: str,
     model: eqx.Module,
 ) -> eqx.Module:
-    artifact = run.use_artifact(f"{artifact_name}:latest")
+    print(
+        f"Loading {target_run.name}-{artifact_name}:latest from wandb {target_run.project}..."
+    )
+    run = wandb.init(project=target_run.project)
+    artifact = run.use_artifact(
+        f"{target_run.name}-{artifact_name}:latest", type="approximation"
+    )
     artifact_dir = artifact.download()
-    file_path = os.path.join(artifact_dir, f"{artifact_name}.eqx")
+    file_path = os.path.join(artifact_dir, f"{target_run.name}-{artifact_name}.eqx")
 
     with open(file_path, "rb") as f:
         model = eqx.tree_deserialise_leaves(f, like=model)
