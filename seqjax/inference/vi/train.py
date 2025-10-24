@@ -427,7 +427,7 @@ def train(
 
     # add final record
     run_tracker.track_step(
-        static, _trainable, opt_step + 1, loss, step_keys[0], loop, force_record=True
+        static, trainable, opt_step + 1, loss, step_keys[0], loop, force_record=True
     )
 
     return typing.cast(SSMApproximationT, eqx.combine(static, trainable))
