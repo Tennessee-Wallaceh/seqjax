@@ -567,12 +567,12 @@ def run_full_path_vi[
     if wandb_run is not None:
 
         def wandb_update(update, static, trainable, opt_step, loss, key):
-            elapsed_time_s = getattr(update, "elapsed_time_s", 0.0)
             wandb_update = {
                 "step": opt_step,
-                "elapsed_time_s": elapsed_time_s,
+                "elapsed_time_s": update["elapsed_time_s"],
                 "loss": loss,
             }
+
             for label, value in update.items():
                 if label.endswith("_q05"):
                     wandb_update[label] = value
@@ -580,6 +580,7 @@ def run_full_path_vi[
                     wandb_update[label] = value
                 if label.endswith("_mean"):
                     wandb_update[label] = value
+
             wandb_run.log(wandb_update)
 
         custom_record_fcns = [wandb_update]
