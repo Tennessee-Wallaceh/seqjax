@@ -78,7 +78,38 @@ def test_run_with_shorthand_codes_overrides_buffer_vi_defaults() -> None:
     assert inference_config["optimization"]["lr"] == 1e-4
 
 
+def test_run_with_shorthand_codes_overrides_full_vi_defaults() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "demo",
+            "--model",
+            "simple_stochastic_vol",
+            "--data-seed",
+            "1",
+            "--fit-seed",
+            "2",
+            "--inference",
+            "full-vi",
+            "--code",
+            "LR-1e-4,MC-10",
+            "--code",
+            "BS-10,EMB-LC",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    inference_config = payload["config"]["inference"]["config"]
+    assert inference_config["samples_per_context"] == 10
+    assert inference_config["observations_per_step"] == 10
+    assert inference_config["optimization"]["lr"] == 1e-4
+    assert inference_config["embedder"]["label"] == "long-window"
+
+
 def test_run_show_codes_exits_early() -> None:
     result = runner.invoke(app, ["run", "--show-codes"])
     assert result.exit_code == 0
     assert "Buffer VI shorthand codes" in result.stdout
+    assert "Full VI shorthand codes" in result.stdout

@@ -22,6 +22,9 @@ def _show_codes_callback(ctx: typer.Context, value: bool) -> bool:
     if value:
         typer.echo("Buffer VI shorthand codes:")
         typer.echo(shorthand_codes.format_buffer_vi_codes())
+        typer.echo()
+        typer.echo("Full VI shorthand codes:")
+        typer.echo(shorthand_codes.format_full_vi_codes())
         raise typer.Exit(code=0)
     return value
 
@@ -249,18 +252,33 @@ def run(
     inference_config_obj = _load_inference_config(canonical_inference, inference_config)
 
     if code_tokens:
-        if inference_config_obj.method != "buffer-vi":
+        if inference_config_obj.method == "buffer-vi":
+            try:
+                configured_buffer = shorthand_codes.apply_buffer_vi_codes(
+                    inference_config_obj.config,
+                    code_tokens,
+                )
+            except shorthand_codes.CodeParseError as exc:
+                raise typer.BadParameter(str(exc)) from exc
+            inference_config_obj = replace(
+                inference_config_obj, config=configured_buffer
+            )
+        elif inference_config_obj.method == "full-vi":
+            try:
+                configured_full = shorthand_codes.apply_full_vi_codes(
+                    inference_config_obj.config,
+                    code_tokens,
+                )
+            except shorthand_codes.CodeParseError as exc:
+                raise typer.BadParameter(str(exc)) from exc
+            inference_config_obj = replace(
+                inference_config_obj, config=configured_full
+            )
+        else:
             raise typer.BadParameter(
-                "Shorthand codes are currently only supported for the buffer-vi method."
+                "Shorthand codes are currently only supported for the buffer-vi "
+                "and full-vi methods."
             )
-        try:
-            configured = shorthand_codes.apply_buffer_vi_codes(
-                inference_config_obj.config,
-                code_tokens,
-            )
-        except shorthand_codes.CodeParseError as exc:
-            raise typer.BadParameter(str(exc)) from exc
-        inference_config_obj = replace(inference_config_obj, config=configured)
 
     experiment_config = ExperimentConfig(
         data_config=data_config,
