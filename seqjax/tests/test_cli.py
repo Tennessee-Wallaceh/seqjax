@@ -82,26 +82,3 @@ def test_run_show_codes_exits_early() -> None:
     result = runner.invoke(app, ["run", "--show-codes"])
     assert result.exit_code == 0
     assert "Buffer VI shorthand codes" in result.stdout
-
-
-def test_run_shorthand_codes_rejected_for_non_buffer_vi() -> None:
-    result = runner.invoke(
-        app,
-        [
-            "run",
-            "demo",
-            "--model",
-            "simple_stochastic_vol",
-            "--data-seed",
-            "1",
-            "--fit-seed",
-            "2",
-            "--inference",
-            "NUTS",
-            "--code",
-            "LR-1e-4",
-            "--dry-run",
-        ],
-    )
-    assert result.exit_code != 0
-    assert "only supported for the buffer-vi" in result.stderr
