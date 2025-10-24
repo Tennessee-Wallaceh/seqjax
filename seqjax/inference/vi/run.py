@@ -39,17 +39,17 @@ class LongContextEmbedder:
 
 
 @dataclass
-class BiRNNContextEmbedder:
+class BiRNNEmbedder:
     label: EmbedderName = field(init=False, default="bi-rnn")
     hidden_dim: int = 10
 
 
-EmbedderConfig = ShortContextEmbedder | LongContextEmbedder | BiRNNContextEmbedder
+EmbedderConfig = ShortContextEmbedder | LongContextEmbedder | BiRNNEmbedder
 
 embedder_registry: dict[EmbedderName, EmbedderConfig] = {
     "short-window": ShortContextEmbedder(),
     "long-window": LongContextEmbedder(),
-    "bi-rnn": BiRNNContextEmbedder(),
+    "bi-rnn": BiRNNEmbedder(),
 }
 
 """

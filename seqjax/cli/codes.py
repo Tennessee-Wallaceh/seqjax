@@ -39,7 +39,7 @@ BUFFER_VI_CODES: Dict[str, Dict[str, _CodeValue]] = {
     "EMB": {
         "LC": lambda: vi_run.LongContextEmbedder(prev_window=5, post_window=5),
         "SC": lambda: vi_run.ShortContextEmbedder(prev_window=2, post_window=2),
-        "BiRNN": lambda: vi_run.BiRNNContextEmbedder(hidden_dim=5),
+        "BiRNN": lambda: vi_run.BiRNNEmbedder(hidden_dim=5),
     },
 }
 
@@ -74,9 +74,7 @@ def _parse_token(token: str) -> Tuple[str, Any]:
     prefix, suffix = token.split("-", 1)
     if prefix not in BUFFER_VI_CODES:
         valid = ", ".join(sorted(BUFFER_VI_CODES))
-        raise CodeParseError(
-            f"Unknown factor '{prefix}'. Valid factors: {valid}"
-        )
+        raise CodeParseError(f"Unknown factor '{prefix}'. Valid factors: {valid}")
     sub = BUFFER_VI_CODES[prefix]
     if suffix not in sub:
         raise CodeParseError(
@@ -129,9 +127,7 @@ def apply_buffer_vi_codes(
     if isinstance(optimization, vi_run.AdamOpt):
         optimization = replace(optimization, lr=learning_rate)
     else:  # pragma: no cover - future-proofing
-        raise CodeParseError(
-            "Shorthand learning rate codes require Adam optimization."
-        )
+        raise CodeParseError("Shorthand learning rate codes require Adam optimization.")
 
     embedder = resolved["embedding"]
     if not isinstance(embedder, vi_run.EmbedderConfig):
@@ -147,4 +143,3 @@ def apply_buffer_vi_codes(
         pre_training_steps=resolved["pretrain_steps"],
         embedder=embedder,
     )
-
