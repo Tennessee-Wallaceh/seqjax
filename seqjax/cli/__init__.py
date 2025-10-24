@@ -260,9 +260,17 @@ def run(
                 )
             except shorthand_codes.CodeParseError as exc:
                 raise typer.BadParameter(str(exc)) from exc
+
+            configured_buffer = replace(
+                configured_buffer,
+                parameter_field_bijections=model_registry.default_parameter_transforms[
+                    data_config.target_model_label
+                ],
+            )
             inference_config_obj = replace(
                 inference_config_obj, config=configured_buffer
             )
+
         elif inference_config_obj.method == "full-vi":
             try:
                 configured_full = shorthand_codes.apply_full_vi_codes(
@@ -271,9 +279,14 @@ def run(
                 )
             except shorthand_codes.CodeParseError as exc:
                 raise typer.BadParameter(str(exc)) from exc
-            inference_config_obj = replace(
-                inference_config_obj, config=configured_full
+
+            configured_full = replace(
+                configured_full,
+                parameter_field_bijections=model_registry.default_parameter_transforms[
+                    data_config.target_model_label
+                ],
             )
+            inference_config_obj = replace(inference_config_obj, config=configured_full)
         else:
             raise typer.BadParameter(
                 "Shorthand codes are currently only supported for the buffer-vi "

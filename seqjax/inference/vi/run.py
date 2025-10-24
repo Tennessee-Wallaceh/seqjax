@@ -693,10 +693,9 @@ def run_buffered_vi[
     if wandb_run is not None:
 
         def wandb_update(update, static, trainable, opt_step, loss, key):
-            elapsed_time_s = getattr(update, "elapsed_time_s", 0.0)
             wandb_update = {
                 "step": opt_step,
-                "elapsed_time_s": elapsed_time_s,
+                "elapsed_time_s": update["elapsed_time_s"],
                 "loss": loss,
             }
             for label, value in update.items():
