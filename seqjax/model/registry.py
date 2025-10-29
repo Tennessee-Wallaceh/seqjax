@@ -124,7 +124,8 @@ condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
 }
 
 default_parameter_transforms: dict[SequentialModelLabel, dict[str, typing.Any]] = {
-    "ar": {"ar": "sigmoid"}
+    "ar": {"ar": "sigmoid"},
+    "double_well": {"energy_barrier": "softplus"},
 }
 
 
