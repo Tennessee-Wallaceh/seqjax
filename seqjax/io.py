@@ -160,6 +160,15 @@ def load_packable_artifact_all(
 ) -> list[tuple[Packable, dict]]:
     artifact = run.use_artifact(f"{artifact_name}:latest")
     artifact_dir = artifact.download()
+
+    if os.path.isdir(artifact_dir) is False:
+        if os.path.isdir(artifact_dir.replace(":", "-")) is False:
+            raise ValueError(
+                f"could not locate {artifact_dir} or {artifact_dir.replace(':', '-')}!"
+            )
+        else:
+            artifact_dir = artifact_dir.replace(":", "-")
+
     loaded_data = []
     files = [e.name for e in os.scandir(artifact_dir) if e.is_file()]
     for file_name in files:
