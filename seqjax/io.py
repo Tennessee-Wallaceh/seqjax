@@ -63,6 +63,18 @@ def df_to_packable(packable_cls: type[Packable], df: pl.DataFrame) -> Packable:
     return packable_cls.unravel(df.to_jax())
 
 
+def download_artifact(artifact: wandb.Artifact) -> str:
+    artifact_dir = artifact.download()
+    if os.path.isdir(artifact_dir) is False:
+        if os.path.isdir(artifact_dir.replace(":", "-")) is False:
+            raise ValueError(
+                f"could not locate {artifact_dir} or {artifact_dir.replace(':', '-')}!"
+            )
+        else:
+            artifact_dir = artifact_dir.replace(":", "-")
+    return artifact_dir
+
+
 def save_packable_artifact(
     run: WandbRun,
     artifact_name: str,
@@ -106,7 +118,8 @@ def load_model_artifact(
     artifact = run.use_artifact(
         f"{target_run.name}-{artifact_name}:latest", type="approximation"
     )
-    artifact_dir = artifact.download()
+
+    artifact_dir = download_artifact(artifact)
     file_path = os.path.join(artifact_dir, f"{target_run.name}-{artifact_name}.eqx")
 
     with open(file_path, "rb") as f:
@@ -124,7 +137,7 @@ def packable_artifact_present(
         return False
 
     if file_name is not None:
-        artifact_dir = artifact.download()
+        artifact_dir = download_artifact(artifact)
 
         file_path = os.path.join(artifact_dir, f"{file_name}.parquet")
 
@@ -140,7 +153,7 @@ def load_packable_artifact(
     file_names_and_class: list[tuple[str, type[Packable]]],
 ) -> list[tuple[Packable, dict]]:
     artifact = run.use_artifact(f"{artifact_name}:latest")
-    artifact_dir = artifact.download()
+    artifact_dir = download_artifact(artifact)
     loaded_data = []
     for file_name, packable_cls in file_names_and_class:
         file_path = os.path.join(artifact_dir, f"{file_name}.parquet")
@@ -159,15 +172,7 @@ def load_packable_artifact_all(
     packable_cls: type[Packable],
 ) -> list[tuple[Packable, dict]]:
     artifact = run.use_artifact(f"{artifact_name}:latest")
-    artifact_dir = artifact.download()
-
-    if os.path.isdir(artifact_dir) is False:
-        if os.path.isdir(artifact_dir.replace(":", "-")) is False:
-            raise ValueError(
-                f"could not locate {artifact_dir} or {artifact_dir.replace(':', '-')}!"
-            )
-        else:
-            artifact_dir = artifact_dir.replace(":", "-")
+    artifact_dir = download_artifact(artifact)
 
     loaded_data = []
     files = [e.name for e in os.scandir(artifact_dir) if e.is_file()]
