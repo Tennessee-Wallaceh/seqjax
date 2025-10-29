@@ -152,7 +152,7 @@ class AdamOpt:
     label: str = field(init=False, default="adam-plain")
     lr: float = 1e-3
     total_steps: int = 500_000
-    time_limit_s: int | None = None
+    time_limit_s: int | None = 60 * 60 * 2  # default to 2 hour limit
 
     def __repr__(self) -> str:
         return f"{self.label}({self.lr:.0e})"
