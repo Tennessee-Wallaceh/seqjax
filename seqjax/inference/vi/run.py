@@ -151,7 +151,7 @@ class CosineOpt:
 class AdamOpt:
     label: str = field(init=False, default="adam-plain")
     lr: float = 1e-3
-    total_steps: int = 10_000
+    total_steps: int = 500_000
     time_limit_s: int | None = None
 
     def __repr__(self) -> str:
@@ -161,7 +161,7 @@ class AdamOpt:
     def from_dict(cls, config_dict: dict[str, typing.Any]) -> "AdamOpt":
         return cls(
             lr=config_dict.get("lr", 1e-3),
-            total_steps=config_dict.get("total_steps", 10_000),
+            total_steps=config_dict.get("total_steps", 500_000),
             time_limit_s=config_dict.get("time_limit_s", None),
         )
 
