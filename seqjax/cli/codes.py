@@ -34,7 +34,7 @@ def _evaluate(value: _CodeValue) -> Any:
 
 
 def _merge_code_definitions(
-    *code_sets: Dict[str, Dict[str, _CodeValue]]
+    *code_sets: Dict[str, Dict[str, _CodeValue]],
 ) -> Dict[str, Dict[str, _CodeValue]]:
     merged: Dict[str, Dict[str, _CodeValue]] = {}
     for code_set in code_sets:
@@ -45,8 +45,8 @@ def _merge_code_definitions(
 
 COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
     "LR": {"1e-2": 1e-2, "1e-3": 1e-3, "1e-4": 1e-4},
-    "MC": {"1": 1, "10": 10},
-    "BS": {"1": 1, "10": 10},
+    "MC": {"1": 1, "10": 10, "50": 50, "100": 100},
+    "BS": {"1": 1, "10": 10, "50": 50, "100": 100},
     "EMB": {
         "LC": lambda: vi_run.LongContextEmbedder(prev_window=5, post_window=5),
         "SC": lambda: vi_run.ShortContextEmbedder(prev_window=2, post_window=2),
