@@ -123,6 +123,11 @@ condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
     ),
 }
 
+default_parameter_transforms: dict[SequentialModelLabel, dict[str, typing.Any]] = {
+    "ar": {"ar": "sigmoid"},
+    "double_well": {"energy_barrier": "softplus"},
+}
+
 
 @dataclass(kw_only=True, frozen=True, slots=True)
 class DataConfig:

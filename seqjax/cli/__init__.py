@@ -13,6 +13,7 @@ from seqjax.experiment import ExperimentConfig, run_experiment
 from seqjax.inference import registry as inference_registry, vi
 from seqjax.inference.mcmc import NUTSConfig
 from seqjax.model import registry as model_registry
+from seqjax import io
 
 OPTIMIZATION_TIME_LIMIT_SECONDS = 2 * 60 * 60
 
@@ -167,12 +168,52 @@ def show_config(
     if builder is None:
         available = ", ".join(sorted(DEFAULT_INFERENCE_BUILDERS))
         suffix = f" Defaults exist for: {available}." if available else ""
-        raise typer.BadParameter(
-            f"No default configuration for '{canonical}'.{suffix}"
-        )
+        raise typer.BadParameter(f"No default configuration for '{canonical}'.{suffix}")
 
     config = _ensure_optimization_time_limit(builder())
     typer.echo(json.dumps(_structure_to_dict(config), indent=2))
+
+
+class ResultProcessor:
+    def process(
+        self,
+        wandb_run,
+        experiment_config,
+        param_samples,
+        extra_data,
+        x_path,
+        y_path,
+        condition,
+    ) -> None:
+        if experiment_config.inference.method == "buffer-vi":
+            approx_start, x_q, run_tracker, fitted_approximation = extra_data
+        elif experiment_config.inference.method == "full-vi":
+            run_tracker, x_q, fitted_approximation = extra_data
+        else:
+            raise ValueError(f"Unknown inference method. {experiment_config}")
+
+        # save final model
+        io.save_model_artifact(
+            wandb_run,
+            f"{wandb_run.name}-fitted-approximation",
+            fitted_approximation,
+        )
+
+        checkpoint_samples = getattr(run_tracker, "checkpoint_samples", [])
+        if checkpoint_samples:
+            io.save_packable_artifact(
+                wandb_run,
+                f"{wandb_run.name}_checkpoint_samples",
+                "checkpoint_samples",
+                [
+                    (
+                        f"samples_{i}",
+                        samples,
+                        {"elapsed_time_s": float(elapsed_time_s)},
+                    )
+                    for i, (elapsed_time_s, samples) in enumerate(checkpoint_samples)
+                ],
+            )
 
 
 @app.command()
@@ -247,9 +288,17 @@ def run(
                 )
             except shorthand_codes.CodeParseError as exc:
                 raise typer.BadParameter(str(exc)) from exc
+
+            configured_buffer = replace(
+                configured_buffer,
+                parameter_field_bijections=model_registry.default_parameter_transforms[
+                    data_config.target_model_label
+                ],
+            )
             inference_config_obj = replace(
                 inference_config_obj, config=configured_buffer
             )
+
         elif inference_config_obj.method == "full-vi":
             try:
                 configured_full = shorthand_codes.apply_full_vi_codes(
@@ -258,9 +307,14 @@ def run(
                 )
             except shorthand_codes.CodeParseError as exc:
                 raise typer.BadParameter(str(exc)) from exc
-            inference_config_obj = replace(
-                inference_config_obj, config=configured_full
+
+            configured_full = replace(
+                configured_full,
+                parameter_field_bijections=model_registry.default_parameter_transforms[
+                    data_config.target_model_label
+                ],
             )
+            inference_config_obj = replace(inference_config_obj, config=configured_full)
         else:
             raise typer.BadParameter(
                 "Shorthand codes are currently only supported for the buffer-vi "
@@ -288,7 +342,7 @@ def run(
         f"Running experiment '{experiment_name}' with model '{canonical_model}' "
         f"and inference '{canonical_inference}'."
     )
-    run_experiment(experiment_name, experiment_config)
+    run_experiment(experiment_name, experiment_config, ResultProcessor())
 
 
 def main() -> None:

@@ -151,8 +151,8 @@ class CosineOpt:
 class AdamOpt:
     label: str = field(init=False, default="adam-plain")
     lr: float = 1e-3
-    total_steps: int = 10_000
-    time_limit_s: int | None = None
+    total_steps: int = 500_000
+    time_limit_s: int | None = 60 * 60 * 2  # default to 2 hour limit
 
     def __repr__(self) -> str:
         return f"{self.label}({self.lr:.0e})"
@@ -161,7 +161,7 @@ class AdamOpt:
     def from_dict(cls, config_dict: dict[str, typing.Any]) -> "AdamOpt":
         return cls(
             lr=config_dict.get("lr", 1e-3),
-            total_steps=config_dict.get("total_steps", 10_000),
+            total_steps=config_dict.get("total_steps", 500_000),
             time_limit_s=config_dict.get("time_limit_s", None),
         )
 
@@ -567,12 +567,12 @@ def run_full_path_vi[
     if wandb_run is not None:
 
         def wandb_update(update, static, trainable, opt_step, loss, key):
-            elapsed_time_s = getattr(update, "elapsed_time_s", 0.0)
             wandb_update = {
                 "step": opt_step,
-                "elapsed_time_s": elapsed_time_s,
+                "elapsed_time_s": update["elapsed_time_s"],
                 "loss": loss,
             }
+
             for label, value in update.items():
                 if label.endswith("_q05"):
                     wandb_update[label] = value
@@ -580,6 +580,7 @@ def run_full_path_vi[
                     wandb_update[label] = value
                 if label.endswith("_mean"):
                     wandb_update[label] = value
+
             wandb_run.log(wandb_update)
 
         custom_record_fcns = [wandb_update]
@@ -693,10 +694,9 @@ def run_buffered_vi[
     if wandb_run is not None:
 
         def wandb_update(update, static, trainable, opt_step, loss, key):
-            elapsed_time_s = getattr(update, "elapsed_time_s", 0.0)
             wandb_update = {
                 "step": opt_step,
-                "elapsed_time_s": elapsed_time_s,
+                "elapsed_time_s": update["elapsed_time_s"],
                 "loss": loss,
             }
             for label, value in update.items():
