@@ -47,6 +47,13 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
     "LR": {"1e-2": 1e-2, "1e-3": 1e-3, "1e-4": 1e-4},
     "MC": {"1": 1, "10": 10},
     "BS": {"1": 1, "10": 10},
+    "RL": {"L": 5 * 60 * 60, "M": 2 * 60 * 60, "S": 30 * 60},
+    "TS": {
+        "S": 1_000,
+        "H": 50_000,
+        "M": 100_000,
+        "L": 1_000_000,
+    },
     "EMB": {
         "LC": lambda: vi_run.LongContextEmbedder(prev_window=5, post_window=5),
         "SC": lambda: vi_run.ShortContextEmbedder(prev_window=2, post_window=2),
@@ -79,6 +86,8 @@ COMMON_FACTOR_NAMES: Dict[str, str] = {
     "LR": "learning_rate",
     "MC": "mc_samples",
     "BS": "minibatch_size",
+    "RL": "optimization_time_limit_s",
+    "TS": "optimization_total_steps",
     "EMB": "embedding",
 }
 
@@ -107,6 +116,7 @@ COMMON_DEFAULT_CODES: List[str] = [
     "LR-1e-3",
     "MC-1",
     "BS-1",
+    "RL-M",
     "EMB-SC",
 ]
 
@@ -205,9 +215,17 @@ def apply_buffer_vi_codes(
         raise exc
 
     learning_rate = resolved["learning_rate"]
+    time_limit_s = resolved.get("optimization_time_limit_s")
+    total_steps = resolved.get("optimization_total_steps")
     optimization = config.optimization
     if isinstance(optimization, vi_run.AdamOpt):
-        optimization = replace(optimization, lr=learning_rate)
+        opt_updates = {
+            "lr": learning_rate,
+            "time_limit_s": time_limit_s,
+        }
+        if total_steps is not None:
+            opt_updates["total_steps"] = total_steps
+        optimization = replace(optimization, **opt_updates)
     else:  # pragma: no cover - future-proofing
         raise CodeParseError("Shorthand learning rate codes require Adam optimization.")
 
@@ -242,9 +260,17 @@ def apply_full_vi_codes(
         raise exc
 
     learning_rate = resolved["learning_rate"]
+    time_limit_s = resolved.get("optimization_time_limit_s")
+    total_steps = resolved.get("optimization_total_steps")
     optimization = config.optimization
     if isinstance(optimization, vi_run.AdamOpt):
-        optimization = replace(optimization, lr=learning_rate)
+        opt_updates = {
+            "lr": learning_rate,
+            "time_limit_s": time_limit_s,
+        }
+        if total_steps is not None:
+            opt_updates["total_steps"] = total_steps
+        optimization = replace(optimization, **opt_updates)
     else:  # pragma: no cover - future-proofing
         raise CodeParseError("Shorthand learning rate codes require Adam optimization.")
 

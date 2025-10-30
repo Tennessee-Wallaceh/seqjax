@@ -14,6 +14,9 @@ from seqjax.inference import registry as inference_registry, vi
 from seqjax.inference.mcmc import NUTSConfig
 from seqjax.model import registry as model_registry
 
+OPTIMIZATION_TIME_LIMIT_SECONDS = 2 * 60 * 60
+
+
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
 
 
@@ -108,6 +111,29 @@ DEFAULT_INFERENCE_BUILDERS: dict[str, InferenceBuilder] = {
 }
 
 
+def _ensure_optimization_time_limit(
+    inference_config: inference_registry.InferenceConfig,
+    *,
+    seconds: int = OPTIMIZATION_TIME_LIMIT_SECONDS,
+) -> inference_registry.InferenceConfig:
+    """Ensure variational inference configs respect a wall-clock time limit."""
+
+    config_obj = getattr(inference_config, "config", None)
+    if config_obj is None:
+        return inference_config
+
+    optimization = getattr(config_obj, "optimization", None)
+    if optimization is None or not hasattr(optimization, "time_limit_s"):
+        return inference_config
+
+    if getattr(optimization, "time_limit_s", None) is not None:
+        return inference_config
+
+    updated_optimization = replace(optimization, time_limit_s=seconds)
+    updated_config_obj = replace(config_obj, optimization=updated_optimization)
+    return replace(inference_config, config=updated_config_obj)
+
+
 @app.command("list-models")
 def list_models() -> None:
     """Display registered models and their parameter presets."""
@@ -131,7 +157,9 @@ def list_inference() -> None:
 
 
 @app.command("show-config")
-def show_config(method: str) -> None:
+def show_config(
+    method: str,
+) -> None:
     """Show the default configuration for an inference method."""
 
     canonical = _resolve_inference_label(method)
@@ -143,7 +171,7 @@ def show_config(method: str) -> None:
             f"No default configuration for '{canonical}'.{suffix}"
         )
 
-    config = builder()
+    config = _ensure_optimization_time_limit(builder())
     typer.echo(json.dumps(_structure_to_dict(config), indent=2))
 
 
@@ -238,6 +266,8 @@ def run(
                 "Shorthand codes are currently only supported for the buffer-vi "
                 "and full-vi methods."
             )
+
+    inference_config_obj = _ensure_optimization_time_limit(inference_config_obj)
 
     experiment_config = ExperimentConfig(
         data_config=data_config,
