@@ -24,12 +24,11 @@ from seqjax.model.typing import (
     HyperParameters,
     Observation,
     Parameters,
-    Particle,
+    Latent,
 )
 
 
-# Latent Particles
-class LatentVol(Particle):
+class LatentVol(Latent):
     """Latent state containing the log volatility."""
 
     log_vol: Scalar
@@ -47,7 +46,6 @@ class LogReturnObs(Observation):
     )
 
 
-# parameters
 class LogVolRW(Parameters):
     """Parameters for a log-volatility random walk."""
 

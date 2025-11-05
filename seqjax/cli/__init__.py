@@ -84,14 +84,14 @@ InferenceBuilder = Callable[[], inference_registry.InferenceConfig]
 def _default_buffer_vi() -> inference_registry.InferenceConfig:
     return inference_registry.BufferVI(
         method="buffer-vi",
-        config=vi.BufferedVIConfig(),
+        config=vi.registry.BufferedVIConfig(),
     )
 
 
 def _default_full_vi() -> inference_registry.InferenceConfig:
     return inference_registry.FullVI(
         method="full-vi",
-        config=vi.FullVIConfig(),
+        config=vi.registry.FullVIConfig(),
     )
 
 

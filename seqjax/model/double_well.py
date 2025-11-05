@@ -14,16 +14,16 @@ import jaxtyping
 
 import seqjax.model.typing as seqjtyping
 from seqjax.model.base import (
-    Emission,
+    EmissionO1D0,
     ParameterPrior,
-    Prior,
+    Prior1,
     SequentialModel,
     BayesianSequentialModel,
-    Transition,
+    Transition1,
 )
 
 
-class LatentValue(seqjtyping.Particle):
+class LatentValue(seqjtyping.Latent):
     """Latent AR state."""
 
     latent_state: jaxtyping.Scalar
@@ -97,15 +97,13 @@ class EBOnlyPrior(ParameterPrior[EBOnlyParameters, seqjtyping.HyperParameters]):
         return log_p_theta
 
 
-class InitialValue(Prior[tuple[LatentValue], tuple[()], DoubleWellParams]):
+class InitialValue(Prior1[LatentValue, TimeIncrement, DoubleWellParams]):
     """Gaussian prior over the initial latent state."""
-
-    order: ClassVar[int] = 1
 
     @staticmethod
     def sample(
         key: jaxtyping.PRNGKeyArray,
-        conditions: tuple[()],
+        conditions: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> tuple[LatentValue]:
         """Sample the initial latent value."""
@@ -118,7 +116,7 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], DoubleWellParams]):
     @staticmethod
     def log_prob(
         latent: tuple[LatentValue],
-        conditions: tuple[()],
+        conditions: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
         """Evaluate the prior log-density."""
@@ -126,21 +124,17 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], DoubleWellParams]):
         return jstats.norm.logpdf(latent[0].latent_state, scale=scale)
 
 
-class DoubleWellWalk(
-    Transition[LatentValue, tuple[LatentValue], TimeIncrement, DoubleWellParams]
-):
-    order: ClassVar[int] = 1
-
+class DoubleWellWalk(Transition1[LatentValue, TimeIncrement, DoubleWellParams]):
     @staticmethod
     def mean_fn(
         last_latent: LatentValue,
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
-        last_latent = last_latent.latent_state
+        last_latent_state = last_latent.latent_state
         dt = condition.dt
-        return last_latent + dt * 4 * last_latent * (
-            jnp.sqrt(parameters.energy_barrier) - last_latent * last_latent
+        return last_latent_state + dt * 4 * last_latent_state * (
+            jnp.sqrt(parameters.energy_barrier) - last_latent_state * last_latent_state
         )
 
     @staticmethod
@@ -176,17 +170,12 @@ class DoubleWellWalk(
 
 
 class NoisyEmission(
-    Emission[
-        tuple[LatentValue], NoisyObservation, tuple[()], TimeIncrement, DoubleWellParams
-    ]
+    EmissionO1D0[LatentValue, NoisyObservation, TimeIncrement, DoubleWellParams]
 ):
     """Normal emission from the latent state."""
 
-    order: ClassVar[int] = 1
-    observation_dependency: ClassVar[int] = 0
-
     @staticmethod
-    def sample(  # type: ignore[override]
+    def sample(
         key: jaxtyping.PRNGKeyArray,
         latent: tuple[LatentValue],
         observation_history: tuple[()],
@@ -202,7 +191,7 @@ class NoisyEmission(
         return NoisyObservation(observation=y)
 
     @staticmethod
-    def log_prob(  # type: ignore[override]
+    def log_prob(
         latent: tuple[LatentValue],
         observation_history: tuple[()],
         observation: NoisyObservation,
@@ -221,12 +210,7 @@ class NoisyEmission(
 class DoubleWellTarget(
     SequentialModel[
         LatentValue,  # latent
-        tuple[LatentValue],  # initial latents
-        tuple[LatentValue],  # transtiion history
-        tuple[LatentValue],  # observation history
         NoisyObservation,  # observation
-        tuple[()],  # observation history
-        tuple[()],  # prior conditions
         TimeIncrement,  # condition
         DoubleWellParams,  # parameters
     ]
@@ -273,12 +257,7 @@ def fill_parameter(
 class DoubleWellBayesian(
     BayesianSequentialModel[
         LatentValue,  # latent
-        tuple[LatentValue],  # initial latents
-        tuple[LatentValue],  # transtiion history
-        tuple[LatentValue],  # observation history
         NoisyObservation,  # observation
-        tuple[()],  # observation history
-        tuple[()],  # prior conditions
         TimeIncrement,  # condition
         DoubleWellParams,  # parameters
         EBOnlyParameters,

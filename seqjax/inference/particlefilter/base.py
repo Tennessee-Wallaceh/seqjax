@@ -24,7 +24,7 @@ class FilterData(eqx.Module):
     """
 
     log_w: Array
-    particles: tuple[seqjtyping.Particle, ...]
+    particles: tuple[seqjtyping.Latent, ...]
     ancestor_ix: Array
     observation: seqjtyping.Observation
     obs_hist: tuple[seqjtyping.Observation, ...]
@@ -37,13 +37,12 @@ class FilterData(eqx.Module):
 
 
 class Proposal[
-    ParticleT: seqjtyping.Particle,
+    ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
     eqx.Module,
-    seqjtyping.EnforceInterface,
 ):
     """Proposal distribution for sequential importance sampling."""
 
@@ -81,9 +80,7 @@ class TransitionProposal[
 ):
     """Adapter converting a ``Transition`` to a ``Proposal``."""
 
-    transition: Transition[
-        ParticleT, TransitionParticleHistoryT, ConditionT, ParametersT
-    ]
+    transition: Transition[ParticleT, ConditionT, ParametersT]
     order: int
     target_parameters: Callable = lambda x: x
 
@@ -138,10 +135,9 @@ class Recorder(Protocol):
 
 
 class SMCSampler[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
+    InitialParticleT: tuple[seqjtyping.Latent, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionHistoryT: tuple[seqjtyping.Condition, ...],
@@ -155,7 +151,6 @@ class SMCSampler[
     target: SequentialModel[
         ParticleT,
         InitialParticleT,
-        TransitionParticleHistoryT,
         ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,
@@ -266,10 +261,9 @@ class SMCSampler[
 
 
 def run_filter[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
+    InitialParticleT: tuple[seqjtyping.Latent, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionHistoryT: tuple[seqjtyping.Condition, ...],
@@ -279,7 +273,6 @@ def run_filter[
     smc: SMCSampler[
         ParticleT,
         InitialParticleT,
-        TransitionParticleHistoryT,
         ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,

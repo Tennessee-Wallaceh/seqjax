@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Callable, Dict, Iterable, List, Tuple
 
-from seqjax.inference.vi import run as vi_run
+from seqjax.inference import vi
+from seqjax.inference.optimization import registry as optimization_registry
 
 __all__ = [
     "CodeParseError",
@@ -48,9 +49,9 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
     "MC": {"1": 1, "10": 10, "50": 50, "100": 100},
     "BS": {"1": 1, "10": 10, "50": 50, "100": 100},
     "EMB": {
-        "LC": lambda: vi_run.LongContextEmbedder(prev_window=5, post_window=5),
-        "SC": lambda: vi_run.ShortContextEmbedder(prev_window=2, post_window=2),
-        "BiRNN": lambda: vi_run.BiRNNEmbedder(hidden_dim=5),
+        "LC": lambda: vi.registry.LongContextEmbedder(prev_window=5, post_window=5),
+        "SC": lambda: vi.registry.ShortContextEmbedder(prev_window=2, post_window=2),
+        "BiRNN": lambda: vi.registry.BiRNNEmbedder(hidden_dim=5),
     },
     "MAXS": {
         "S": 1_000,
@@ -202,8 +203,8 @@ def format_full_vi_codes() -> str:
 
 
 def apply_buffer_vi_codes(
-    config: vi_run.BufferedVIConfig, raw_tokens: Iterable[str]
-) -> vi_run.BufferedVIConfig:
+    config: vi.registry.BufferedVIConfig, raw_tokens: Iterable[str]
+) -> vi.registry.BufferedVIConfig:
     tokens = _normalise_tokens(raw_tokens)
     try:
         resolved = _resolve_config(
@@ -216,7 +217,7 @@ def apply_buffer_vi_codes(
         raise exc
 
     optimization = config.optimization
-    if isinstance(optimization, vi_run.AdamOpt):
+    if isinstance(optimization, optimization_registry.AdamOpt):
         time_limit_s = resolved["optimization_time_limit_s"]
         total_steps = resolved["optimization_total_steps"]
         learning_rate = resolved["learning_rate"]
@@ -229,7 +230,7 @@ def apply_buffer_vi_codes(
         )
     embedder = resolved["embedding"]
 
-    if not isinstance(embedder, vi_run.EmbedderConfig):
+    if not isinstance(embedder, vi.registry.EmbedderConfig):
         raise CodeParseError("Invalid embedder resolved from shorthand codes.")
 
     return replace(
@@ -245,8 +246,8 @@ def apply_buffer_vi_codes(
 
 
 def apply_full_vi_codes(
-    config: vi_run.FullVIConfig, raw_tokens: Iterable[str]
-) -> vi_run.FullVIConfig:
+    config: vi.registry.FullVIConfig, raw_tokens: Iterable[str]
+) -> vi.registry.FullVIConfig:
     tokens = _normalise_tokens(raw_tokens)
     try:
         resolved = _resolve_config(
@@ -259,7 +260,7 @@ def apply_full_vi_codes(
         raise exc
 
     optimization = config.optimization
-    if isinstance(optimization, vi_run.AdamOpt):
+    if isinstance(optimization, optimization_registry.AdamOpt):
         time_limit_s = resolved["optimization_time_limit_s"]
         total_steps = resolved["optimization_total_steps"]
         learning_rate = resolved["learning_rate"]
@@ -274,7 +275,7 @@ def apply_full_vi_codes(
         raise CodeParseError("Shorthand learning rate codes require Adam optimization.")
 
     embedder = resolved["embedding"]
-    if not isinstance(embedder, vi_run.EmbedderConfig):
+    if not isinstance(embedder, vi.registry.EmbedderConfig):
         raise CodeParseError("Invalid embedder resolved from shorthand codes.")
 
     return replace(

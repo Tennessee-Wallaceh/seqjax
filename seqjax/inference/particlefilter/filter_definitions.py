@@ -16,10 +16,9 @@ from .resampling import (
 
 
 class BootstrapParticleFilter[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
+    InitialParticleT: tuple[seqjtyping.Latent, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionHistoryT: tuple[seqjtyping.Condition, ...],
@@ -29,7 +28,6 @@ class BootstrapParticleFilter[
     SMCSampler[
         ParticleT,
         InitialParticleT,
-        TransitionParticleHistoryT,
         ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,
@@ -45,7 +43,6 @@ class BootstrapParticleFilter[
         target: SequentialModel[
             ParticleT,
             InitialParticleT,
-            TransitionParticleHistoryT,
             ObservationParticleHistoryT,
             ObservationT,
             ObservationHistoryT,
@@ -70,10 +67,10 @@ class BootstrapParticleFilter[
 
 
 class AuxiliaryParticleFilter[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
+    InitialParticleT: tuple[seqjtyping.Latent, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionHistoryT: tuple[seqjtyping.Condition, ...],
@@ -83,7 +80,6 @@ class AuxiliaryParticleFilter[
     SMCSampler[
         ParticleT,
         InitialParticleT,
-        TransitionParticleHistoryT,
         ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,
@@ -99,7 +95,6 @@ class AuxiliaryParticleFilter[
         target: SequentialModel[
             ParticleT,
             InitialParticleT,
-            TransitionParticleHistoryT,
             ObservationParticleHistoryT,
             ObservationT,
             ObservationHistoryT,

@@ -12,23 +12,23 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
-    Emission,
+    EmissionO1D0,
     ParameterPrior,
-    Prior,
+    Prior1,
     SequentialModel,
     BayesianSequentialModel,
-    Transition,
+    Transition1,
 )
 from seqjax.model.typing import (
     HyperParameters,
     Observation,
     NoCondition,
     Parameters,
-    Particle,
+    Latent,
 )
 
 
-class LatentValue(Particle):
+class LatentValue(Latent):
     """Latent AR state."""
 
     x: Scalar
@@ -114,15 +114,13 @@ class AROnlyPrior(ParameterPrior[AROnlyParameters, HyperParameters]):
         return log_p_theta
 
 
-class InitialValue(Prior[tuple[LatentValue], tuple[()], ARParameters]):
+class InitialValue(Prior1[LatentValue, NoCondition, ARParameters]):
     """Gaussian prior over the initial latent state."""
-
-    order: ClassVar[int] = 1
 
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: tuple[()],
+        conditions: NoCondition,
         parameters: ARParameters,
     ) -> tuple[LatentValue]:
         """Sample the initial latent value."""
@@ -137,7 +135,7 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], ARParameters]):
     @staticmethod
     def log_prob(
         latent: tuple[LatentValue],
-        conditions: tuple[()],
+        conditions: NoCondition,
         parameters: ARParameters,
     ) -> Scalar:
         """Evaluate the prior log-density."""
@@ -147,12 +145,8 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], ARParameters]):
         return jstats.norm.logpdf(latent[0].x, scale=stationary_scale)
 
 
-class ARRandomWalk(
-    Transition[LatentValue, tuple[LatentValue], NoCondition, ARParameters]
-):
+class ARRandomWalk(Transition1[LatentValue, NoCondition, ARParameters]):
     """Gaussian AR(1) transition."""
-
-    order: ClassVar[int] = 1
 
     @staticmethod
     def sample(
@@ -169,8 +163,9 @@ class ARRandomWalk(
         )
         return LatentValue(x=next_x)
 
-    @staticmethod
+    @classmethod
     def log_prob(
+        cls,
         latent_history: tuple[LatentValue],
         latent: LatentValue,
         condition: NoCondition,
@@ -185,13 +180,8 @@ class ARRandomWalk(
         )
 
 
-class AREmission(
-    Emission[tuple[LatentValue], NoisyEmission, tuple[()], NoCondition, ARParameters]
-):
+class AREmission(EmissionO1D0[LatentValue, NoisyEmission, NoCondition, ARParameters]):
     """Normal emission from the latent state."""
-
-    order: ClassVar[int] = 1
-    observation_dependency: ClassVar[int] = 0
 
     @staticmethod
     def sample(  # type: ignore[override]
@@ -226,12 +216,7 @@ class AREmission(
 class AR1Target(
     SequentialModel[
         LatentValue,
-        tuple[LatentValue],
-        tuple[LatentValue],
-        tuple[LatentValue],
         NoisyEmission,
-        tuple[()],
-        tuple[()],
         NoCondition,
         ARParameters,
     ]
@@ -256,12 +241,7 @@ def fill_parameter(ar_only: AROnlyParameters, ref_params: ARParameters) -> ARPar
 class AR1Bayesian(
     BayesianSequentialModel[
         LatentValue,
-        tuple[LatentValue],
-        tuple[LatentValue],
-        tuple[LatentValue],
         NoisyEmission,
-        tuple[()],
-        tuple[()],
         NoCondition,
         ARParameters,
         AROnlyParameters,

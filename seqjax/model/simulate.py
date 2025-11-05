@@ -17,20 +17,19 @@ from seqjax.util import concat_pytree, index_pytree, slice_pytree
 
 
 def step[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    LatentT: seqjtyping.Latent,
+    InitialParticleT: tuple[seqjtyping.Latent, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
-    ConditionT: seqjtyping.Condition | None,
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | seqjtyping.NoCondition,
+    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
 ](
     target: SequentialModel[
-        ParticleT,
+        LatentT,
         InitialParticleT,
-        TransitionParticleHistoryT,
         ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,
@@ -40,13 +39,13 @@ def step[
     ],
     parameters: ParametersT,
     state: tuple[
-        tuple[ParticleT, ...],
+        tuple[LatentT, ...],
         ObservationHistoryT,
     ],
     inputs,
 ) -> tuple[
-    tuple[tuple[ParticleT, ...], ObservationHistoryT],
-    tuple[ParticleT, ObservationT],
+    tuple[tuple[LatentT, ...], ObservationHistoryT],
+    tuple[LatentT, ObservationT],
 ]:
     """Single simulation step returning updated state and new sample."""
 
@@ -96,21 +95,20 @@ def step[
 
 
 def simulate[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    LatentT: seqjtyping.Latent,
+    InitialParticleT: tuple[seqjtyping.Latent, ...],
+    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
+    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
-    ConditionT: seqjtyping.Condition | None,
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | seqjtyping.NoCondition,
+    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
 ](
     key: PRNGKeyArray,
     target: SequentialModel[
-        ParticleT,
+        LatentT,
         InitialParticleT,
-        TransitionParticleHistoryT,
         ObservationParticleHistoryT,
         ObservationT,
         ObservationHistoryT,
@@ -122,7 +120,7 @@ def simulate[
     parameters: ParametersT,
     sequence_length: int,
 ) -> tuple[
-    ParticleT,
+    LatentT,
     ObservationT,
     InitialParticleT,
     ObservationHistoryT,

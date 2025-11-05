@@ -7,10 +7,9 @@ from seqjax.model.base import (
 
 
 class InferenceMethod[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    LatentT: seqjtyping.Latent,
+    InitialLatentT: tuple[seqjtyping.Latent, ...],
+    ObservationLatentHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionHistoryT: tuple[seqjtyping.Condition, ...],
@@ -31,10 +30,9 @@ class InferenceMethod[
     def __call__(
         self,
         target_posterior: BayesianSequentialModel[
-            ParticleT,
-            InitialParticleT,
-            TransitionParticleHistoryT,
-            ObservationParticleHistoryT,
+            LatentT,
+            InitialLatentT,
+            ObservationLatentHistoryT,
             ObservationT,
             ObservationHistoryT,
             ConditionHistoryT,

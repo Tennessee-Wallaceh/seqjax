@@ -20,10 +20,9 @@ from seqjax.inference.interface import inference_method
 
 
 class SGLDConfig[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    LatentT: seqjtyping.Latent,
+    InitialLatentT: tuple[seqjtyping.Latent, ...],
+    ObservationLatentHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionHistoryT: tuple[seqjtyping.Condition, ...],
