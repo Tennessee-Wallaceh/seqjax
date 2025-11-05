@@ -49,7 +49,7 @@ class InferenceMethod[
         condition_path: ConditionT,
         test_samples: int,
         config: typing.Any,
-        wandb_run: typing.Any = None,  # optional for logging
+        tracker: typing.Any = None,  # optional for logging
     ) -> tuple[InferenceParametersT, typing.Any]: ...
 
 

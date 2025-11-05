@@ -9,6 +9,20 @@ import wandb
 from seqjax import io
 from seqjax.inference import registry as inference_registry
 from seqjax.model import registry as model_registry
+from seqjax.inference import vi
+
+
+def make_record_trigger(interval_seconds: int):
+    last_trigger = [-1]
+
+    def trigger(step, elapsed_time):
+        current = int(elapsed_time) // interval_seconds
+        if current != last_trigger[0]:
+            last_trigger[0] = current
+            return True
+        return False
+
+    return trigger
 
 
 class ResultProcessor(Protocol):
@@ -77,6 +91,42 @@ def process_results(
     )
 
 
+def build_tracker(experiment_config: ExperimentConfig, wandb_run):
+    run_tracker = None
+
+    if (
+        experiment_config.inference.method == "buffer-vi"
+        or experiment_config.inference.method == "full-vi"
+    ):
+
+        def wandb_update(update, static, trainable, opt_step, loss, key):
+            wandb_update = {
+                "step": opt_step,
+                "elapsed_time_s": update["elapsed_time_s"],
+                "loss": loss,
+            }
+
+            for label, value in update.items():
+                if label.endswith("_q05"):
+                    wandb_update[label] = value
+                if label.endswith("_q95"):
+                    wandb_update[label] = value
+                if label.endswith("_mean"):
+                    wandb_update[label] = value
+
+            wandb_run.log(wandb_update)
+
+        custom_record_fcns = [wandb_update]
+
+        run_tracker = vi.train.Tracker(
+            record_trigger=make_record_trigger(30),
+            metric_samples=experiment_config.test_samples,
+            custom_record_fcns=custom_record_fcns,
+        )
+
+    return run_tracker
+
+
 def run_experiment(
     experiment_name: str,
     experiment_config: ExperimentConfig,
@@ -117,7 +167,7 @@ def run_experiment(
         condition_path=condition,
         test_samples=experiment_config.test_samples,
         config=experiment_config.inference.config,
-        wandb_run=wandb_run,
+        tracker=build_tracker(experiment_config, wandb_run),
     )
 
     wandb_run = cast(

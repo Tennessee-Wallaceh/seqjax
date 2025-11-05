@@ -20,7 +20,6 @@ import jax.tree_util as jtu
 import jaxtyping
 import optax  # type: ignore[import-untyped]
 from jaxtyping import PyTree
-from jax.sharding import Sharding
 
 from tqdm.auto import trange  # type: ignore[import-untyped]
 from tqdm.notebook import trange as nbtrange  # type: ignore[import-untyped]
@@ -188,16 +187,6 @@ def loss_pre_train_neg_elbo(
     )
 
 
-class LocalTracker:
-    rows: list[TrackerLogRow]
-
-    def __init__(self) -> None:
-        self.rows = []
-
-    def log(self, data: TrackerLogRow) -> None:
-        self.rows.append(data)
-
-
 @eqx.filter_jit
 def sample_theta_qs(
     static: StaticModuleT,
@@ -221,13 +210,12 @@ def sample_theta_qs(
     )
 
 
-class DefaultTracker[StaticModuleT, TrainableModuleT]:
+class Tracker[StaticModuleT, TrainableModuleT]:
     metric_samples: int
     elapsed_time_s: float
     update_rows: list[TrackerLogRow]
     checkpoint_samples: list[tuple[float, ArrayTree]]
     train_phase_start_time: float
-    end_trigger: Callable[[int, float], bool]
     record_trigger: Callable[[int, float], bool]
     custom_record_fcns: list[
         Callable[
@@ -245,55 +233,41 @@ class DefaultTracker[StaticModuleT, TrainableModuleT]:
     def __init__(
         self,
         metric_samples: int = 100,
-        end_trigger=None,
         record_trigger=None,
         custom_record_fcns=None,
     ) -> None:
-        self.elapsed_time_s = 0.0
         self.update_rows = []
         self.checkpoint_samples = []
-        self.train_phase_start_time = 0.0
         self.metric_samples = metric_samples
 
-        # configure triggers and custom record functions
-        self.end_trigger = end_trigger or (lambda step, elapsed_time_s: False)
+        # configure any custom record functions
         self.record_trigger = record_trigger or (
             lambda step, elapsed_time_s: step % 100 == 0
         )
         self.custom_record_fcns = custom_record_fcns or []
 
-    def start_run(self) -> None:
-        self.train_phase_start_time = time.time()
-
     def track_step(
         self,
+        elapsed_time_s: float,
+        opt_step: int,
         static: StaticModuleT,
         trainable: TrainableModuleT,
-        opt_step: int,
         loss: jaxtyping.Scalar,
         key: jaxtyping.PRNGKeyArray,
         loop: _ProgressIterator,
         force_record: bool = False,
     ) -> None:
-        _elapsed_time_s = (
-            self.elapsed_time_s + time.time() - self.train_phase_start_time
-        )
-        if force_record or self.record_trigger(opt_step, _elapsed_time_s):
-            jax.device_get(loss)  # sync
-
-            # increment elapsed time by the time of this train phase
-            self.elapsed_time_s += time.time() - self.train_phase_start_time
-
+        if force_record or self.record_trigger(opt_step, elapsed_time_s):
             update: TrackerLogRow = {
                 "step": int(opt_step + 1),
                 "loss": float(loss),
-                "elapsed_time_s": self.elapsed_time_s,
+                "elapsed_time_s": elapsed_time_s,
             }
 
             qs, means, theta = sample_theta_qs(
                 static, trainable, key, self.metric_samples
             )
-            self.checkpoint_samples.append((self.elapsed_time_s, theta))
+            self.checkpoint_samples.append((elapsed_time_s, theta))
             _reads = []
             for param in static.parameter_approximation.target_struct_cls.fields():
                 update[f"{param}_q05"] = getattr(qs, param)[0]
@@ -314,11 +288,6 @@ class DefaultTracker[StaticModuleT, TrainableModuleT]:
 
             loop.set_postfix({"loss:": f"{loss.item():.3f} {mean_str}"})
 
-            # start the train phase timer
-            self.train_phase_start_time = time.time()
-
-        return self.end_trigger(opt_step, _elapsed_time_s)
-
 
 def train(
     model: SSMApproximationT,
@@ -328,26 +297,30 @@ def train(
     *,
     key: jaxtyping.PRNGKeyArray,
     optim: optax.GradientTransformation,
-    run_tracker: DefaultTracker | None,
+    run_tracker: Tracker | None,
     num_steps: int = 1000,
     filter_spec: PyTree[bool] | None = None,
     observations_per_step: int = 5,
     samples_per_context: int = 10,
     pre_train: bool = False,
-    device_sharding: Sharding | None = None,
     nb_context: bool = False,
-) -> SSMApproximationT:
-    # set up record if needed
+    initial_opt_state: OptStateT | None = None,
+    time_limit_s: int | None = None,
+) -> tuple[SSMApproximationT, OptStateT]:
+    # set up tracker if needed
     if run_tracker is None:
-        run_tracker = DefaultTracker()
-    run_tracker = typing.cast(DefaultTracker, run_tracker)
+        run_tracker = Tracker()
 
     # optimizer initailisation
     if filter_spec is None:
         filter_spec = jtu.tree_map(lambda leaf: eqx.is_inexact_array(leaf), model)
 
     trainable, static = eqx.partition(model, filter_spec)
-    opt_state = optim.init(trainable)
+
+    if initial_opt_state is not None:
+        opt_state = initial_opt_state
+    else:
+        opt_state = optim.init(trainable)
 
     # loss configuration
     base_loss_fn: Callable[..., jaxtyping.Scalar]
@@ -410,24 +383,52 @@ def train(
         trainable, static, opt_state, observations, conditions, step_keys[0]
     )
 
-    run_tracker.start_run()
-    run_tracker.track_step(static, _trainable, -1, loss, step_keys[0], loop)
+    run_tracker.track_step(-1, -1, static, _trainable, loss, step_keys[0], loop)
+
+    elapsed_time_s = 0.0
+    phase_start = time.perf_counter()
+    SYNC_INTERVAL_S = 10
 
     for opt_step in loop:
         loss, trainable, opt_state = compiled_make_step(
             trainable, static, opt_state, observations, conditions, step_keys[opt_step]
         )
 
-        end_run = run_tracker.track_step(
-            static, trainable, opt_step, loss, step_keys[opt_step], loop
-        )
-        if end_run:
-            print("Early stopping triggered.")
-            break
+        now = time.perf_counter()
+        if (now - phase_start) > SYNC_INTERVAL_S:
+            # sync now
+            loss.block_until_ready()
+            t_after = time.perf_counter()
+            elapsed_time_s += t_after - phase_start
+
+            # we may want expensive operations during the run,
+            # so need to account for this
+            run_tracker.track_step(
+                elapsed_time_s,
+                opt_step,
+                static,
+                trainable,
+                loss,
+                step_keys[opt_step],
+                loop,
+            )
+
+            if time_limit_s and elapsed_time_s > time_limit_s:
+                print("Early stopping triggered.")
+                break
+
+            phase_start = time.perf_counter()
 
     # add final record
     run_tracker.track_step(
-        static, trainable, opt_step + 1, loss, step_keys[0], loop, force_record=True
+        elapsed_time_s,
+        opt_step + 1,
+        static,
+        trainable,
+        loss,
+        step_keys[0],
+        loop,
+        force_record=True,
     )
 
-    return typing.cast(SSMApproximationT, eqx.combine(static, trainable))
+    return typing.cast(SSMApproximationT, eqx.combine(static, trainable)), opt_state

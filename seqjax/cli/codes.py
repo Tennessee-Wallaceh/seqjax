@@ -44,7 +44,7 @@ def _merge_code_definitions(
 
 
 COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
-    "LR": {"1e-2": 1e-2, "1e-3": 1e-3, "1e-4": 1e-4},
+    "LR": {"1e-2": 1e-2, "5e-3": 5e-3, "1e-3": 1e-3, "1e-4": 1e-4},
     "MC": {"1": 1, "10": 10, "50": 50, "100": 100},
     "BS": {"1": 1, "10": 10, "50": 50, "100": 100},
     "EMB": {
@@ -56,8 +56,8 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
 
 BUFFER_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
     "PT": {"N": 0, "Y": 5000},
-    "B": {"5": 5, "20": 20},
-    "M": {"5": 5, "20": 20},
+    "B": {"0": 0, "5": 5, "10": 10, "20": 20, "50": 50},
+    "M": {"5": 5, "10": 10, "20": 20},
 }
 
 FULL_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {}

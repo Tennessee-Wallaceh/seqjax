@@ -482,19 +482,6 @@ def build_approximation(
     return approximation
 
 
-def make_record_trigger(interval_seconds: int):
-    last_trigger = [-1]
-
-    def trigger(step, elapsed_time):
-        current = int(elapsed_time) // interval_seconds
-        if current != last_trigger[0]:
-            last_trigger[0] = current
-            return True
-        return False
-
-    return trigger
-
-
 @inference_method
 def run_full_path_vi[
     ParticleT: seqjtyping.Particle,
@@ -528,7 +515,7 @@ def run_full_path_vi[
     condition_path: ConditionT | None = None,
     test_samples: int = 1000,
     config: FullVIConfig = FullVIConfig(),
-    wandb_run: typing.Any = None,
+    tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
 
@@ -556,44 +543,7 @@ def run_full_path_vi[
             optax.adam(learning_rate=schedule), max_consecutive_errors=100
         )
 
-    if config.optimization.time_limit_s is not None:
-
-        def end_trigger(step, elapsed_time_s):
-            return elapsed_time_s >= config.optimization.time_limit_s
-
-    else:
-        end_trigger = None
-
-    if wandb_run is not None:
-
-        def wandb_update(update, static, trainable, opt_step, loss, key):
-            wandb_update = {
-                "step": opt_step,
-                "elapsed_time_s": update["elapsed_time_s"],
-                "loss": loss,
-            }
-
-            for label, value in update.items():
-                if label.endswith("_q05"):
-                    wandb_update[label] = value
-                if label.endswith("_q95"):
-                    wandb_update[label] = value
-                if label.endswith("_mean"):
-                    wandb_update[label] = value
-
-            wandb_run.log(wandb_update)
-
-        custom_record_fcns = [wandb_update]
-    else:
-        custom_record_fcns = None
-
-    run_tracker = train.DefaultTracker(
-        record_trigger=make_record_trigger(30),
-        end_trigger=end_trigger,
-        metric_samples=test_samples,
-        custom_record_fcns=custom_record_fcns,
-    )
-    fitted_approximation = train.train(
+    fitted_approximation, opt_state = train.train(
         model=approximation,
         observations=observation_path,
         conditions=condition_path,
@@ -601,9 +551,10 @@ def run_full_path_vi[
         optim=optim,
         target=target_posterior,
         num_steps=config.optimization.total_steps,
-        run_tracker=run_tracker,
+        run_tracker=tracker,
         observations_per_step=config.observations_per_step,
         samples_per_context=config.samples_per_context,
+        time_limit_s=config.optimization.time_limit_s,
     )
 
     # run sample again for testing purposes
@@ -618,7 +569,7 @@ def run_full_path_vi[
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
     return (
         flat_theta_q,
-        (run_tracker, x_q, fitted_approximation),
+        (tracker, x_q, fitted_approximation, opt_state),
     )
 
 
@@ -655,7 +606,7 @@ def run_buffered_vi[
     condition_path: ConditionT | None = None,
     test_samples: int = 1000,
     config: BufferedVIConfig = BufferedVIConfig(),
-    wandb_run: typing.Any = None,
+    tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
 
@@ -683,44 +634,8 @@ def run_buffered_vi[
             optax.adam(learning_rate=schedule), max_consecutive_errors=100
         )
 
-    if config.optimization.time_limit_s is not None:
-
-        def end_trigger(step, elapsed_time_s):
-            return elapsed_time_s >= config.optimization.time_limit_s
-
-    else:
-        end_trigger = None
-
-    if wandb_run is not None:
-
-        def wandb_update(update, static, trainable, opt_step, loss, key):
-            wandb_update = {
-                "step": opt_step,
-                "elapsed_time_s": update["elapsed_time_s"],
-                "loss": loss,
-            }
-            for label, value in update.items():
-                if label.endswith("_q05"):
-                    wandb_update[label] = value
-                if label.endswith("_q95"):
-                    wandb_update[label] = value
-                if label.endswith("_mean"):
-                    wandb_update[label] = value
-            wandb_run.log(wandb_update)
-
-        custom_record_fcns = [wandb_update]
-    else:
-        custom_record_fcns = None
-
-    run_tracker = train.DefaultTracker(
-        record_trigger=make_record_trigger(30),
-        end_trigger=end_trigger,
-        metric_samples=test_samples,
-        custom_record_fcns=custom_record_fcns,
-    )
-
     if config.pre_training_steps > 0:
-        approximation = train.train(
+        approximation, _ = train.train(
             model=approximation,
             observations=observation_path,
             conditions=condition_path,
@@ -728,13 +643,13 @@ def run_buffered_vi[
             optim=optim,
             target=target_posterior,
             num_steps=config.pre_training_steps,
-            run_tracker=run_tracker,
+            run_tracker=tracker,
             observations_per_step=config.observations_per_step,
             samples_per_context=config.samples_per_context,
             pre_train=True,
         )
 
-    fitted_approximation = train.train(
+    fitted_approximation, opt_state = train.train(
         model=approximation,
         observations=observation_path,
         conditions=condition_path,
@@ -742,9 +657,10 @@ def run_buffered_vi[
         optim=optim,
         target=target_posterior,
         num_steps=config.optimization.total_steps,
-        run_tracker=run_tracker,
+        run_tracker=tracker,
         observations_per_step=config.observations_per_step,
         samples_per_context=config.samples_per_context,
+        time_limit_s=config.optimization.time_limit_s,
     )
 
     # run sample again for testing purposes
@@ -763,5 +679,5 @@ def run_buffered_vi[
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
     return (
         flat_theta_q,
-        (approx_start, x_q, run_tracker, fitted_approximation),
+        (approx_start, x_q, tracker, fitted_approximation, opt_state),
     )
