@@ -187,7 +187,9 @@ class SkewStochVolParamPrior(ParameterPrior[LogVolWithSkew, HyperParameters]):
         )
 
     @staticmethod
-    def log_prob(parameters: LogVolWithSkew, hyperparameters: HyperParameters) -> Scalar:
+    def log_prob(
+        parameters: LogVolWithSkew, hyperparameters: HyperParameters
+    ) -> Scalar:
         base_parameters = SkewStochVolParamPrior._base_parameters(parameters)
         base_log_prob = StochVolParamPrior.log_prob(base_parameters, hyperparameters)
 
@@ -208,13 +210,13 @@ class _RandomWalkParameters(Protocol):
 
 
 def _random_walk_loc_scale(
-    prev_particle: LatentVol,
+    prev_latent: LatentVol,
     condition: TimeIncrement,
     parameters: _RandomWalkParameters,
 ) -> tuple[Scalar, Scalar]:
     move_scale = jnp.sqrt(condition.dt) * parameters.std_log_vol
-    move_loc = prev_particle.log_vol + condition.dt * parameters.mean_reversion * (
-        jnp.log(parameters.long_term_vol) - prev_particle.log_vol
+    move_loc = prev_latent.log_vol + condition.dt * parameters.mean_reversion * (
+        jnp.log(parameters.long_term_vol) - prev_latent.log_vol
     )
     return move_loc, move_scale
 
@@ -236,11 +238,11 @@ class GaussianStart(Prior[tuple[LatentVol], tuple[TimeIncrement], LogVolRW]):
 
     @staticmethod
     def log_prob(
-        particle: tuple[LatentVol],
+        latent: tuple[LatentVol],
         conditions: tuple[TimeIncrement],
         parameters: LogVolRW,
     ) -> Scalar:
-        (start_lv,) = particle
+        (start_lv,) = latent
         mu = jnp.array(-2.0)
         sigma = jnp.array(0.5)
 
@@ -278,11 +280,11 @@ class TwoStepGaussianStart(
 
     @staticmethod
     def log_prob(
-        particle: tuple[LatentVol, LatentVol],
+        latent: tuple[LatentVol, LatentVol],
         conditions: tuple[TimeIncrement, TimeIncrement],
         parameters: LogVolWithSkew,
     ) -> Scalar:
-        start_lv, next_lv = particle
+        start_lv, next_lv = latent
         mu = jnp.array(-2.0)
         sigma = jnp.array(0.5)
 
@@ -302,35 +304,35 @@ class RandomWalk(Transition[LatentVol, tuple[LatentVol], TimeIncrement, LogVolRW
 
     @staticmethod
     def loc_scale(
-        particle_history: tuple[LatentVol],
+        latent_history: tuple[LatentVol],
         condition: TimeIncrement,
         parameters: LogVolRW,
     ) -> tuple[Scalar, Scalar]:
-        (prev_particle,) = particle_history
-        return _random_walk_loc_scale(prev_particle, condition, parameters)
+        (prev_latent,) = latent_history
+        return _random_walk_loc_scale(prev_latent, condition, parameters)
 
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        particle_history: tuple[LatentVol],
+        latent_history: tuple[LatentVol],
         condition: TimeIncrement,
         parameters: LogVolRW,
     ) -> LatentVol:
-        loc, scale = RandomWalk.loc_scale(particle_history, condition, parameters)
+        loc, scale = RandomWalk.loc_scale(latent_history, condition, parameters)
         return LatentVol(log_vol=loc + scale * jrandom.normal(key))
 
     @staticmethod
     def log_prob(
-        particle_history: tuple[LatentVol],
-        particle: LatentVol,
+        latent_history: tuple[LatentVol],
+        latent: LatentVol,
         condition: TimeIncrement,
         parameters: LogVolRW,
     ) -> Scalar:
-        loc, scale = RandomWalk.loc_scale(particle_history, condition, parameters)
+        loc, scale = RandomWalk.loc_scale(latent_history, condition, parameters)
         # clip evaluations to reasonable level, if we are sampling outside this frequently
         # something has gone wrong
         # TODO: should this be an error instead?
-        log_vol = jnp.clip(particle.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
+        log_vol = jnp.clip(latent.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
         return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
 
 
@@ -341,64 +343,64 @@ class SkewRandomWalk(
 
     @staticmethod
     def loc_scale(
-        particle_history: tuple[LatentVol, LatentVol],
+        latent_history: tuple[LatentVol, LatentVol],
         condition: TimeIncrement,
         parameters: LogVolWithSkew,
     ) -> tuple[Scalar, Scalar]:
-        last_particle = particle_history[-1]
-        return _random_walk_loc_scale(last_particle, condition, parameters)
+        last_latent = latent_history[-1]
+        return _random_walk_loc_scale(last_latent, condition, parameters)
 
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        particle_history: tuple[LatentVol, LatentVol],
+        latent_history: tuple[LatentVol, LatentVol],
         condition: TimeIncrement,
         parameters: LogVolWithSkew,
     ) -> LatentVol:
-        loc, scale = SkewRandomWalk.loc_scale(particle_history, condition, parameters)
+        loc, scale = SkewRandomWalk.loc_scale(latent_history, condition, parameters)
         return LatentVol(log_vol=loc + scale * jrandom.normal(key))
 
     @staticmethod
     def log_prob(
-        particle_history: tuple[LatentVol, LatentVol],
-        particle: LatentVol,
+        latent_history: tuple[LatentVol, LatentVol],
+        latent: LatentVol,
         condition: TimeIncrement,
         parameters: LogVolWithSkew,
     ) -> Scalar:
-        loc, scale = SkewRandomWalk.loc_scale(particle_history, condition, parameters)
-        log_vol = jnp.clip(particle.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
+        loc, scale = SkewRandomWalk.loc_scale(latent_history, condition, parameters)
+        log_vol = jnp.clip(latent.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
         return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
 
 
 class LogReturn(
     Emission[tuple[LatentVol], LogReturnObs, tuple[()], TimeIncrement, LogVolRW]
 ):
-    order: ClassVar[int] = 1  # depends only on current particle
+    order: ClassVar[int] = 1  # depends only on current latent
     observation_dependency: ClassVar[int] = 0
 
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        particle: tuple[LatentVol],
+        latent: tuple[LatentVol],
         observation_history: tuple[()],
         condition: TimeIncrement,
         parameters: LogVolRW,
     ) -> LogReturnObs:
-        (current_particle,) = particle
-        return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_particle.log_vol)
+        (current_latent,) = latent
+        return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_latent.log_vol)
         log_return = jrandom.normal(key) * return_scale
         return LogReturnObs(log_return=log_return)
 
     @staticmethod
     def log_prob(
-        particle: tuple[LatentVol],
+        latent: tuple[LatentVol],
         observation_history: tuple[()],
         observation: LogReturnObs,
         condition: TimeIncrement,
         parameters: LogVolRW,
     ) -> Scalar:
-        (current_particle,) = particle
-        return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_particle.log_vol)
+        (current_latent,) = latent
+        return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_latent.log_vol)
         log_return = observation.log_return
         return jstats.norm.logpdf(log_return, loc=0.0, scale=return_scale)
 
@@ -412,28 +414,28 @@ class SkewLogReturn(
         LogVolWithSkew,
     ]
 ):
-    order: ClassVar[int] = 2  # depends on last particle and current particle
+    order: ClassVar[int] = 2  # depends on last latent and current latent
     observation_dependency: ClassVar[int] = 0
 
     @staticmethod
     def return_mean_and_scale(
-        last_particle: LatentVol,
-        current_particle: LatentVol,
+        last_latent: LatentVol,
+        current_latent: LatentVol,
         condition: TimeIncrement,
         parameters: LogVolWithSkew,
     ) -> tuple[Scalar, Scalar]:
         dt = condition.dt
 
-        current_vol = jnp.exp(current_particle.log_vol)
-        current_var = jnp.exp(2 * current_particle.log_vol)
+        current_vol = jnp.exp(current_latent.log_vol)
+        current_var = jnp.exp(2 * current_latent.log_vol)
 
-        log_vol_mean, _ = _random_walk_loc_scale(last_particle, condition, parameters)
+        log_vol_mean, _ = _random_walk_loc_scale(last_latent, condition, parameters)
 
         return_mean = -0.5 * dt * current_var
         return_mean += (
             parameters.skew
             * (current_vol / parameters.std_log_vol)
-            * (current_particle.log_vol - log_vol_mean)
+            * (current_latent.log_vol - log_vol_mean)
         )
 
         return_scale = (
@@ -445,15 +447,15 @@ class SkewLogReturn(
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        particle: tuple[LatentVol, LatentVol],
+        latent: tuple[LatentVol, LatentVol],
         observation_history: tuple[()],
         condition: TimeIncrement,
         parameters: LogVolWithSkew,
     ) -> LogReturnObs:
-        last_particle, current_particle = particle
+        last_latent, current_latent = latent
         return_mean, return_scale = SkewLogReturn.return_mean_and_scale(
-            last_particle,
-            current_particle,
+            last_latent,
+            current_latent,
             condition,
             parameters,
         )
@@ -463,16 +465,16 @@ class SkewLogReturn(
 
     @staticmethod
     def log_prob(
-        particle: tuple[LatentVol, LatentVol],
+        latent: tuple[LatentVol, LatentVol],
         observation_history: tuple[()],
         observation: LogReturnObs,
         condition: TimeIncrement,
         parameters: LogVolWithSkew,
     ) -> Scalar:
-        last_particle, current_particle = particle
+        last_latent, current_latent = latent
         return_mean, return_scale = SkewLogReturn.return_mean_and_scale(
-            last_particle,
-            current_particle,
+            last_latent,
+            current_latent,
             condition,
             parameters,
         )
@@ -496,7 +498,7 @@ class SimpleStochasticVol(
         LogVolRW,
     ]
 ):
-    particle_cls: type[LatentVol] = LatentVol
+    latent_cls: type[LatentVol] = LatentVol
     observation_cls: type[LogReturnObs] = LogReturnObs
     condition_cls: type[TimeIncrement] = TimeIncrement
     parameter_cls: type[LogVolRW] = LogVolRW
@@ -540,7 +542,7 @@ class SkewStochasticVol(
         LogVolWithSkew,
     ]
 ):
-    particle_cls: type[LatentVol] = LatentVol
+    latent_cls: type[LatentVol] = LatentVol
     condition_cls: type[TimeIncrement] = TimeIncrement
     observation_cls: type[LogReturnObs] = LogReturnObs
     parameter_cls: type[LogVolWithSkew] = LogVolWithSkew
@@ -585,9 +587,7 @@ def make_constant_time_increments(
         )
 
     effective_prior_order = (
-        SimpleStochasticVol.prior.order
-        if prior_order is None
-        else prior_order
+        SimpleStochasticVol.prior.order if prior_order is None else prior_order
     )
     required_length = sequence_length + effective_prior_order - 1
     dt_value = jnp.asarray(dt, dtype=jnp.float32)

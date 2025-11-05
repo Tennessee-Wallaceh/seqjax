@@ -92,7 +92,7 @@ def test_buffered_elbo_handles_scalar_and_vector_log_q() -> None:
     )
 
     parameter_dim = posterior.inference_parameter_cls.flat_dim
-    latent_class = posterior.target.particle_cls
+    latent_class = posterior.target.latent_cls
 
     autoreg_latent = autoregressive.AmortizedUnivariateAutoregressor(
         latent_class,

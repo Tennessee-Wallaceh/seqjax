@@ -345,7 +345,7 @@ def build_approximation(
 
     target_observation_class = target_posterior.target.observation_cls
     target_param_class = target_posterior.inference_parameter_cls
-    target_latent_class = target_posterior.target.particle_cls
+    target_latent_class = target_posterior.target.latent_cls
 
     # handle parameter constrainsts with specified constraint transforms
     field_bijections = {}

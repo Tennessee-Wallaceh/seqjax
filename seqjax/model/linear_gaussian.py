@@ -68,12 +68,12 @@ class GaussianPrior(Prior[tuple[VectorState], tuple[()], LGSSMParameters]):
 
     @staticmethod
     def log_prob(
-        particle: tuple[VectorState],
+        latent: tuple[VectorState],
         conditions: tuple[()],
         parameters: LGSSMParameters,
     ) -> Scalar:
         scale = parameters.transition_noise_scale
-        logp = jstats.norm.logpdf(particle[0].x, loc=0.0, scale=scale)
+        logp = jstats.norm.logpdf(latent[0].x, loc=0.0, scale=scale)
         return logp.sum()
 
 
@@ -87,11 +87,11 @@ class GaussianTransition(
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        particle_history: tuple[VectorState],
+        latent_history: tuple[VectorState],
         condition: NoCondition,
         parameters: LGSSMParameters,
     ) -> VectorState:
-        (last_state,) = particle_history
+        (last_state,) = latent_history
         mean = parameters.transition_matrix @ last_state.x
         noise = parameters.transition_noise_scale * jrandom.normal(
             key, shape=parameters.transition_noise_scale.shape
@@ -100,15 +100,15 @@ class GaussianTransition(
 
     @staticmethod
     def log_prob(
-        particle_history: tuple[VectorState],
-        particle: VectorState,
+        latent_history: tuple[VectorState],
+        latent: VectorState,
         condition: NoCondition,
         parameters: LGSSMParameters,
     ) -> Scalar:
-        (last_state,) = particle_history
+        (last_state,) = latent_history
         mean = parameters.transition_matrix @ last_state.x
         logp = jstats.norm.logpdf(
-            particle.x, loc=mean, scale=parameters.transition_noise_scale
+            latent.x, loc=mean, scale=parameters.transition_noise_scale
         )
         return logp.sum()
 
@@ -130,12 +130,12 @@ class GaussianEmission(
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        particle: tuple[VectorState],
+        latent: tuple[VectorState],
         observation_history: tuple[()],
         condition: NoCondition,
         parameters: LGSSMParameters,
     ) -> VectorObservation:
-        (state,) = particle
+        (state,) = latent
         mean = parameters.emission_matrix @ state.x
         noise = parameters.emission_noise_scale * jrandom.normal(
             key, shape=parameters.emission_noise_scale.shape
@@ -144,13 +144,13 @@ class GaussianEmission(
 
     @staticmethod
     def log_prob(
-        particle: tuple[VectorState],
+        latent: tuple[VectorState],
         observation_history: tuple[()],
         observation: VectorObservation,
         condition: NoCondition,
         parameters: LGSSMParameters,
     ) -> Scalar:
-        (state,) = particle
+        (state,) = latent
         mean = parameters.emission_matrix @ state.x
         logp = jstats.norm.logpdf(
             observation.y, loc=mean, scale=parameters.emission_noise_scale
@@ -171,7 +171,7 @@ class LinearGaussianSSM(
         LGSSMParameters,
     ]
 ):
-    particle_cls = VectorState
+    latent_cls = VectorState
     observation_cls = VectorObservation
     parameter_cls = LGSSMParameters
     prior = GaussianPrior()

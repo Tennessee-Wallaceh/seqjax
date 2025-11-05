@@ -5,7 +5,6 @@ from functools import lru_cache
 import math
 from typing import (
     ClassVar,
-    TypeVar,
     TypeVarTuple,
 )
 import typing
@@ -16,7 +15,7 @@ import jax
 import jax.numpy as jnp
 
 """
-Suprisingly, Python ABCs ensure that an abstract method is implemented, 
+Python ABCs ensure that an abstract method is implemented, 
 but they don't enforce matching type signature.
 To get around this we can use runtime checks to ensure that concrete classes have the 
 correct signatures.
@@ -130,7 +129,7 @@ class Packable[*BatchAxes](eqx.Module):
         )
 
 
-class Particle[*BatchAxes](Packable[*BatchAxes]): ...
+class Latent[*BatchAxes](Packable[*BatchAxes]): ...
 
 
 class Observation[*BatchAxes](Packable[*BatchAxes]): ...
@@ -150,46 +149,39 @@ class Parameters[*BatchAxes](Packable[*BatchAxes]):
 class HyperParameters[*BatchAxes](Packable[*BatchAxes]): ...
 
 
-"""
-These are the Type Variable versions of the Packable classes
-For use in tying input + output types e.g. 
-def transition(p: ParticleType) -> ParticleType:
-produces the same ParticleType, 
-def transition(p: Particle) -> Particle:
-could produce any Particle
-"""
-ParticleType = TypeVar("ParticleType", bound=Particle)
-ObservationType = TypeVar("ObservationType", bound=Observation)
-ConditionType = TypeVar("ConditionType", bound=Condition)
-ParametersType = TypeVar("ParametersType", bound=Parameters)
-InferenceParametersType = TypeVar("InferenceParametersType", bound=Parameters)
-HyperParametersType = TypeVar("HyperParametersType", bound=HyperParameters | None)
+def _annotation_is_variable_tuple(annotation):
+    return (
+        typing.get_origin(annotation) is tuple
+        and len(annotation.__args__) == 2
+        and annotation.__args__[1] is Ellipsis
+    )
 
 
-def resolve_annotation(annotation, type_mapping, class_vars):
+def resolve_annotation[
+    ObservationT: Observation,
+    LatentT: Latent,
+    ConditionT: Condition,
+](annotation, type_mapping, class_vars):
     # if the annotation is a type variable, replace it.
     if isinstance(annotation, typing.TypeVar):
         return type_mapping.get(annotation, annotation)
 
     # replace generic length tuples with specific lengths based on
-    # order information
-    if (
-        typing.get_origin(annotation) is tuple
-        and len(annotation.__args__) == 2
-        and annotation.__args__[1] is Ellipsis
-    ):
+    # relevant order information
+    if _annotation_is_variable_tuple(annotation):
         argument_typevar = annotation.__args__[0]
-        if argument_typevar == ObservationType:
+        if argument_typevar == ObservationT:
             order = class_vars["observation_dependency"]
-        elif argument_typevar == ParticleType or argument_typevar == ConditionType:
+        elif argument_typevar == LatentT or argument_typevar == ConditionT:
             order = class_vars["order"]
         else:
             raise TypeError(
                 f"Unknown order for typevar {argument_typevar} please raise issue.",
             )
 
-        ptype = type_mapping[argument_typevar]
-        return annotation.__origin__[tuple(ptype for _ in range(order))]
+        # the concrete annotation is just the specific length tuple
+        packable_type = type_mapping[argument_typevar]
+        return annotation.__origin__[tuple(packable_type for _ in range(order))]
 
     return annotation
 
@@ -206,16 +198,13 @@ def normalize_signature(sig, type_mapping, class_vars):
 def check_interface(cls):
     # reference class is the immediate parent
     base = inspect.getmro(cls)[1]
-    # print(f"Checking {cls} against {base}")
 
     # handle generic mapping
     type_mapping = {}
     for gbase in cls.__orig_bases__:
         if hasattr(gbase, "__origin__"):
-            type_vars = (
-                gbase.__origin__.__parameters__
-            )  # e.g. (ParticleType, ParametersType)
-            concrete_types = gbase.__args__  # e.g. (LatentVol, LogVolRW)
+            type_vars = gbase.__origin__.__parameters__
+            concrete_types = gbase.__args__
             type_mapping = {
                 **type_mapping,
                 **dict(zip(type_vars, concrete_types, strict=False)),

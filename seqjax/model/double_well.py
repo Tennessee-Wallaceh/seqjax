@@ -117,13 +117,13 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], DoubleWellParams]):
 
     @staticmethod
     def log_prob(
-        particle: tuple[LatentValue],
+        latent: tuple[LatentValue],
         conditions: tuple[()],
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
         """Evaluate the prior log-density."""
         scale = jnp.array(1.0)
-        return jstats.norm.logpdf(particle[0].latent_state, scale=scale)
+        return jstats.norm.logpdf(latent[0].latent_state, scale=scale)
 
 
 class DoubleWellWalk(
@@ -133,11 +133,11 @@ class DoubleWellWalk(
 
     @staticmethod
     def mean_fn(
-        last_particle: LatentValue,
+        last_latent: LatentValue,
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
-        last_latent = last_particle.latent_state
+        last_latent = last_latent.latent_state
         dt = condition.dt
         return last_latent + dt * 4 * last_latent * (
             jnp.sqrt(parameters.energy_barrier) - last_latent * last_latent
@@ -146,12 +146,12 @@ class DoubleWellWalk(
     @staticmethod
     def sample(
         key: jaxtyping.PRNGKeyArray,
-        particle_history: tuple[LatentValue],
+        latent_history: tuple[LatentValue],
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> LatentValue:
-        (last_particle,) = particle_history
-        mean = DoubleWellWalk.mean_fn(last_particle, condition, parameters)
+        (last_latent,) = latent_history
+        mean = DoubleWellWalk.mean_fn(last_latent, condition, parameters)
         dt = condition.dt
         return LatentValue(
             latent_state=mean
@@ -160,16 +160,16 @@ class DoubleWellWalk(
 
     @staticmethod
     def log_prob(
-        particle_history: tuple[LatentValue],
-        particle: LatentValue,
+        latent_history: tuple[LatentValue],
+        latent: LatentValue,
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
-        (last_particle,) = particle_history
-        mean = DoubleWellWalk.mean_fn(last_particle, condition, parameters)
+        (last_latent,) = latent_history
+        mean = DoubleWellWalk.mean_fn(last_latent, condition, parameters)
         dt = condition.dt
         return jstats.norm.logpdf(
-            particle.latent_state,
+            latent.latent_state,
             loc=mean,
             scale=parameters.transition_std * jnp.sqrt(dt),
         )
@@ -188,40 +188,40 @@ class NoisyEmission(
     @staticmethod
     def sample(  # type: ignore[override]
         key: jaxtyping.PRNGKeyArray,
-        particle: tuple[LatentValue],
+        latent: tuple[LatentValue],
         observation_history: tuple[()],
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> NoisyObservation:
         """Sample an observation."""
-        (current_particle,) = particle
+        (current_latent,) = latent
         y = (
-            current_particle.latent_state
+            current_latent.latent_state
             + jrandom.normal(key) * parameters.observation_std
         )
         return NoisyObservation(observation=y)
 
     @staticmethod
     def log_prob(  # type: ignore[override]
-        particle: tuple[LatentValue],
+        latent: tuple[LatentValue],
         observation_history: tuple[()],
         observation: NoisyObservation,
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
         """Return the emission log-density."""
-        (current_particle,) = particle
+        (current_latent,) = latent
         return jstats.norm.logpdf(
             observation.observation,
-            loc=current_particle.latent_state,
+            loc=current_latent.latent_state,
             scale=parameters.observation_std,
         )
 
 
 class DoubleWellTarget(
     SequentialModel[
-        LatentValue,  # particle
-        tuple[LatentValue],  # initial particles
+        LatentValue,  # latent
+        tuple[LatentValue],  # initial latents
         tuple[LatentValue],  # transtiion history
         tuple[LatentValue],  # observation history
         NoisyObservation,  # observation
@@ -231,7 +231,7 @@ class DoubleWellTarget(
         DoubleWellParams,  # parameters
     ]
 ):
-    particle_cls = LatentValue
+    latent_cls = LatentValue
     observation_cls = NoisyObservation
     parameter_cls = DoubleWellParams
     condition_cls = TimeIncrement
@@ -272,8 +272,8 @@ def fill_parameter(
 
 class DoubleWellBayesian(
     BayesianSequentialModel[
-        LatentValue,  # particle
-        tuple[LatentValue],  # initial particles
+        LatentValue,  # latent
+        tuple[LatentValue],  # initial latents
         tuple[LatentValue],  # transtiion history
         tuple[LatentValue],  # observation history
         NoisyObservation,  # observation

@@ -39,8 +39,8 @@ class ParameterPrior[
 
 
 class Prior[
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | None,
+    InitialLatentT: tuple[seqjtyping.Latent, ...],
+    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
 ](
     eqx.Module,
@@ -49,9 +49,9 @@ class Prior[
     """Prior must define density + sampling up to the start state t=0.
     As such it receives conditions up to t=0, length corresponding to order.
 
-    This could be over a number of particles if the dependency structure of the model requires.
+    This could be over a number of latents if the dependency structure of the model requires.
 
-    For example if the transition is (x_t1, x_t2) -> x_t3 then the prior must produce 2 particles (x_t-1, x_t0).
+    For example if the transition is (x_t1, x_t2) -> x_t3 then the prior must produce 2 latents (x_t-1, x_t0).
     Even if the transition is (x_t1,) -> x_t2, if emission is (x_t1, x_t2) -> y_t2 then
     the prior must specify p(x_t-1, x_t0), so that p(y_t0 | x_t-1, x_t0) can be evaluated.
     """
@@ -64,21 +64,20 @@ class Prior[
         key: PRNGKeyArray,
         conditions: ConditionHistoryT,
         parameters: ParametersT,
-    ) -> InitialParticleT: ...
+    ) -> InitialLatentT: ...
 
     @staticmethod
     @abstractmethod
     def log_prob(
-        particle: InitialParticleT,
+        latent: InitialLatentT,
         conditions: ConditionHistoryT,
         parameters: ParametersT,
     ) -> Scalar: ...
 
 
 class Transition[
-    ParticleT: seqjtyping.Particle,
-    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ConditionT: seqjtyping.Condition | None,
+    LatentT: seqjtyping.Latent,
+    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
 ](
     eqx.Module,
@@ -90,23 +89,23 @@ class Transition[
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        particle_history: ParticleHistoryT,
+        latent_history: tuple[LatentT, ...],
         condition: ConditionT,
         parameters: ParametersT,
-    ) -> ParticleT: ...
+    ) -> LatentT: ...
 
     @staticmethod
     @abstractmethod
     def log_prob(
-        particle_history: ParticleHistoryT,
-        particle: ParticleT,
+        latent_history: tuple[LatentT, ...],
+        latent: LatentT,
         condition: ConditionT,
         parameters: ParametersT,
     ) -> Scalar: ...
 
 
 class Emission[
-    ParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    LatentHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionT: seqjtyping.Condition | None,
@@ -122,7 +121,7 @@ class Emission[
     @abstractmethod
     def sample(
         key: PRNGKeyArray,
-        particle: ParticleHistoryT,
+        latent: LatentHistoryT,
         observation_history: ObservationHistoryT,
         condition: ConditionT,
         parameters: ParametersT,
@@ -131,7 +130,7 @@ class Emission[
     @staticmethod
     @abstractmethod
     def log_prob(
-        particle: ParticleHistoryT,
+        latent: LatentHistoryT,
         observation_history: ObservationHistoryT,
         observation: ObservationT,
         condition: ConditionT,
@@ -150,7 +149,7 @@ class SequentialModel[
     ConditionT: seqjtyping.Condition | None,
     ParametersT: seqjtyping.Parameters,
 ]:
-    particle_cls: type[ParticleT]
+    latent_cls: type[ParticleT]
     observation_cls: type[ObservationT]
     parameter_cls: type[ParametersT]
     condition_cls: type[ConditionT]

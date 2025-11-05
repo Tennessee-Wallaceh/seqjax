@@ -52,24 +52,24 @@ def step[
 
     # pad the RHS with a None, then no condition => condition is None
     step_key, condition = (inputs + (None,))[:2]
-    particles, emissions = state
+    latents, emissions = state
     transition_key, emission_key = jrandom.split(step_key)
-    particle_history = typing.cast(
-        TransitionParticleHistoryT, particles[-target.transition.order :]
+    latent_history = typing.cast(
+        TransitionParticleHistoryT, latents[-target.transition.order :]
     )
 
-    # last particle is at t
+    # last latent is at t
     # sample x_t+1 then y_t+1
-    next_particle = target.transition.sample(
+    next_latent = target.transition.sample(
         transition_key,
-        particle_history,
+        latent_history,
         condition,
         parameters,
     )
 
-    particles = (*particles, next_particle)
+    latents = (*latents, next_latent)
     emission_p_history = typing.cast(
-        ObservationParticleHistoryT, particles[-target.emission.order :]
+        ObservationParticleHistoryT, latents[-target.emission.order :]
     )
     emission = target.emission.sample(
         emission_key,
@@ -79,11 +79,11 @@ def step[
         parameters,
     )
 
-    # add the next particle to the history before emission
+    # add the next latent to the history before emission
     # only pass on necessary information
     # # read off histories of appropriate order
     max_latent_order = max(target.transition.order, target.emission.order)
-    particle_history = particles[-max_latent_order:]
+    latent_history = latents[-max_latent_order:]
     emission_history = (*emissions, emission)
     emission_history = typing.cast(
         ObservationHistoryT,
@@ -92,7 +92,7 @@ def step[
         ],
     )
 
-    return (particle_history, emission_history), (next_particle, emission)
+    return (latent_history, emission_history), (next_latent, emission)
 
 
 def simulate[

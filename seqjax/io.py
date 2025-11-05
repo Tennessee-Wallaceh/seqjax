@@ -223,7 +223,7 @@ def get_remote_data(run: WandbRun, data_config: DataConfig):
 
     print(f"{artifact_name} present on remote, downloading...")
     to_load = [
-        ("x_path", data_config.target.particle_cls),
+        ("x_path", data_config.target.latent_cls),
         ("y_path", data_config.target.observation_cls),
     ]
     if data_config.target_model_label in condition_generators:

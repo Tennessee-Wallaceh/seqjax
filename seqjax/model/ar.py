@@ -136,7 +136,7 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], ARParameters]):
 
     @staticmethod
     def log_prob(
-        particle: tuple[LatentValue],
+        latent: tuple[LatentValue],
         conditions: tuple[()],
         parameters: ARParameters,
     ) -> Scalar:
@@ -144,7 +144,7 @@ class InitialValue(Prior[tuple[LatentValue], tuple[()], ARParameters]):
         stationary_scale = jnp.sqrt(
             jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
         )
-        return jstats.norm.logpdf(particle[0].x, scale=stationary_scale)
+        return jstats.norm.logpdf(latent[0].x, scale=stationary_scale)
 
 
 class ARRandomWalk(
@@ -157,30 +157,30 @@ class ARRandomWalk(
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        particle_history: tuple[LatentValue],
+        latent_history: tuple[LatentValue],
         condition: NoCondition,
         parameters: ARParameters,
     ) -> LatentValue:
         """Sample the next latent state."""
-        (last_particle,) = particle_history
+        (last_latent,) = latent_history
         next_x = (
-            parameters.ar * last_particle.x
+            parameters.ar * last_latent.x
             + jrandom.normal(key) * parameters.transition_std
         )
         return LatentValue(x=next_x)
 
     @staticmethod
     def log_prob(
-        particle_history: tuple[LatentValue],
-        particle: LatentValue,
+        latent_history: tuple[LatentValue],
+        latent: LatentValue,
         condition: NoCondition,
         parameters: ARParameters,
     ) -> Scalar:
         """Return the transition log-density."""
-        (last_particle,) = particle_history
+        (last_latent,) = latent_history
         return jstats.norm.logpdf(
-            particle.x,
-            loc=parameters.ar * last_particle.x,
+            latent.x,
+            loc=parameters.ar * last_latent.x,
             scale=parameters.transition_std,
         )
 
@@ -196,29 +196,29 @@ class AREmission(
     @staticmethod
     def sample(  # type: ignore[override]
         key: PRNGKeyArray,
-        particle: tuple[LatentValue],
+        latent: tuple[LatentValue],
         observation_history: tuple[()],
         condition: NoCondition,
         parameters: ARParameters,
     ) -> NoisyEmission:
         """Sample an observation."""
-        (current_particle,) = particle
-        y = current_particle.x + jrandom.normal(key) * parameters.observation_std
+        (current_latent,) = latent
+        y = current_latent.x + jrandom.normal(key) * parameters.observation_std
         return NoisyEmission(y=y)
 
     @staticmethod
     def log_prob(  # type: ignore[override]
-        particle: tuple[LatentValue],
+        latent: tuple[LatentValue],
         observation_history: tuple[()],
         observation: NoisyEmission,
         condition: NoCondition,
         parameters: ARParameters,
     ) -> Scalar:
         """Return the emission log-density."""
-        (current_particle,) = particle
+        (current_latent,) = latent
         return jstats.norm.logpdf(
             observation.y,
-            loc=current_particle.x,
+            loc=current_latent.x,
             scale=parameters.observation_std,
         )
 
@@ -236,7 +236,7 @@ class AR1Target(
         ARParameters,
     ]
 ):
-    particle_cls = LatentValue
+    latent_cls = LatentValue
     observation_cls = NoisyEmission
     parameter_cls = ARParameters
     condition_cls = NoCondition

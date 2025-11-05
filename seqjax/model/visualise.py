@@ -84,7 +84,7 @@ def graph_model(
     model:
         The model to visualise.
     legend:
-        If ``True`` then an additional legend describing the particle,
+        If ``True`` then an additional legend describing the latent,
         observation and parameter fields is added.
     render:
         If truthy the graph is rendered using :meth:`graphviz.Digraph.render`.
@@ -98,7 +98,7 @@ def graph_model(
     # parameter node
     g.node("theta", label="θ", shape="square")
 
-    particle_cls = getattr(model, "particle_cls", None)
+    latent_cls = getattr(model, "latent_cls", None)
     observation_cls = getattr(model, "observation_cls", None)
     parameter_cls = getattr(model, "parameter_cls", None)
     condition_cls = None
@@ -107,11 +107,9 @@ def graph_model(
     if orig_bases:
         seq_args = get_args(orig_bases[0])
         if len(seq_args) >= 1:
-            particle_cls = _resolve_packable_type(seq_args[0]) or particle_cls
+            latent_cls = _resolve_packable_type(seq_args[0]) or latent_cls
         if len(seq_args) >= 5:
-            observation_cls = (
-                _resolve_packable_type(seq_args[4]) or observation_cls
-            )
+            observation_cls = _resolve_packable_type(seq_args[4]) or observation_cls
         if len(seq_args) >= 8:
             condition_cls = _resolve_packable_type(seq_args[7]) or condition_cls
         if len(seq_args) >= 9:
@@ -124,16 +122,14 @@ def graph_model(
             if len(cond_args) >= 3:
                 condition_cls = _resolve_packable_type(cond_args[2]) or condition_cls
 
-    particle_cls = particle_cls or model.particle_cls
+    latent_cls = latent_cls or model.latent_cls
     observation_cls = observation_cls or model.observation_cls
     parameter_cls = parameter_cls or model.parameter_cls
 
     start = -model.prior.order + 1
 
-    particle_fields = (
-        [f.name for f in fields(particle_cls)]
-        if is_dataclass(particle_cls)
-        else ["x"]
+    latent_fields = (
+        [f.name for f in fields(latent_cls)] if is_dataclass(latent_cls) else ["x"]
     )
     obs_fields = (
         [f.name for f in fields(observation_cls)]
@@ -150,7 +146,7 @@ def graph_model(
     for t in range(start, 2):
         with g.subgraph() as sg:
             sg.attr(rank="same")
-            for fld in particle_fields:
+            for fld in latent_fields:
                 sg.node(f"x{t}_{fld}", label=f"{fld}_{t}")
             if t >= 0:
                 for fld in obs_fields:
@@ -161,7 +157,7 @@ def graph_model(
 
     # invisible chains for row alignment
     for fields_list, prefix in (
-        (particle_fields, "x"),
+        (latent_fields, "x"),
         (obs_fields, "y"),
         (cond_fields, "c"),
     ):
@@ -178,18 +174,18 @@ def graph_model(
 
     # prior edges for initial latent states
     for t in range(start, 1):
-        for fld in particle_fields:
+        for fld in latent_fields:
             g.edge("theta", f"x{t}_{fld}")
         for cf in cond_fields:
-            for pf in particle_fields:
+            for pf in latent_fields:
                 g.edge(f"c{t}_{cf}", f"x{t}_{pf}")
 
     # transition to x1
-    for fld_dest in particle_fields:
+    for fld_dest in latent_fields:
         trans_sources = [
             f"x{1 - i}_{fld_src}"
             for i in range(1, model.transition.order + 1)
-            for fld_src in particle_fields
+            for fld_src in latent_fields
         ]
         _add_edges(g, trans_sources, f"x1_{fld_dest}")
         g.edge("theta", f"x1_{fld_dest}")
@@ -202,7 +198,7 @@ def graph_model(
             lat_srcs = [
                 f"x{t - i}_{fld_src}"
                 for i in range(model.emission.order)
-                for fld_src in particle_fields
+                for fld_src in latent_fields
             ]
             _add_edges(g, lat_srcs, f"y{t}_{fld_dest}")
 
@@ -219,7 +215,7 @@ def graph_model(
 
     if legend:
         tables = [
-            _legend_table("Particle", particle_cls),
+            _legend_table("Particle", latent_cls),
             _legend_table("Observation", observation_cls),
             _legend_table("Parameters", parameter_cls),
         ]
@@ -232,4 +228,3 @@ def graph_model(
         g.render(filename, cleanup=True, format="png")
 
     return g
-

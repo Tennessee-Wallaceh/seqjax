@@ -41,15 +41,15 @@ def log_prob_x(
     sequence_length = x_shape[0] - sequence_start
 
     # compute prior
-    prior_particles = tuple(index_pytree(x_path, i) for i in range(target.prior.order))
+    prior_latents = tuple(index_pytree(x_path, i) for i in range(target.prior.order))
     prior_conditions = tuple(
         index_pytree(condition, i) for i in range(target.prior.order)
     )
 
-    log_p_x_0 = target.prior.log_prob(prior_particles, prior_conditions, parameters)
+    log_p_x_0 = target.prior.log_prob(prior_latents, prior_conditions, parameters)
 
     # rest of sequence
-    particle_history = tuple(
+    latent_history = tuple(
         slice_pytree(
             x_path,
             sequence_start + 1 + i,  # starting from t = seq_start + 1
@@ -57,7 +57,7 @@ def log_prob_x(
         )
         for i in range(-target.transition.order, 0)
     )
-    target_particle = slice_pytree(
+    target_latent = slice_pytree(
         x_path,
         sequence_start + 1,
         sequence_start + sequence_length,
@@ -69,8 +69,8 @@ def log_prob_x(
     )
 
     transition_log_p_x = jax.vmap(target.transition.log_prob, in_axes=[0, 0, 0, None])(
-        particle_history,
-        target_particle,
+        latent_history,
+        target_latent,
         transition_condition,
         parameters,
     ).sum()
@@ -109,7 +109,7 @@ def log_prob_y_given_x(
     # should == y_sequence_length - y_sequence_start
     sequence_length = x_length - x_sequence_start
 
-    particle_history = tuple(
+    latent_history = tuple(
         slice_pytree(
             x_path, x_sequence_start + i, x_sequence_start + i + sequence_length
         )
@@ -134,7 +134,7 @@ def log_prob_y_given_x(
         target.emission.log_prob,
         in_axes=[0, 0, 0, 0, None],
     )(
-        particle_history,
+        latent_history,
         emission_history,
         observations,
         observation_conditions,
@@ -225,7 +225,7 @@ def buffered_log_p_x(
     parameters,
 ) -> Scalar:
     """
-    slice out particle histories for vectorised evaluation
+    slice out latent histories for vectorised evaluation
     trade off here is copy+vectorised vs no copy+sequential evaluation
     for longer sequences expect copy+vector to be faster, but requires more memory
     for very large sequences + order + batch sizes, this could trigger OOM, and
@@ -235,16 +235,16 @@ def buffered_log_p_x(
     sequence_length = x_path.batch_shape[0] - sequence_start
 
     # compute prior
-    prior_particles = tuple(index_pytree(x_path, i) for i in range(target.prior.order))
+    prior_latents = tuple(index_pytree(x_path, i) for i in range(target.prior.order))
     prior_params = index_pytree(parameters, 0)
     prior_conditions = tuple(
         index_pytree(condition, i) for i in range(target.prior.order)
     )
 
-    log_p_x_0 = target.prior.log_prob(prior_particles, prior_conditions, prior_params)
+    log_p_x_0 = target.prior.log_prob(prior_latents, prior_conditions, prior_params)
 
     # rest of sequence
-    particle_history = tuple(
+    latent_history = tuple(
         slice_pytree(
             x_path,
             sequence_start + 1 + i,  # starting from t = seq_start + 1
@@ -252,7 +252,7 @@ def buffered_log_p_x(
         )
         for i in range(-target.transition.order, 0)
     )
-    target_particle = slice_pytree(
+    target_latent = slice_pytree(
         x_path, sequence_start + 1, sequence_start + sequence_length
     )
 
@@ -262,7 +262,7 @@ def buffered_log_p_x(
     )
 
     transition_log_p_x = jax.vmap(target.transition.log_prob)(
-        particle_history, target_particle, transition_condition, transition_parameters
+        latent_history, target_latent, transition_condition, transition_parameters
     )
 
     return jnp.hstack([log_p_x_0, transition_log_p_x])
@@ -284,7 +284,7 @@ def buffered_log_p_y_given_x(
     # should == y_sequence_length - y_sequence_start
     sequence_length = x_length - x_sequence_start
 
-    particle_history = tuple(
+    latent_history = tuple(
         slice_pytree(
             x_path, x_sequence_start + i, x_sequence_start + i + sequence_length
         )
@@ -306,7 +306,7 @@ def buffered_log_p_y_given_x(
     )
 
     return jax.vmap(target.emission.log_prob, in_axes=[0, 0, 0, 0, 0])(
-        particle_history,
+        latent_history,
         emission_history,
         observations,
         observation_conditions,
