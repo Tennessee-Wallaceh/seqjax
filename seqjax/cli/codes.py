@@ -52,6 +52,13 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
         "SC": lambda: vi_run.ShortContextEmbedder(prev_window=2, post_window=2),
         "BiRNN": lambda: vi_run.BiRNNEmbedder(hidden_dim=5),
     },
+    "MAXS": {
+        "S": 1_000,
+        "H": 50_000,
+        "M": 100_000,
+        "L": 1_000_000,
+    },
+    "MAXT": {"L": 5 * 60 * 60, "M": 2 * 60 * 60, "S": 30 * 60},
 }
 
 BUFFER_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
@@ -80,6 +87,8 @@ COMMON_FACTOR_NAMES: Dict[str, str] = {
     "MC": "mc_samples",
     "BS": "minibatch_size",
     "EMB": "embedding",
+    "MAXT": "optimization_time_limit_s",
+    "MAXS": "optimization_total_steps",
 }
 
 BUFFER_SPECIFIC_FACTOR_NAMES: Dict[str, str] = {
@@ -108,6 +117,8 @@ COMMON_DEFAULT_CODES: List[str] = [
     "MC-1",
     "BS-1",
     "EMB-SC",
+    "MAXT-M",
+    "MAXS-M",
 ]
 
 
@@ -204,14 +215,20 @@ def apply_buffer_vi_codes(
     except CodeParseError as exc:  # pragma: no cover - exercised via CLI
         raise exc
 
-    learning_rate = resolved["learning_rate"]
     optimization = config.optimization
     if isinstance(optimization, vi_run.AdamOpt):
-        optimization = replace(optimization, lr=learning_rate)
-    else:  # pragma: no cover - future-proofing
-        raise CodeParseError("Shorthand learning rate codes require Adam optimization.")
+        time_limit_s = resolved["optimization_time_limit_s"]
+        total_steps = resolved["optimization_total_steps"]
+        learning_rate = resolved["learning_rate"]
 
+        optimization = replace(
+            optimization,
+            lr=learning_rate,
+            time_limit_s=time_limit_s,
+            total_steps=total_steps,
+        )
     embedder = resolved["embedding"]
+
     if not isinstance(embedder, vi_run.EmbedderConfig):
         raise CodeParseError("Invalid embedder resolved from shorthand codes.")
 
@@ -241,10 +258,18 @@ def apply_full_vi_codes(
     except CodeParseError as exc:  # pragma: no cover - exercised via CLI
         raise exc
 
-    learning_rate = resolved["learning_rate"]
     optimization = config.optimization
     if isinstance(optimization, vi_run.AdamOpt):
-        optimization = replace(optimization, lr=learning_rate)
+        time_limit_s = resolved["optimization_time_limit_s"]
+        total_steps = resolved["optimization_total_steps"]
+        learning_rate = resolved["learning_rate"]
+
+        optimization = replace(
+            optimization,
+            lr=learning_rate,
+            time_limit_s=time_limit_s,
+            total_steps=total_steps,
+        )
     else:  # pragma: no cover - future-proofing
         raise CodeParseError("Shorthand learning rate codes require Adam optimization.")
 

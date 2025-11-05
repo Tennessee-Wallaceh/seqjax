@@ -55,6 +55,11 @@ class FullVI:
         name = "full-vi"
         for param, bijector_label in self.config.parameter_field_bijections.items():
             name += f"-{param}_{bijector_label}"
+
+        name += f"-{str(self.config.optimization)}"
+
+        name += f"-E_{self.config.embedder.label}"
+
         return name
 
 

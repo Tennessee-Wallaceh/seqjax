@@ -158,9 +158,9 @@ class ResultProcessor:
         condition,
     ) -> None:
         if experiment_config.inference.method == "buffer-vi":
-            approx_start, x_q, run_tracker, fitted_approximation = extra_data
+            approx_start, x_q, run_tracker, fitted_approximation, opt_state = extra_data
         elif experiment_config.inference.method == "full-vi":
-            run_tracker, x_q, fitted_approximation = extra_data
+            run_tracker, x_q, fitted_approximation, opt_state = extra_data
         else:
             raise ValueError(f"Unknown inference method. {experiment_config}")
 
@@ -169,6 +169,12 @@ class ResultProcessor:
             wandb_run,
             f"{wandb_run.name}-fitted-approximation",
             fitted_approximation,
+        )
+
+        io.save_model_artifact(
+            wandb_run,
+            f"{wandb_run.name}-optimization-state",
+            opt_state,
         )
 
         checkpoint_samples = getattr(run_tracker, "checkpoint_samples", [])
