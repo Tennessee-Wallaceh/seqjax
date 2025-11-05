@@ -10,11 +10,11 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
-from seqjax.model.base import Emission, Prior, SequentialModel, Transition
-from seqjax.model.typing import Observation, Parameters, Particle, NoCondition
+from seqjax.model.base import EmissionO1D0, Prior1, SequentialModel, Transition1
+from seqjax.model.typing import Observation, Parameters, Latent, NoCondition
 
 
-class VectorState(Particle):
+class VectorState(Latent):
     """Multivariate latent state."""
 
     x: Array
@@ -50,15 +50,13 @@ class LGSSMParameters(Parameters):
     )
 
 
-class GaussianPrior(Prior[tuple[VectorState], tuple[()], LGSSMParameters]):
+class GaussianPrior(Prior1[VectorState, NoCondition, LGSSMParameters]):
     """Gaussian prior over the initial state."""
-
-    order: ClassVar[int] = 1
 
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: tuple[()],
+        conditions: NoCondition,
         parameters: LGSSMParameters,
     ) -> tuple[VectorState]:
         mean = jnp.zeros_like(parameters.transition_noise_scale)
@@ -69,7 +67,7 @@ class GaussianPrior(Prior[tuple[VectorState], tuple[()], LGSSMParameters]):
     @staticmethod
     def log_prob(
         latent: tuple[VectorState],
-        conditions: tuple[()],
+        conditions: NoCondition,
         parameters: LGSSMParameters,
     ) -> Scalar:
         scale = parameters.transition_noise_scale
@@ -77,12 +75,8 @@ class GaussianPrior(Prior[tuple[VectorState], tuple[()], LGSSMParameters]):
         return logp.sum()
 
 
-class GaussianTransition(
-    Transition[VectorState, tuple[VectorState], NoCondition, LGSSMParameters]
-):
+class GaussianTransition(Transition1[VectorState, NoCondition, LGSSMParameters]):
     """Linear Gaussian state transition."""
-
-    order: ClassVar[int] = 1
 
     @staticmethod
     def sample(
@@ -114,18 +108,14 @@ class GaussianTransition(
 
 
 class GaussianEmission(
-    Emission[
-        tuple[VectorState],
+    EmissionO1D0[
+        VectorState,
         VectorObservation,
-        tuple[()],
         NoCondition,
         LGSSMParameters,
     ]
 ):
     """Gaussian emission from the latent state."""
-
-    order: ClassVar[int] = 1
-    observation_dependency: ClassVar[int] = 0
 
     @staticmethod
     def sample(
@@ -161,12 +151,7 @@ class GaussianEmission(
 class LinearGaussianSSM(
     SequentialModel[
         VectorState,
-        tuple[VectorState],
-        tuple[VectorState],
-        tuple[VectorState],
         VectorObservation,
-        tuple[()],
-        tuple[()],
         NoCondition,
         LGSSMParameters,
     ]

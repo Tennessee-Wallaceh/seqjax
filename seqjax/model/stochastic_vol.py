@@ -13,11 +13,14 @@ from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
     BayesianSequentialModel,
-    Emission,
+    EmissionO1D0,
+    EmissionO2D0,
     ParameterPrior,
-    Prior,
+    Prior1,
+    Prior2,
     SequentialModel,
-    Transition,
+    Transition1,
+    Transition2,
 )
 from seqjax.model.typing import (
     Condition,
@@ -219,13 +222,11 @@ def _random_walk_loc_scale(
     return move_loc, move_scale
 
 
-class GaussianStart(Prior[tuple[LatentVol], tuple[TimeIncrement], LogVolRW]):
-    order: ClassVar[int] = 1
-
+class GaussianStart(Prior1[LatentVol, TimeIncrement, LogVolRW]):
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: tuple[TimeIncrement],
+        conditions: TimeIncrement,
         parameters: LogVolRW,
     ) -> tuple[LatentVol]:
         mu = jnp.array(-2.0)
@@ -237,7 +238,7 @@ class GaussianStart(Prior[tuple[LatentVol], tuple[TimeIncrement], LogVolRW]):
     @staticmethod
     def log_prob(
         latent: tuple[LatentVol],
-        conditions: tuple[TimeIncrement],
+        conditions: TimeIncrement,
         parameters: LogVolRW,
     ) -> Scalar:
         (start_lv,) = latent
@@ -252,14 +253,8 @@ class GaussianStart(Prior[tuple[LatentVol], tuple[TimeIncrement], LogVolRW]):
         return base_log_p
 
 
-class TwoStepGaussianStart(
-    Prior[
-        tuple[LatentVol, LatentVol], tuple[TimeIncrement, TimeIncrement], LogVolWithSkew
-    ]
-):
+class TwoStepGaussianStart(Prior2[LatentVol, TimeIncrement, LogVolWithSkew]):
     """Prior that also samples the first transition step."""
-
-    order: ClassVar[int] = 2
 
     @staticmethod
     def sample(
@@ -297,9 +292,7 @@ class TwoStepGaussianStart(
         return base_log_p + rw_log_p
 
 
-class RandomWalk(Transition[LatentVol, tuple[LatentVol], TimeIncrement, LogVolRW]):
-    order: ClassVar[int] = 1
-
+class RandomWalk(Transition1[LatentVol, TimeIncrement, LogVolRW]):
     @staticmethod
     def loc_scale(
         latent_history: tuple[LatentVol],
@@ -334,11 +327,7 @@ class RandomWalk(Transition[LatentVol, tuple[LatentVol], TimeIncrement, LogVolRW
         return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
 
 
-class SkewRandomWalk(
-    Transition[LatentVol, tuple[LatentVol, LatentVol], TimeIncrement, LogVolWithSkew]
-):
-    order: ClassVar[int] = 2
-
+class SkewRandomWalk(Transition2[LatentVol, TimeIncrement, LogVolWithSkew]):
     @staticmethod
     def loc_scale(
         latent_history: tuple[LatentVol, LatentVol],
@@ -370,12 +359,7 @@ class SkewRandomWalk(
         return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
 
 
-class LogReturn(
-    Emission[tuple[LatentVol], LogReturnObs, tuple[()], TimeIncrement, LogVolRW]
-):
-    order: ClassVar[int] = 1  # depends only on current latent
-    observation_dependency: ClassVar[int] = 0
-
+class LogReturn(EmissionO1D0[LatentVol, LogReturnObs, TimeIncrement, LogVolRW]):
     @staticmethod
     def sample(
         key: PRNGKeyArray,
@@ -404,17 +388,13 @@ class LogReturn(
 
 
 class SkewLogReturn(
-    Emission[
-        tuple[LatentVol, LatentVol],
+    EmissionO2D0[
+        LatentVol,
         LogReturnObs,
-        tuple[()],
         TimeIncrement,
         LogVolWithSkew,
     ]
 ):
-    order: ClassVar[int] = 2  # depends on last latent and current latent
-    observation_dependency: ClassVar[int] = 0
-
     @staticmethod
     def return_mean_and_scale(
         last_latent: LatentVol,
@@ -486,12 +466,7 @@ class SkewLogReturn(
 class SimpleStochasticVol(
     SequentialModel[
         LatentVol,
-        tuple[LatentVol],
-        tuple[LatentVol],
-        tuple[LatentVol],
         LogReturnObs,
-        tuple[()],
-        tuple[TimeIncrement],
         TimeIncrement,
         LogVolRW,
     ]
@@ -509,12 +484,7 @@ class SimpleStochasticVol(
 class SimpleStochasticVolBayesian(
     BayesianSequentialModel[
         LatentVol,
-        tuple[LatentVol],
-        tuple[LatentVol],
-        tuple[LatentVol],
         LogReturnObs,
-        tuple[()],
-        tuple[TimeIncrement],
         TimeIncrement,
         LogVolRW,
         LogVolRW,
@@ -530,12 +500,7 @@ class SimpleStochasticVolBayesian(
 class SkewStochasticVol(
     SequentialModel[
         LatentVol,
-        tuple[LatentVol, LatentVol],
-        tuple[LatentVol, LatentVol],
-        tuple[LatentVol, LatentVol],
         LogReturnObs,
-        tuple[()],
-        tuple[TimeIncrement, TimeIncrement],
         TimeIncrement,
         LogVolWithSkew,
     ]
@@ -553,12 +518,7 @@ class SkewStochasticVol(
 class SkewStochasticVolBayesian(
     BayesianSequentialModel[
         LatentVol,
-        tuple[LatentVol, LatentVol],
-        tuple[LatentVol, LatentVol],
-        tuple[LatentVol, LatentVol],
         LogReturnObs,
-        tuple[()],
-        tuple[TimeIncrement, TimeIncrement],
         TimeIncrement,
         LogVolWithSkew,
         LogVolWithSkew,

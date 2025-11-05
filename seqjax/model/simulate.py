@@ -96,23 +96,14 @@ def step[
 
 def simulate[
     LatentT: seqjtyping.Latent,
-    InitialParticleT: tuple[seqjtyping.Latent, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | seqjtyping.NoCondition,
     ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
 ](
     key: PRNGKeyArray,
     target: SequentialModel[
         LatentT,
-        InitialParticleT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
     ],
@@ -122,8 +113,8 @@ def simulate[
 ) -> tuple[
     LatentT,
     ObservationT,
-    InitialParticleT,
-    ObservationHistoryT,
+    typing.Any,
+    typing.Any,
 ]:
     """Simulate a path of length ``sequence_length`` from ``target``.
 
