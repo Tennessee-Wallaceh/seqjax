@@ -11,7 +11,7 @@ authors = [
 ]
 description = "A jax package for expressing sequential models."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -67,7 +67,7 @@ ignore = ["E501", "F722"]
 "tests/*.py" = ["S101"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 
 [mypy]
 mypy_path = "stubs"

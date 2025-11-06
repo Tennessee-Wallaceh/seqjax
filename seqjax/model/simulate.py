@@ -9,21 +9,31 @@ import jax.numpy as jnp
 import jax.random as jrandom
 from jaxtyping import PRNGKeyArray
 
-from seqjax.model.base import (
-    SequentialModel,
-)
+from seqjax.model.base import SequentialModel, Prior
 import seqjax.model.typing as seqjtyping
 from seqjax.util import concat_pytree, index_pytree, slice_pytree
 
 
+def slice_prior_conditions[
+    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
+    PriorConditionsT,
+](
+    condition: ConditionT,
+    prior: Prior[typing.Any, PriorConditionsT, typing.Any],
+) -> PriorConditionsT:
+    """Slice the prior conditions type from the full condition type."""
+    return typing.cast(
+        PriorConditionsT,
+        tuple(index_pytree(condition, ix) for ix in range(prior.order)),
+    )
+
+
 def step[
     LatentT: seqjtyping.Latent,
-    InitialParticleT: tuple[seqjtyping.Latent, ...],
     TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...] | seqjtyping.NoCondition,
     ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
 ](
@@ -95,6 +105,8 @@ def simulate[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
+    PriorLatentT,
+    PriorConditionsT,
 ](
     key: PRNGKeyArray,
     target: SequentialModel[
@@ -102,10 +114,12 @@ def simulate[
         ObservationT,
         ConditionT,
         ParametersT,
+        PriorLatentT,
+        PriorConditionsT,
     ],
-    condition: ConditionT,
     parameters: ParametersT,
     sequence_length: int,
+    condition: ConditionT = seqjtyping.NoCondition(),
 ) -> tuple[
     LatentT,
     ObservationT,
@@ -148,7 +162,7 @@ def simulate[
             f"sequence_length must be >= 1, got {sequence_length}"
         )
 
-    if condition is not None:
+    if target.condition_cls is not seqjtyping.NoCondition:
         cond_length = condition.batch_shape[0]
         required_length = sequence_length + target.prior.order - 1
         if cond_length < required_length:
@@ -162,10 +176,15 @@ def simulate[
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
     # special handling for sampling first state
-    prior_conditions = tuple(
-        index_pytree(condition, ix) for ix in range(target.prior.order)
-    )
+    prior_conditions = slice_prior_conditions(condition, target.prior)
+
     condition_0 = index_pytree(condition, target.prior.order - 1)
+
+    # The prior will produce
+    # should a maximal latent history be passed here?
+    # this would simplify the Prior/Transition/Emission history handling
+    # but could lead to issues with correctness if the user is not careful?
+    # The order of the Emission + Transition could be forced to match.
     x_0 = target.prior.sample(init_x_key, prior_conditions, parameters)
     y_0 = target.emission.sample(
         init_y_key,

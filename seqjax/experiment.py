@@ -175,14 +175,13 @@ def run_experiment(
     process_wandb_run = cast(
         io.WandbRun,
         wandb.init(
-            project=experiment_name,
-            id=wandb_run.id,
+            project=f"{experiment_name}-results",
             config={
                 **config_dict,
                 "inference_name": experiment_config.inference.name,
+                "training_run_id": wandb_run.id,
             },
-            resume="must",
-            reinit=True,
+            settings=wandb.Settings(start_method="thread"),
         ),
     )
     process_results(
@@ -195,5 +194,6 @@ def run_experiment(
         condition,
         result_processor,
     )
+    process_wandb_run.finish()
 
     return (param_samples, extra_data, x_path, y_path)

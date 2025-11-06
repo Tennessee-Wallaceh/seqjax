@@ -12,12 +12,12 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
-    EmissionO1D0,
+    Emission,
     ParameterPrior,
-    Prior1,
+    Prior,
     SequentialModel,
     BayesianSequentialModel,
-    Transition1,
+    Transition,
 )
 from seqjax.model.typing import (
     HyperParameters,
@@ -114,103 +114,120 @@ class AROnlyPrior(ParameterPrior[AROnlyParameters, HyperParameters]):
         return log_p_theta
 
 
-class InitialValue(Prior1[LatentValue, NoCondition, ARParameters]):
-    """Gaussian prior over the initial latent state."""
-
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        conditions: NoCondition,
-        parameters: ARParameters,
-    ) -> tuple[LatentValue]:
-        """Sample the initial latent value."""
-        stationary_scale = jnp.sqrt(
-            jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
-        )
-        x0 = stationary_scale * jrandom.normal(
-            key,
-        )
-        return (LatentValue(x=x0),)
-
-    @staticmethod
-    def log_prob(
-        latent: tuple[LatentValue],
-        conditions: NoCondition,
-        parameters: ARParameters,
-    ) -> Scalar:
-        """Evaluate the prior log-density."""
-        stationary_scale = jnp.sqrt(
-            jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
-        )
-        return jstats.norm.logpdf(latent[0].x, scale=stationary_scale)
+def iv_sample(
+    key: PRNGKeyArray,
+    conditions: tuple[NoCondition],
+    parameters: ARParameters,
+) -> tuple[LatentValue]:
+    """Sample the initial latent value."""
+    stationary_scale = jnp.sqrt(
+        jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
+    )
+    x0 = stationary_scale * jrandom.normal(
+        key,
+    )
+    return (LatentValue(x=x0),)
 
 
-class ARRandomWalk(Transition1[LatentValue, NoCondition, ARParameters]):
-    """Gaussian AR(1) transition."""
-
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        latent_history: tuple[LatentValue],
-        condition: NoCondition,
-        parameters: ARParameters,
-    ) -> LatentValue:
-        """Sample the next latent state."""
-        (last_latent,) = latent_history
-        next_x = (
-            parameters.ar * last_latent.x
-            + jrandom.normal(key) * parameters.transition_std
-        )
-        return LatentValue(x=next_x)
-
-    @classmethod
-    def log_prob(
-        cls,
-        latent_history: tuple[LatentValue],
-        latent: LatentValue,
-        condition: NoCondition,
-        parameters: ARParameters,
-    ) -> Scalar:
-        """Return the transition log-density."""
-        (last_latent,) = latent_history
-        return jstats.norm.logpdf(
-            latent.x,
-            loc=parameters.ar * last_latent.x,
-            scale=parameters.transition_std,
-        )
+def iv_log_prob(
+    latent: tuple[LatentValue],
+    conditions: tuple[NoCondition],
+    parameters: ARParameters,
+) -> Scalar:
+    """Evaluate the prior log-density."""
+    stationary_scale = jnp.sqrt(
+        jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
+    )
+    return jstats.norm.logpdf(latent[0].x, scale=stationary_scale)
 
 
-class AREmission(EmissionO1D0[LatentValue, NoisyEmission, NoCondition, ARParameters]):
-    """Normal emission from the latent state."""
+initial_value = Prior[tuple[LatentValue], tuple[NoCondition], ARParameters](
+    order=1,
+    sample=iv_sample,
+    log_prob=iv_log_prob,
+)
 
-    @staticmethod
-    def sample(  # type: ignore[override]
-        key: PRNGKeyArray,
-        latent: tuple[LatentValue],
-        observation_history: tuple[()],
-        condition: NoCondition,
-        parameters: ARParameters,
-    ) -> NoisyEmission:
-        """Sample an observation."""
-        (current_latent,) = latent
-        y = current_latent.x + jrandom.normal(key) * parameters.observation_std
-        return NoisyEmission(y=y)
 
-    @staticmethod
-    def log_prob(  # type: ignore[override]
-        latent: tuple[LatentValue],
-        observation_history: tuple[()],
-        observation: NoisyEmission,
-        condition: NoCondition,
-        parameters: ARParameters,
-    ) -> Scalar:
-        """Return the emission log-density."""
-        (current_latent,) = latent
-        return jstats.norm.logpdf(
-            observation.y,
-            loc=current_latent.x,
-            scale=parameters.observation_std,
-        )
+def ar_sample(
+    key: PRNGKeyArray,
+    latent_history: tuple[LatentValue],
+    condition: NoCondition,
+    parameters: ARParameters,
+) -> LatentValue:
+    """Sample the next latent state."""
+    (last_latent,) = latent_history
+    next_x = (
+        parameters.ar * last_latent.x + jrandom.normal(key) * parameters.transition_std
+    )
+    return LatentValue(x=next_x)
+
+
+def ar_log_prob(
+    latent_history: tuple[LatentValue],
+    latent: LatentValue,
+    condition: NoCondition,
+    parameters: ARParameters,
+) -> Scalar:
+    """Return the transition log-density."""
+    (last_latent,) = latent_history
+    return jstats.norm.logpdf(
+        latent.x,
+        loc=parameters.ar * last_latent.x,
+        scale=parameters.transition_std,
+    )
+
+
+ar_random_walk = Transition[
+    tuple[LatentValue],
+    LatentValue,
+    NoCondition,
+    ARParameters,
+](
+    order=1,
+    sample=ar_sample,
+    log_prob=ar_log_prob,
+)
+
+
+def ar_emission_sample(
+    key: PRNGKeyArray,
+    latent: tuple[LatentValue],
+    observation_history: tuple[()],
+    condition: NoCondition,
+    parameters: ARParameters,
+) -> NoisyEmission:
+    """Sample an observation."""
+    (current_latent,) = latent
+    y = current_latent.x + jrandom.normal(key) * parameters.observation_std
+    return NoisyEmission(y=y)
+
+
+def ar_emission_log_prob(
+    latent: tuple[LatentValue],
+    observation: NoisyEmission,
+    observation_history: tuple[()],
+    condition: NoCondition,
+    parameters: ARParameters,
+) -> Scalar:
+    """Return the emission log-density."""
+    (current_latent,) = latent
+    return jstats.norm.logpdf(
+        observation.y,
+        loc=current_latent.x,
+        scale=parameters.observation_std,
+    )
+
+
+ar_emission = Emission[
+    tuple[LatentValue],
+    NoCondition,
+    NoisyEmission,
+    ARParameters,
+](
+    sample=ar_emission_sample,
+    log_prob=ar_emission_log_prob,
+    order=1,
+)
 
 
 class AR1Target(
@@ -225,9 +242,9 @@ class AR1Target(
     observation_cls = NoisyEmission
     parameter_cls = ARParameters
     condition_cls = NoCondition
-    prior = InitialValue()
-    transition = ARRandomWalk()
-    emission = AREmission()
+    prior = initial_value
+    transition = ar_random_walk
+    emission = ar_emission
 
 
 def fill_parameter(ar_only: AROnlyParameters, ref_params: ARParameters) -> ARParameters:

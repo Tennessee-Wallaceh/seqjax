@@ -2,12 +2,14 @@
 
 from functools import partial
 from typing import Any, Iterable
-
+import seqjax.model.typing as seqjtyping
 import jax
 import jax.numpy as jnp
 
 
-def index_pytree(tree: Any, index: int | Iterable[int]) -> Any:
+def index_pytree[
+    PackableT: seqjtyping.Packable,
+](tree: PackableT, index: int | Iterable[int]) -> PackableT:
     """Index a pytree of arrays along the first dimension."""
 
     if isinstance(index, int):
@@ -82,14 +84,19 @@ def dynamic_slice_pytree(
     )
 
 
-def concat_pytree(*trees: Any, axis: int = 0) -> Any:
+def concat_pytree[
+    PackableT: seqjtyping.Packable,
+](*trees: tuple[PackableT, ...], axis: int = 0) -> PackableT:
     """Concatenate pytrees along ``axis``."""
+
     def _concat(*leaves):
         max_ndim = max(leaf.ndim for leaf in leaves)
         expanded = [
-            jnp.expand_dims(leaf, list(range(max_ndim - leaf.ndim)))
-            if leaf.ndim < max_ndim
-            else leaf
+            (
+                jnp.expand_dims(leaf, list(range(max_ndim - leaf.ndim)))
+                if leaf.ndim < max_ndim
+                else leaf
+            )
             for leaf in leaves
         ]
         return jax.lax.concatenate(expanded, dimension=axis)

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Callable
 
 import jax
@@ -8,21 +6,25 @@ import jax.random as jrandom
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
 from seqjax.util import dynamic_index_pytree_in_dim as index_tree
-from seqjax.model.typing import Latent as ParticleType
+import seqjax.model.typing as seqjtyping
 
-Resampler = Callable[
-    [PRNGKeyArray, Array, tuple[ParticleType, ...], Scalar, int],
-    tuple[tuple[ParticleType, ...], Array, Array],
+type Resampler[
+    ParticleT: seqjtyping.Latent,
+] = Callable[
+    [PRNGKeyArray, Array, tuple[ParticleT, ...], Scalar, int],
+    tuple[tuple[ParticleT, ...], Array, Array],
 ]
 
 
-def multinomial_resample_from_log_weights(
+def multinomial_resample_from_log_weights[
+    ParticleT: seqjtyping.Latent,
+](
     key: PRNGKeyArray,
     raw_log_weights: Array,
-    particles: tuple[ParticleType, ...],
+    particles: tuple[ParticleT, ...],
     _ess_e: Scalar,
     num_resample: int,
-) -> tuple[tuple[ParticleType, ...], Array, Array]:
+) -> tuple[tuple[ParticleT, ...], Array, Array]:
     """Resample particles using standard multinomial sampling."""
     # jax.random.categorical requires unormalized logits
     particle_ix = jrandom.categorical(key, raw_log_weights, shape=(num_resample,))
@@ -39,16 +41,18 @@ def multinomial_resample_from_log_weights(
     return resampled_particles, new_log_weights, particle_ix
 
 
-def conditional_resample(
+def conditional_resample[
+    ParticleT: seqjtyping.Latent,
+](
     key: PRNGKeyArray,
     log_weights: Array,
-    particles: tuple[ParticleType, ...],
+    particles: tuple[ParticleT, ...],
     ess_e: Scalar,
     num_resample: int,
     *,
     resampler: Resampler,
     esse_threshold: float,
-) -> tuple[tuple[ParticleType, ...], Array, Array]:
+) -> tuple[tuple[ParticleT, ...], Array, Array]:
     """Resample only when the ESS efficiency falls below ``esse_threshold``."""
 
     def _resample(p):

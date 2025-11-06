@@ -2,6 +2,7 @@ import typing
 from functools import cached_property
 from typing import Callable, Protocol
 from abc import abstractmethod
+from dataclasses import dataclass
 
 import equinox as eqx
 import jax
@@ -18,7 +19,8 @@ from .resampling import Resampler
 from .metrics import compute_esse_from_log_weights
 
 
-class FilterData(eqx.Module):
+@dataclass
+class FilterData:
     """
     Encapsulates the data arising from a filter step
     """
@@ -27,13 +29,21 @@ class FilterData(eqx.Module):
     particles: tuple[seqjtyping.Latent, ...]
     ancestor_ix: Array
     observation: seqjtyping.Observation
-    obs_hist: tuple[seqjtyping.Observation, ...]
-    condition: seqjtyping.Condition | None
+    observation_history: tuple[seqjtyping.Observation, ...]
+    condition: seqjtyping.Condition | seqjtyping.NoCondition
     last_log_w: Array
     last_particles: Array
     ess_e: Array
     log_weight_increment: Array
     parameters: seqjtyping.Parameters
+
+
+class Recorder(Protocol):
+    """
+    The filtering recorder is just a function producing some output from the current filter data.
+    """
+
+    def __call__(self, filter_data: FilterData) -> typing.Any: ...
 
 
 class Proposal[
@@ -44,7 +54,10 @@ class Proposal[
 ](
     eqx.Module,
 ):
-    """Proposal distribution for sequential importance sampling."""
+    """
+    Proposal distribution for sequential importance sampling.
+    Implementation is via an eqx.Module to support parameterized proposals.
+    """
 
     order: eqx.AbstractClassVar[int]
 
@@ -71,23 +84,24 @@ class Proposal[
 
 class TransitionProposal[
     ParticleT: seqjtyping.Latent,
-    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
+    HistoryT,
 ](
     eqx.Module,
 ):
     """Adapter converting a ``Transition`` to a ``Proposal``."""
 
-    transition: Transition[ParticleT, ConditionT, ParametersT]
+    transition: Transition[ParticleT, ConditionT, ParametersT, HistoryT]
     order: int
-    target_parameters: Callable = lambda x: x
+    # I don't actually care what this does, as long as it produces ParametersT.
+    target_parameters: Callable[[ParametersT], ParametersT] = lambda x: x
 
     def sample(
         self,
         key: PRNGKeyArray,
-        particle_history: TransitionParticleHistoryT,
+        particle_history: HistoryT,
         observation: ObservationT,
         condition: ConditionT,
         parameters: ParametersT,
@@ -98,7 +112,7 @@ class TransitionProposal[
 
     def log_prob(
         self,
-        particle_history: TransitionParticleHistoryT,
+        particle_history: HistoryT,
         observation: ObservationT,
         particle: ParticleT,
         condition: ConditionT,
@@ -116,7 +130,9 @@ def proposal_from_transition[
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
-    transition: Transition[ParticleT, ConditionT, ParametersT],
+    transition: Transition[
+        TransitionParticleHistoryT, ParticleT, ConditionT, ParametersT
+    ],
     target_parameters: Callable = lambda x: x,
 ) -> TransitionProposal[
     ParticleT, TransitionParticleHistoryT, ObservationT, ConditionT, ParametersT
@@ -126,10 +142,6 @@ def proposal_from_transition[
         order=transition.order,
         target_parameters=target_parameters,
     )
-
-
-class Recorder(Protocol):
-    def __call__(self, filter_data: FilterData) -> PyTree: ...
 
 
 class SMCSampler[
@@ -157,15 +169,15 @@ class SMCSampler[
         return jax.vmap(self.proposal.sample, in_axes=[0, 0, None, None, None])
 
     @cached_property
-    def proposal_logp(self) -> Callable:
+    def proposal_log_prob(self) -> Callable:
         return jax.vmap(self.proposal.log_prob, in_axes=[0, None, 0, None, None])
 
     @cached_property
-    def transition_logp(self) -> Callable:
+    def transition_log_prob(self) -> Callable:
         return jax.vmap(self.target.transition.log_prob, in_axes=[0, 0, None, None])
 
     @cached_property
-    def emission_logp(self) -> Callable:
+    def emission_log_prob(self) -> Callable:
         return jax.vmap(
             self.target.emission.log_prob,
             in_axes=[0, None, None, None, None],

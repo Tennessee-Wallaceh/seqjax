@@ -3,9 +3,12 @@
 Condition and Parameters are separated. Parameters remain static over time while
 conditions vary.
 
-Use ``SequentialModel`` to group pure functions that operate on the same
-``Latent`` and ``Emission`` types. ``Prior``, ``Transition`` and ``Emission``
-provide additional structure and are typically paired in use.
+The primary purpose of model components (e.g Prior, Transition, Emission) is to
+pair pure functions for sampling and evaluating log-probabilities.
+We can also use typing to expose order information about the dependency structure.
+
+``SequentialModel`` is then used to group model components that operate on the same
+``Latent`` and ``Emission`` types.
 
 Specific dependency structures can be expressed by defining custom Prior, Transition
 and Emission protocols. The default ones assume first order Markovian structure
@@ -21,6 +24,7 @@ Alternatives:
 
 from typing import Callable
 import typing
+from dataclasses import dataclass
 
 from jaxtyping import PRNGKeyArray, Scalar
 
@@ -50,11 +54,34 @@ class ParameterPrior[
     ]
 
 
-class Prior1[
-    LatentT: seqjtyping.Latent,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
+PriorConditionsT = typing.TypeVar("PriorConditionsT")
+ParametersT = typing.TypeVar("ParametersT", bound=seqjtyping.Parameters)
+
+
+class PriorSample[PriorConditionsT, ParametersT, PriorLatentT](typing.Protocol):
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        conditions: PriorConditionsT,
+        parameters: ParametersT,
+    ) -> PriorLatentT: ...
+
+
+class PriorLogProb[PriorConditionsT, ParametersT, PriorLatentT](typing.Protocol):
+    def __call__(
+        self,
+        latent: PriorLatentT,
+        conditions: PriorConditionsT,
+        parameters: ParametersT,
+    ) -> Scalar: ...
+
+
+@dataclass(frozen=True)
+class Prior[
+    PriorLatentT,
+    PriorConditionsT,
     ParametersT: seqjtyping.Parameters,
-](typing.Protocol):
+]:
     """Prior must define density + sampling up to the start state t=0.
     As such it receives conditions up to t=0, length corresponding to order.
 
@@ -65,32 +92,42 @@ class Prior1[
     the prior must specify p(x_t-1, x_t0), so that p(y_t0 | x_t-1, x_t0) can be evaluated.
     """
 
-    order: typing.ClassVar[typing.Literal[1]] = 1
-
-    sample: Callable[
-        [
-            PRNGKeyArray,
-            ConditionT,
-            ParametersT,
-        ],
-        tuple[LatentT],
-    ]
-
-    log_prob: Callable[
-        [
-            tuple[LatentT],
-            ConditionT,
-            ParametersT,
-        ],
-        Scalar,
-    ]
+    order: int
+    sample: PriorSample[PriorConditionsT, ParametersT, PriorLatentT]
+    log_prob: PriorLogProb[PriorConditionsT, ParametersT, PriorLatentT]
 
 
-class Prior2[
-    LatentT: seqjtyping.Latent,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
+class TransitionSample[LatentHistoryT, ConditionT, ParametersT, LatentT](
+    typing.Protocol
+):
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentHistoryT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> LatentT: ...
+
+
+class TransitionLogProb[LatentHistoryT, ConditionT, ParametersT, LatentT](
+    typing.Protocol
+):
+    def __call__(
+        self,
+        latent_history: LatentHistoryT,
+        latent: LatentT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> Scalar: ...
+
+
+@dataclass(frozen=True)
+class Transition[
+    LatentHistoryT,
+    LatentT,
+    ConditionT,
     ParametersT: seqjtyping.Parameters,
-](typing.Protocol):
+]:
     """Prior must define density + sampling up to the start state t=0.
     As such it receives conditions up to t=0, length corresponding to order.
 
@@ -101,167 +138,68 @@ class Prior2[
     the prior must specify p(x_t-1, x_t0), so that p(y_t0 | x_t-1, x_t0) can be evaluated.
     """
 
-    order: typing.ClassVar[typing.Literal[2]] = 2
-
-    sample: Callable[
-        [
-            PRNGKeyArray,
-            tuple[ConditionT, ConditionT],
-            ParametersT,
-        ],
-        tuple[LatentT, LatentT],
-    ]
-
-    log_prob: Callable[
-        [
-            tuple[LatentT, LatentT],
-            tuple[ConditionT, ConditionT],
-            ParametersT,
-        ],
-        Scalar,
-    ]
+    order: int
+    sample: TransitionSample[LatentHistoryT, ConditionT, ParametersT, LatentT]
+    log_prob: TransitionLogProb[LatentHistoryT, ConditionT, ParametersT, LatentT]
 
 
-type Prior[
-    L: seqjtyping.Latent,
-    C: seqjtyping.Condition | seqjtyping.NoCondition,
-    P: seqjtyping.Parameters,
-] = Prior1[L, C, P] | Prior2[L, C, P]
-
-
-class Transition1[
-    LatentT: seqjtyping.Latent,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
-    ParametersT: seqjtyping.Parameters,
+class EmissionSample[
+    LatentHistoryT,
+    ParametersT,
+    ConditionT,
+    ObservationHistoryT,
+    ObservationT,
 ](typing.Protocol):
-    order: typing.ClassVar[typing.Literal[1]] = 1
-
-    sample: Callable[
-        [
-            PRNGKeyArray,
-            tuple[LatentT],
-            ConditionT,
-            ParametersT,
-        ],
-        LatentT,
-    ]
-
-    log_prob: Callable[
-        [
-            tuple[LatentT],
-            LatentT,
-            ConditionT,
-            ParametersT,
-        ],
-        Scalar,
-    ]
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        latent: LatentHistoryT,
+        observation_history: ObservationHistoryT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> ObservationT: ...
 
 
-class Transition2[
-    LatentT: seqjtyping.Latent,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
-    ParametersT: seqjtyping.Parameters,
+class EmissionLogProb[
+    LatentHistoryT,
+    ConditionT,
+    ObservationHistoryT,
+    ObservationT,
+    ParametersT,
 ](typing.Protocol):
-    order: typing.ClassVar[typing.Literal[2]] = 2
-
-    sample: Callable[
-        [
-            PRNGKeyArray,
-            tuple[LatentT, LatentT],
-            ConditionT,
-            ParametersT,
-        ],
-        LatentT,
-    ]
-
-    log_prob: Callable[
-        [
-            tuple[LatentT, LatentT],
-            LatentT,
-            ConditionT,
-            ParametersT,
-        ],
-        Scalar,
-    ]
+    def __call__(
+        self,
+        latent: LatentHistoryT,
+        observation: ObservationT,
+        observation_history: ObservationHistoryT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> Scalar: ...
 
 
-type Transition[
-    L: seqjtyping.Latent,
-    C: seqjtyping.Condition | seqjtyping.NoCondition,
-    P: seqjtyping.Parameters,
-] = Transition1[L, C, P] | Transition2[L, C, P]
-
-
-class EmissionO1D0[
-    LatentT: seqjtyping.Latent,
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
+@dataclass(frozen=True)
+class Emission[
+    LatentHistoryT,
+    ConditionT,
+    ObservationT,
     ParametersT: seqjtyping.Parameters,
-](typing.Protocol):
-    order: typing.ClassVar[typing.Literal[1]] = 1
-    observation_dependency: typing.ClassVar[typing.Literal[0]] = 0
+    ObservationHistoryT = tuple[()],
+]:
+    """Emission must define density + sampling for observations at each time t.
 
-    sample: Callable[
-        [
-            PRNGKeyArray,
-            tuple[LatentT],
-            tuple[()],
-            ConditionT,
-            ParametersT,
-        ],
-        ObservationT,
+    The emission can depend on a history of latents and observations.
+    The length of these histories is determined by the dependency structure
+    of the emission.
+    """
+
+    sample: EmissionSample[
+        LatentHistoryT, ParametersT, ConditionT, ObservationHistoryT, ObservationT
     ]
-
-    log_prob: Callable[
-        [
-            tuple[LatentT],
-            tuple[()],
-            ObservationT,
-            ConditionT,
-            ParametersT,
-        ],
-        Scalar,
+    log_prob: EmissionLogProb[
+        LatentHistoryT, ConditionT, ObservationHistoryT, ObservationT, ParametersT
     ]
-
-
-class EmissionO2D0[
-    LatentT: seqjtyping.Latent,
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
-    ParametersT: seqjtyping.Parameters,
-](typing.Protocol):
-    order: typing.ClassVar[typing.Literal[2]] = 2
-    observation_dependency: typing.ClassVar[typing.Literal[0]] = 0
-
-    sample: Callable[
-        [
-            PRNGKeyArray,
-            tuple[LatentT, LatentT],
-            tuple[()],
-            ConditionT,
-            ParametersT,
-        ],
-        ObservationT,
-    ]
-
-    log_prob: Callable[
-        [
-            tuple[LatentT, LatentT],
-            tuple[()],
-            ObservationT,
-            ConditionT,
-            ParametersT,
-        ],
-        Scalar,
-    ]
-
-
-type Emission[
-    L: seqjtyping.Latent,
-    O: seqjtyping.Observation,
-    C: seqjtyping.Condition | seqjtyping.NoCondition,
-    P: seqjtyping.Parameters,
-] = EmissionO1D0[L, O, C, P] | EmissionO2D0[L, O, C, P]
+    order: int
+    observation_dependency: int = 0
 
 
 class SequentialModel[
@@ -269,18 +207,21 @@ class SequentialModel[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
+    # More complex dependency structure typing is handled here
+    PriorLatentT = tuple[LatentT],
+    PriorConditionT = tuple[ConditionT],
+    LatentHistoryT = tuple[LatentT],
+    ObservationHistoryT = tuple[()],
 ]:
     latent_cls: type[LatentT]
     observation_cls: type[ObservationT]
     parameter_cls: type[ParametersT]
     condition_cls: type[ConditionT]
-    prior: Prior[LatentT, ConditionT, ParametersT]
-    transition: Transition[LatentT, ConditionT, ParametersT]
+
+    prior: Prior[PriorLatentT, PriorConditionT, ParametersT]
+    transition: Transition[LatentHistoryT, LatentT, ConditionT, ParametersT]
     emission: Emission[
-        LatentT,
-        ObservationT,
-        ConditionT,
-        ParametersT,
+        LatentHistoryT, ConditionT, ObservationT, ParametersT, ObservationHistoryT
     ]
 
 
