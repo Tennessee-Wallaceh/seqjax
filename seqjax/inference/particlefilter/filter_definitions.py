@@ -42,11 +42,7 @@ class BootstrapParticleFilter[
         self,
         target: SequentialModel[
             ParticleT,
-            InitialParticleT,
-            ObservationParticleHistoryT,
             ObservationT,
-            ObservationHistoryT,
-            ConditionHistoryT,
             ConditionT,
             ParametersT,
         ],
@@ -94,11 +90,7 @@ class AuxiliaryParticleFilter[
         self,
         target: SequentialModel[
             ParticleT,
-            InitialParticleT,
-            ObservationParticleHistoryT,
             ObservationT,
-            ObservationHistoryT,
-            ConditionHistoryT,
             ConditionT,
             ParametersT,
         ],

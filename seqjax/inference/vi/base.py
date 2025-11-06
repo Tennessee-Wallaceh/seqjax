@@ -12,7 +12,10 @@ from jax.nn import softplus
 import jax.random as jrandom
 from flowjax.bijections import Affine, AbstractBijection
 from flowjax.bijections.masked_autoregressive import MaskedAutoregressive as FlowjaxMAF
-from flowjax.distributions import Normal as FlowjaxNormal, Transformed as FlowjaxTransformed
+from flowjax.distributions import (
+    Normal as FlowjaxNormal,
+    Transformed as FlowjaxTransformed,
+)
 
 
 import seqjax.model.typing as seqjtyping
@@ -24,7 +27,11 @@ from seqjax.model.base import BayesianSequentialModel
 def _ensure_prng_key(key: jaxtyping.PRNGKeyArray) -> jaxtyping.PRNGKeyArray:
     """Convert legacy uint32 keys to typed JAX keys for FlowJax."""
 
-    if hasattr(key, "dtype") and getattr(key, "shape", ()) == (2,) and key.dtype == jnp.dtype("uint32"):
+    if (
+        hasattr(key, "dtype")
+        and getattr(key, "shape", ()) == (2,)
+        and key.dtype == jnp.dtype("uint32")
+    ):
         return jrandom.wrap_key_data(jnp.asarray(key, dtype=jnp.uint32))
     return key
 
@@ -97,9 +104,7 @@ class MeanField[TargetStructT: seqjtyping.Packable](
 
 class MaskedAutoregressiveFlow[
     TargetStructT: seqjtyping.Packable,
-](
-    UnconditionalVariationalApproximation[TargetStructT]
-):
+](UnconditionalVariationalApproximation[TargetStructT]):
     """Masked autoregressive flow over the flattened parameter space."""
 
     target_struct_cls: type[TargetStructT]
@@ -150,9 +155,9 @@ class MaskedAutoregressiveFlow[
         return self.target_struct_cls.unravel(flat_sample), log_q
 
 
-class MaskedAutoregressiveFlowFactory[
-    TargetStructT: seqjtyping.Packable
-](VariationalApproximationFactory[TargetStructT, None]):
+class MaskedAutoregressiveFlowFactory[TargetStructT: seqjtyping.Packable](
+    VariationalApproximationFactory[TargetStructT, None]
+):
     def __init__(
         self,
         *,
@@ -334,13 +339,8 @@ def buffer_params(
 
 
 class SSMVariationalApproximation[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
@@ -376,12 +376,7 @@ class SSMVariationalApproximation[
         samples_per_context: int,
         target_posterior: BayesianSequentialModel[
             ParticleT,
-            InitialParticleT,
-            TransitionParticleHistoryT,
-            ObservationParticleHistoryT,
             ObservationT,
-            ObservationHistoryT,
-            ConditionHistoryT,
             ConditionT,
             ParametersT,
             InferenceParametersT,
@@ -392,19 +387,14 @@ class SSMVariationalApproximation[
 
 
 class FullAutoregressiveVI[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](eqx.Module):
-    latent_approximation: AmortizedVariationalApproximation[ParticleT]
+    latent_approximation: AmortizedVariationalApproximation[LatentT]
     parameter_approximation: UnconditionalVariationalApproximation[ParametersT]
     embedding: Embedder
 
@@ -418,7 +408,7 @@ class FullAutoregressiveVI[
     ) -> tuple[
         ParametersT,
         jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
-        ParticleT,
+        LatentT,
         jaxtyping.Float[
             jaxtyping.Array, "context_samples samples_per_context sample_length"
         ],
@@ -475,13 +465,8 @@ class FullAutoregressiveVI[
         context_samples: int,
         samples_per_context: int,
         target_posterior: BayesianSequentialModel[
-            ParticleT,
-            InitialParticleT,
-            TransitionParticleHistoryT,
-            ObservationParticleHistoryT,
+            LatentT,
             ObservationT,
-            ObservationHistoryT,
-            ConditionHistoryT,
             ConditionT,
             ParametersT,
             InferenceParametersT,
@@ -597,13 +582,8 @@ def sample_batch_and_mask(
 
 
 class BufferedSSMVI[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
@@ -710,12 +690,7 @@ class BufferedSSMVI[
         samples_per_context: int,
         target_posterior: BayesianSequentialModel[
             ParticleT,
-            InitialParticleT,
-            TransitionParticleHistoryT,
-            ObservationParticleHistoryT,
             ObservationT,
-            ObservationHistoryT,
-            ConditionHistoryT,
             ConditionT,
             ParametersT,
             InferenceParametersT,

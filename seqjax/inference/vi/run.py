@@ -19,26 +19,16 @@ from seqjax.inference.optimization import registry as optimization_registry
 
 @inference_method
 def run_full_path_vi[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
     target_posterior: BayesianSequentialModel[
-        ParticleT,
-        InitialParticleT,
-        TransitionParticleHistoryT,
-        ObservationParticleHistoryT,
+        LatentT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
         InferenceParametersT,
@@ -95,26 +85,16 @@ def run_full_path_vi[
 
 @inference_method
 def run_buffered_vi[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
     target_posterior: BayesianSequentialModel[
-        ParticleT,
-        InitialParticleT,
-        TransitionParticleHistoryT,
-        ObservationParticleHistoryT,
+        LatentT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
         InferenceParametersT,

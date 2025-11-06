@@ -7,7 +7,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
-from jaxtyping import PRNGKeyArray, PyTree
+from jaxtyping import PRNGKeyArray
 
 from seqjax.model.base import (
     SequentialModel,
@@ -29,11 +29,7 @@ def step[
 ](
     target: SequentialModel[
         LatentT,
-        InitialParticleT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
     ],
@@ -107,7 +103,7 @@ def simulate[
         ConditionT,
         ParametersT,
     ],
-    condition: PyTree | None,
+    condition: ConditionT,
     parameters: ParametersT,
     sequence_length: int,
 ) -> tuple[
@@ -162,6 +158,7 @@ def simulate[
                     sequence_length,
                 )
             )
+
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
     # special handling for sampling first state

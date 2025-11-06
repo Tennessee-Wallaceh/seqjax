@@ -39,7 +39,7 @@ class ParticleMCMCConfig(
 
 
 def _make_log_joint_estimator[
-    ParticleT: seqjtyping.Particle,
+    ParticleT: seqjtyping.Latent,
     InitialParticleT: tuple[seqjtyping.Particle, ...],
     TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
     ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
@@ -53,12 +53,7 @@ def _make_log_joint_estimator[
 ](
     target_posterior: BayesianSequentialModel[
         ParticleT,
-        InitialParticleT,
-        TransitionParticleHistoryT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
         InferenceParametersT,
@@ -73,10 +68,7 @@ def _make_log_joint_estimator[
             ParticleT,
             InitialParticleT,
             TransitionParticleHistoryT,
-            ObservationParticleHistoryT,
             ObservationT,
-            ObservationHistoryT,
-            ConditionHistoryT,
             ConditionT,
             ParametersT,
         ],

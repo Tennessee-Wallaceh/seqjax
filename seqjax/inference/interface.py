@@ -8,11 +8,7 @@ from seqjax.model.base import (
 
 class InferenceMethod[
     LatentT: seqjtyping.Latent,
-    InitialLatentT: tuple[seqjtyping.Latent, ...],
-    ObservationLatentHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
@@ -31,11 +27,7 @@ class InferenceMethod[
         self,
         target_posterior: BayesianSequentialModel[
             LatentT,
-            InitialLatentT,
-            ObservationLatentHistoryT,
             ObservationT,
-            ObservationHistoryT,
-            ConditionHistoryT,
             ConditionT,
             ParametersT,
             InferenceParametersT,

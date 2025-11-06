@@ -70,8 +70,8 @@ class Proposal[
 
 
 class TransitionProposal[
-    ParticleT: seqjtyping.Particle,
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
+    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
@@ -110,15 +110,13 @@ class TransitionProposal[
 
 
 def proposal_from_transition[
-    ParticleT: seqjtyping.Particle,
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
+    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
-    transition: Transition[
-        ParticleT, TransitionParticleHistoryT, ConditionT, ParametersT
-    ],
+    transition: Transition[ParticleT, ConditionT, ParametersT],
     target_parameters: Callable = lambda x: x,
 ) -> TransitionProposal[
     ParticleT, TransitionParticleHistoryT, ObservationT, ConditionT, ParametersT
@@ -136,11 +134,7 @@ class Recorder(Protocol):
 
 class SMCSampler[
     ParticleT: seqjtyping.Latent,
-    InitialParticleT: tuple[seqjtyping.Latent, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
@@ -150,11 +144,7 @@ class SMCSampler[
 
     target: SequentialModel[
         ParticleT,
-        InitialParticleT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
     ]
@@ -262,36 +252,26 @@ class SMCSampler[
 
 def run_filter[
     ParticleT: seqjtyping.Latent,
-    InitialParticleT: tuple[seqjtyping.Latent, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
-    ConditionT: seqjtyping.Condition,
+    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
 ](
     smc: SMCSampler[
         ParticleT,
-        InitialParticleT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
     ],
     key: PRNGKeyArray,
     parameters: ParametersT,
     observation_path: ObservationT,
-    condition_path: ConditionT | None = None,
+    condition_path: ConditionT,
     *,
-    initial_conditions: tuple[ConditionT, ...] | None = None,
-    observation_history: tuple[ObservationT, ...] | None = None,
     recorders: tuple[Recorder, ...] | None = None,
     target_parameters: Callable = lambda x: x,
 ) -> tuple[
     Array,
-    InitialParticleT,
+    ParticleT,
     tuple[PyTree, ...],
 ]:
     """
@@ -302,19 +282,20 @@ def run_filter[
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
 
-    if initial_conditions is None:
-        if smc.target.prior.order > 1:
-            raise ValueError(
-                "initial_conditions must be provided when the prior has order > 0"
-            )
-        initial_conditions = ()
+    # TODO: validate initial conditions and observation history
+    # if initial_conditions is None:
+    #     if smc.target.prior.order > 1:
+    #         raise ValueError(
+    #             "initial_conditions must be provided when the prior has order > 0"
+    #         )
+    initial_conditions = ()
 
-    if observation_history is None:
-        if smc.target.emission.observation_dependency > 0:
-            raise ValueError(
-                "observation_history must be provided when the emission has observation dependency > 0"
-            )
-        observation_history = ()
+    # if observation_history is None:
+    #     if smc.target.emission.observation_dependency > 0:
+    #         raise ValueError(
+    #             "observation_history must be provided when the emission has observation dependency > 0"
+    #         )
+    observation_history = ()
 
     if condition_path is None:
         initial_condition = None
@@ -327,7 +308,7 @@ def run_filter[
     # rather than the proposal.
     init_particles = jax.vmap(smc.target.prior.sample, in_axes=[0, None, None])(
         jrandom.split(init_key, smc.num_particles),
-        typing.cast(ConditionHistoryT, initial_conditions),
+        typing.cast(typing.Any, initial_conditions),
         target_parameters(parameters),
     )
     log_weights = smc.emission_logp(

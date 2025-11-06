@@ -38,19 +38,8 @@ class _ProgressIterator(Protocol):
     def set_postfix(self, *args: Any, **kwargs: Any) -> None: ...
 
 
-ParticleT = TypeVar("ParticleT", bound=seqjtyping.Particle)
-InitialParticleT = TypeVar("InitialParticleT", bound=tuple[seqjtyping.Particle, ...])
-TransitionParticleHistoryT = TypeVar(
-    "TransitionParticleHistoryT", bound=tuple[seqjtyping.Particle, ...]
-)
-ObservationParticleHistoryT = TypeVar(
-    "ObservationParticleHistoryT", bound=tuple[seqjtyping.Particle, ...]
-)
+ParticleT = TypeVar("ParticleT", bound=seqjtyping.Latent)
 ObservationT = TypeVar("ObservationT", bound=seqjtyping.Observation)
-ObservationHistoryT = TypeVar(
-    "ObservationHistoryT", bound=tuple[seqjtyping.Observation, ...]
-)
-ConditionHistoryT = TypeVar("ConditionHistoryT", bound=tuple[seqjtyping.Condition, ...])
 ConditionT = TypeVar("ConditionT", bound=seqjtyping.Condition)
 ParametersT = TypeVar("ParametersT", bound=seqjtyping.Parameters)
 InferenceParametersT = TypeVar("InferenceParametersT", bound=seqjtyping.Parameters)
@@ -58,12 +47,7 @@ HyperParametersT = TypeVar("HyperParametersT", bound=seqjtyping.HyperParameters)
 
 SSMApproximationT = SSMVariationalApproximation[
     ParticleT,
-    InitialParticleT,
-    TransitionParticleHistoryT,
-    ObservationParticleHistoryT,
     ObservationT,
-    ObservationHistoryT,
-    ConditionHistoryT,
     ConditionT,
     ParametersT,
     InferenceParametersT,
@@ -71,12 +55,7 @@ SSMApproximationT = SSMVariationalApproximation[
 ]
 BufferedApproximationT = BufferedSSMVI[
     ParticleT,
-    InitialParticleT,
-    TransitionParticleHistoryT,
-    ObservationParticleHistoryT,
     ObservationT,
-    ObservationHistoryT,
-    ConditionHistoryT,
     ConditionT,
     ParametersT,
     InferenceParametersT,
@@ -84,12 +63,7 @@ BufferedApproximationT = BufferedSSMVI[
 ]
 TargetModelT = BayesianSequentialModel[
     ParticleT,
-    InitialParticleT,
-    TransitionParticleHistoryT,
-    ObservationParticleHistoryT,
     ObservationT,
-    ObservationHistoryT,
-    ConditionHistoryT,
     ConditionT,
     ParametersT,
     InferenceParametersT,
