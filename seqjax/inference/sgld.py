@@ -21,44 +21,41 @@ from seqjax.inference.interface import inference_method
 
 class SGLDConfig[
     LatentT: seqjtyping.Latent,
-    InitialLatentT: tuple[seqjtyping.Latent, ...],
-    ObservationLatentHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-    InferenceParametersT: seqjtyping.Parameters,
-    HyperParametersT: seqjtyping.HyperParameters,
 ](
     eqx.Module,
 ):
     """Configuration for :func:`run_sgld`."""
 
-    particle_filter: SMCSampler
+    particle_filter: SMCSampler[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ]
     step_size: float | ParametersT = 1e-3
     num_samples: int = 100
     initial_parameter_guesses: int = 20
 
 
 class BufferedSGLDConfig[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-    InferenceParametersT: seqjtyping.Parameters,
-    HyperParametersT: seqjtyping.HyperParameters,
 ](
     eqx.Module,
 ):
     """Configuration for :func:`run_sgld`."""
 
-    particle_filter: SMCSampler
+    particle_filter: SMCSampler[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ]
     step_size: float | ParametersT = 1e-3
     num_samples: int = 100
     initial_parameter_guesses: int = 20
@@ -223,13 +220,8 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
 
 @inference_method
 def run_full_sgld_mcmc[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
@@ -237,12 +229,7 @@ def run_full_sgld_mcmc[
 ](
     target_posterior: BayesianSequentialModel[
         ParticleT,
-        InitialParticleT,
-        TransitionParticleHistoryT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
         InferenceParametersT,
@@ -254,6 +241,7 @@ def run_full_sgld_mcmc[
     condition_path: ConditionT,
     test_samples: int,
     config: SGLDConfig,
+    tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
     score_increment = build_score_increment(target_posterior)
 

@@ -40,12 +40,7 @@ class ParticleMCMCConfig(
 
 def _make_log_joint_estimator[
     ParticleT: seqjtyping.Latent,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
@@ -66,8 +61,6 @@ def _make_log_joint_estimator[
     def estimate_log_joint(
         particle_filter: SMCSampler[
             ParticleT,
-            InitialParticleT,
-            TransitionParticleHistoryT,
             ObservationT,
             ConditionT,
             ParametersT,
@@ -92,13 +85,8 @@ def _make_log_joint_estimator[
 
 @inference_method
 def run_particle_mcmc[
-    ParticleT: seqjtyping.Particle,
-    InitialParticleT: tuple[seqjtyping.Particle, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Particle, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Particle, ...],
+    ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
@@ -106,12 +94,7 @@ def run_particle_mcmc[
 ](
     target_posterior: BayesianSequentialModel[
         ParticleT,
-        InitialParticleT,
-        TransitionParticleHistoryT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
         InferenceParametersT,
@@ -123,6 +106,7 @@ def run_particle_mcmc[
     condition_path: ConditionT,
     test_samples: int,
     config: ParticleMCMCConfig,
+    tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, tuple[jaxtyping.Array]]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 

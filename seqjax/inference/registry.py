@@ -27,7 +27,7 @@ class NUTSInference:
 @dataclass
 class BufferVI:
     method: typing.Literal["buffer-vi"]
-    config: vi.BufferedVIConfig
+    config: vi.registry.BufferedVIConfig
 
     @property
     def name(self) -> str:
@@ -48,7 +48,7 @@ class BufferVI:
 @dataclass
 class FullVI:
     method: typing.Literal["full-vi"]
-    config: vi.FullVIConfig
+    config: vi.registry.FullVIConfig
 
     @property
     def name(self):

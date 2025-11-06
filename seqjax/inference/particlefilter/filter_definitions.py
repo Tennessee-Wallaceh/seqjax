@@ -17,21 +17,13 @@ from .resampling import (
 
 class BootstrapParticleFilter[
     ParticleT: seqjtyping.Latent,
-    InitialParticleT: tuple[seqjtyping.Latent, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
     SMCSampler[
         ParticleT,
-        InitialParticleT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
     ]
@@ -64,22 +56,13 @@ class BootstrapParticleFilter[
 
 class AuxiliaryParticleFilter[
     ParticleT: seqjtyping.Latent,
-    InitialParticleT: tuple[seqjtyping.Latent, ...],
-    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
-    ConditionHistoryT: tuple[seqjtyping.Condition, ...],
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
     SMCSampler[
         ParticleT,
-        InitialParticleT,
-        ObservationParticleHistoryT,
         ObservationT,
-        ObservationHistoryT,
-        ConditionHistoryT,
         ConditionT,
         ParametersT,
     ]
