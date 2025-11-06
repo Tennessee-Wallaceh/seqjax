@@ -170,18 +170,23 @@ def run_experiment(
         tracker=build_tracker(experiment_config, wandb_run),
     )
 
-    wandb_run = cast(
+    wandb_run.finish()
+
+    process_wandb_run = cast(
         io.WandbRun,
         wandb.init(
             project=experiment_name,
+            id=wandb_run.id,
             config={
                 **config_dict,
                 "inference_name": experiment_config.inference.name,
             },
+            resume="must",
+            reinit=True,
         ),
     )
     process_results(
-        wandb_run,
+        process_wandb_run,
         experiment_config,
         param_samples,
         extra_data,
@@ -190,6 +195,5 @@ def run_experiment(
         condition,
         result_processor,
     )
-    wandb_run.finish()
 
     return (param_samples, extra_data, x_path, y_path)
