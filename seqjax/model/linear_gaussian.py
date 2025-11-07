@@ -10,7 +10,7 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
-from seqjax.model.base import EmissionO1D0, Prior1, SequentialModel, Transition1
+from seqjax.model.base import Emission, Prior, SequentialModel, Transition
 from seqjax.model.typing import Observation, Parameters, Latent, NoCondition
 
 
@@ -50,13 +50,13 @@ class LGSSMParameters(Parameters):
     )
 
 
-class GaussianPrior(Prior1[VectorState, NoCondition, LGSSMParameters]):
+class GaussianPrior:
     """Gaussian prior over the initial state."""
 
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        conditions: NoCondition,
+        conditions: tuple[NoCondition],
         parameters: LGSSMParameters,
     ) -> tuple[VectorState]:
         mean = jnp.zeros_like(parameters.transition_noise_scale)
@@ -67,7 +67,7 @@ class GaussianPrior(Prior1[VectorState, NoCondition, LGSSMParameters]):
     @staticmethod
     def log_prob(
         latent: tuple[VectorState],
-        conditions: NoCondition,
+        conditions: tuple[NoCondition],
         parameters: LGSSMParameters,
     ) -> Scalar:
         scale = parameters.transition_noise_scale
@@ -75,7 +75,14 @@ class GaussianPrior(Prior1[VectorState, NoCondition, LGSSMParameters]):
         return logp.sum()
 
 
-class GaussianTransition(Transition1[VectorState, NoCondition, LGSSMParameters]):
+guassian_prior: Prior[
+    tuple[VectorState],
+    tuple[NoCondition],
+    LGSSMParameters,
+] = Prior(sample=GaussianPrior.sample, log_prob=GaussianPrior.log_prob, order=1)
+
+
+class GaussianTransition:
     """Linear Gaussian state transition."""
 
     @staticmethod
@@ -107,14 +114,17 @@ class GaussianTransition(Transition1[VectorState, NoCondition, LGSSMParameters])
         return logp.sum()
 
 
-class GaussianEmission(
-    EmissionO1D0[
-        VectorState,
-        VectorObservation,
-        NoCondition,
-        LGSSMParameters,
-    ]
-):
+gaussian_transition: Transition[
+    tuple[VectorState],
+    VectorState,
+    NoCondition,
+    LGSSMParameters,
+] = Transition(
+    sample=GaussianTransition.sample, log_prob=GaussianTransition.log_prob, order=1
+)
+
+
+class GaussianEmission:
     """Gaussian emission from the latent state."""
 
     @staticmethod
@@ -135,8 +145,8 @@ class GaussianEmission(
     @staticmethod
     def log_prob(
         latent: tuple[VectorState],
-        observation_history: tuple[()],
         observation: VectorObservation,
+        observation_history: tuple[()],
         condition: NoCondition,
         parameters: LGSSMParameters,
     ) -> Scalar:
@@ -146,6 +156,18 @@ class GaussianEmission(
             observation.y, loc=mean, scale=parameters.emission_noise_scale
         )
         return logp.sum()
+
+
+guassian_emission: Emission[
+    tuple[VectorState],
+    NoCondition,
+    VectorObservation,
+    LGSSMParameters,
+] = Emission(
+    sample=GaussianEmission.sample,
+    log_prob=GaussianEmission.log_prob,
+    order=1,
+)
 
 
 class LinearGaussianSSM(
@@ -159,6 +181,6 @@ class LinearGaussianSSM(
     latent_cls = VectorState
     observation_cls = VectorObservation
     parameter_cls = LGSSMParameters
-    prior = GaussianPrior()
-    transition = GaussianTransition()
-    emission = GaussianEmission()
+    prior = guassian_prior
+    transition = gaussian_transition
+    emission = guassian_emission
