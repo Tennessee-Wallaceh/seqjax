@@ -135,8 +135,8 @@ def log_prob_y_given_x(
         in_axes=[0, 0, 0, 0, None],
     )(
         latent_history,
-        emission_history,
         observations,
+        emission_history,
         observation_conditions,
         parameters,
     ).sum()
@@ -307,8 +307,8 @@ def buffered_log_p_y_given_x(
 
     return jax.vmap(target.emission.log_prob, in_axes=[0, 0, 0, 0, 0])(
         latent_history,
-        emission_history,
         observations,
+        emission_history,
         observation_conditions,
         parameters,
     )

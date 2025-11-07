@@ -13,14 +13,11 @@ from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
     BayesianSequentialModel,
-    EmissionO1D0,
-    EmissionO2D0,
+    Emission,
     ParameterPrior,
-    Prior1,
-    Prior2,
+    Prior,
     SequentialModel,
-    Transition1,
-    Transition2,
+    Transition,
 )
 from seqjax.model.typing import (
     Condition,
@@ -222,245 +219,275 @@ def _random_walk_loc_scale(
     return move_loc, move_scale
 
 
-class GaussianStart(Prior1[LatentVol, TimeIncrement, LogVolRW]):
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        conditions: TimeIncrement,
-        parameters: LogVolRW,
-    ) -> tuple[LatentVol]:
-        mu = jnp.array(-2.0)
-        sigma = jnp.array(0.5)
+def gaussian_start_sample(
+    key: PRNGKeyArray,
+    conditions: tuple[TimeIncrement],
+    parameters: LogVolRW,
+) -> tuple[LatentVol]:
+    mu = jnp.array(-2.0)
+    sigma = jnp.array(0.5)
 
-        start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(key))
-        return (start_lv,)
-
-    @staticmethod
-    def log_prob(
-        latent: tuple[LatentVol],
-        conditions: TimeIncrement,
-        parameters: LogVolRW,
-    ) -> Scalar:
-        (start_lv,) = latent
-        mu = jnp.array(-2.0)
-        sigma = jnp.array(0.5)
-
-        base_log_p = jstats.norm.logpdf(
-            start_lv.log_vol,
-            loc=mu,
-            scale=sigma,
-        )
-        return base_log_p
+    start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(key))
+    return (start_lv,)
 
 
-class TwoStepGaussianStart(Prior2[LatentVol, TimeIncrement, LogVolWithSkew]):
-    """Prior that also samples the first transition step."""
+def gaussian_start_log_prob(
+    latent: tuple[LatentVol],
+    conditions: tuple[TimeIncrement],
+    parameters: LogVolRW,
+) -> Scalar:
+    (start_lv,) = latent
+    mu = jnp.array(-2.0)
+    sigma = jnp.array(0.5)
 
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        conditions: tuple[TimeIncrement, TimeIncrement],
-        parameters: LogVolWithSkew,
-    ) -> tuple[LatentVol, LatentVol]:
-        mu = jnp.array(-2.0)
-        sigma = jnp.array(0.5)
-
-        start_key, trans_key = jrandom.split(key)
-        start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(start_key))
-        loc, scale = _random_walk_loc_scale(start_lv, conditions[1], parameters)
-        next_lv = LatentVol(log_vol=loc + scale * jrandom.normal(trans_key))
-        return start_lv, next_lv
-
-    @staticmethod
-    def log_prob(
-        latent: tuple[LatentVol, LatentVol],
-        conditions: tuple[TimeIncrement, TimeIncrement],
-        parameters: LogVolWithSkew,
-    ) -> Scalar:
-        start_lv, next_lv = latent
-        mu = jnp.array(-2.0)
-        sigma = jnp.array(0.5)
-
-        base_log_p = jstats.norm.logpdf(
-            start_lv.log_vol,
-            loc=mu,
-            scale=sigma,
-        )
-        loc, scale = _random_walk_loc_scale(start_lv, conditions[1], parameters)
-        log_vol = jnp.clip(next_lv.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
-        rw_log_p = jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
-        return base_log_p + rw_log_p
+    base_log_p = jstats.norm.logpdf(
+        start_lv.log_vol,
+        loc=mu,
+        scale=sigma,
+    )
+    return base_log_p
 
 
-class RandomWalk(Transition1[LatentVol, TimeIncrement, LogVolRW]):
-    @staticmethod
-    def loc_scale(
-        latent_history: tuple[LatentVol],
-        condition: TimeIncrement,
-        parameters: LogVolRW,
-    ) -> tuple[Scalar, Scalar]:
-        (prev_latent,) = latent_history
-        return _random_walk_loc_scale(prev_latent, condition, parameters)
-
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        latent_history: tuple[LatentVol],
-        condition: TimeIncrement,
-        parameters: LogVolRW,
-    ) -> LatentVol:
-        loc, scale = RandomWalk.loc_scale(latent_history, condition, parameters)
-        return LatentVol(log_vol=loc + scale * jrandom.normal(key))
-
-    @staticmethod
-    def log_prob(
-        latent_history: tuple[LatentVol],
-        latent: LatentVol,
-        condition: TimeIncrement,
-        parameters: LogVolRW,
-    ) -> Scalar:
-        loc, scale = RandomWalk.loc_scale(latent_history, condition, parameters)
-        # clip evaluations to reasonable level, if we are sampling outside this frequently
-        # something has gone wrong
-        # TODO: should this be an error instead?
-        log_vol = jnp.clip(latent.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
-        return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
+gaussian_start = Prior[tuple[LatentVol], tuple[TimeIncrement], LogVolRW](
+    order=1, sample=gaussian_start_sample, log_prob=gaussian_start_log_prob
+)
 
 
-class SkewRandomWalk(Transition2[LatentVol, TimeIncrement, LogVolWithSkew]):
-    @staticmethod
-    def loc_scale(
-        latent_history: tuple[LatentVol, LatentVol],
-        condition: TimeIncrement,
-        parameters: LogVolWithSkew,
-    ) -> tuple[Scalar, Scalar]:
-        last_latent = latent_history[-1]
-        return _random_walk_loc_scale(last_latent, condition, parameters)
+def gaussian_two_step_sample(
+    key: PRNGKeyArray,
+    conditions: tuple[TimeIncrement, TimeIncrement],
+    parameters: LogVolWithSkew,
+) -> tuple[LatentVol, LatentVol]:
+    mu = jnp.array(-2.0)
+    sigma = jnp.array(0.5)
 
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        latent_history: tuple[LatentVol, LatentVol],
-        condition: TimeIncrement,
-        parameters: LogVolWithSkew,
-    ) -> LatentVol:
-        loc, scale = SkewRandomWalk.loc_scale(latent_history, condition, parameters)
-        return LatentVol(log_vol=loc + scale * jrandom.normal(key))
-
-    @staticmethod
-    def log_prob(
-        latent_history: tuple[LatentVol, LatentVol],
-        latent: LatentVol,
-        condition: TimeIncrement,
-        parameters: LogVolWithSkew,
-    ) -> Scalar:
-        loc, scale = SkewRandomWalk.loc_scale(latent_history, condition, parameters)
-        log_vol = jnp.clip(latent.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
-        return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
+    start_key, trans_key = jrandom.split(key)
+    start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(start_key))
+    loc, scale = _random_walk_loc_scale(start_lv, conditions[1], parameters)
+    next_lv = LatentVol(log_vol=loc + scale * jrandom.normal(trans_key))
+    return start_lv, next_lv
 
 
-class LogReturn(EmissionO1D0[LatentVol, LogReturnObs, TimeIncrement, LogVolRW]):
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        latent: tuple[LatentVol],
-        observation_history: tuple[()],
-        condition: TimeIncrement,
-        parameters: LogVolRW,
-    ) -> LogReturnObs:
-        (current_latent,) = latent
-        return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_latent.log_vol)
-        log_return = jrandom.normal(key) * return_scale
-        return LogReturnObs(log_return=log_return)
+def gaussian_two_step_log_prob(
+    latent: tuple[LatentVol, LatentVol],
+    conditions: tuple[TimeIncrement, TimeIncrement],
+    parameters: LogVolWithSkew,
+) -> Scalar:
+    start_lv, next_lv = latent
+    mu = jnp.array(-2.0)
+    sigma = jnp.array(0.5)
 
-    @staticmethod
-    def log_prob(
-        latent: tuple[LatentVol],
-        observation_history: tuple[()],
-        observation: LogReturnObs,
-        condition: TimeIncrement,
-        parameters: LogVolRW,
-    ) -> Scalar:
-        (current_latent,) = latent
-        return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_latent.log_vol)
-        log_return = observation.log_return
-        return jstats.norm.logpdf(log_return, loc=0.0, scale=return_scale)
+    base_log_p = jstats.norm.logpdf(
+        start_lv.log_vol,
+        loc=mu,
+        scale=sigma,
+    )
+    loc, scale = _random_walk_loc_scale(start_lv, conditions[1], parameters)
+    log_vol = jnp.clip(next_lv.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
+    rw_log_p = jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
+    return base_log_p + rw_log_p
 
 
-class SkewLogReturn(
-    EmissionO2D0[
-        LatentVol,
-        LogReturnObs,
-        TimeIncrement,
-        LogVolWithSkew,
-    ]
-):
-    @staticmethod
-    def return_mean_and_scale(
-        last_latent: LatentVol,
-        current_latent: LatentVol,
-        condition: TimeIncrement,
-        parameters: LogVolWithSkew,
-    ) -> tuple[Scalar, Scalar]:
-        dt = condition.dt
+two_step_gaussian_start = Prior[
+    tuple[LatentVol, LatentVol],
+    tuple[TimeIncrement, TimeIncrement],
+    LogVolWithSkew,
+](
+    order=2,
+    sample=gaussian_two_step_sample,
+    log_prob=gaussian_two_step_log_prob,
+)
 
-        current_vol = jnp.exp(current_latent.log_vol)
-        current_var = jnp.exp(2 * current_latent.log_vol)
 
-        log_vol_mean, _ = _random_walk_loc_scale(last_latent, condition, parameters)
+def loc_scale(
+    latent_history: tuple[LatentVol],
+    condition: TimeIncrement,
+    parameters: LogVolRW,
+) -> tuple[Scalar, Scalar]:
+    (prev_latent,) = latent_history
+    return _random_walk_loc_scale(prev_latent, condition, parameters)
 
-        return_mean = -0.5 * dt * current_var
-        return_mean += (
-            parameters.skew
-            * (current_vol / parameters.std_log_vol)
-            * (current_latent.log_vol - log_vol_mean)
-        )
 
-        return_scale = (
-            jnp.sqrt(condition.dt) * current_vol * jnp.sqrt(1 - parameters.skew**2)
-        )
+def random_walk_sample(
+    key: PRNGKeyArray,
+    latent_history: tuple[LatentVol],
+    condition: TimeIncrement,
+    parameters: LogVolRW,
+) -> LatentVol:
+    loc, scale = loc_scale(latent_history, condition, parameters)
+    return LatentVol(log_vol=loc + scale * jrandom.normal(key))
 
-        return return_mean, return_scale
 
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        latent: tuple[LatentVol, LatentVol],
-        observation_history: tuple[()],
-        condition: TimeIncrement,
-        parameters: LogVolWithSkew,
-    ) -> LogReturnObs:
-        last_latent, current_latent = latent
-        return_mean, return_scale = SkewLogReturn.return_mean_and_scale(
-            last_latent,
-            current_latent,
-            condition,
-            parameters,
-        )
-        _ = observation_history  # unused
-        log_return = jrandom.normal(key) * return_scale + return_mean
-        return LogReturnObs(log_return=log_return)
+def random_walk_log_prob(
+    latent_history: tuple[LatentVol],
+    latent: LatentVol,
+    condition: TimeIncrement,
+    parameters: LogVolRW,
+) -> Scalar:
+    loc, scale = loc_scale(latent_history, condition, parameters)
+    # clip evaluations to reasonable level, if we are sampling outside this frequently
+    # something has gone wrong
+    # TODO: should this be an error instead?
+    log_vol = jnp.clip(latent.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
+    return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
 
-    @staticmethod
-    def log_prob(
-        latent: tuple[LatentVol, LatentVol],
-        observation_history: tuple[()],
-        observation: LogReturnObs,
-        condition: TimeIncrement,
-        parameters: LogVolWithSkew,
-    ) -> Scalar:
-        last_latent, current_latent = latent
-        return_mean, return_scale = SkewLogReturn.return_mean_and_scale(
-            last_latent,
-            current_latent,
-            condition,
-            parameters,
-        )
 
-        _ = observation_history  # unused
-        log_return = observation.log_return
+random_walk = Transition[tuple[LatentVol], LatentVol, TimeIncrement, LogVolRW](
+    order=1,
+    sample=random_walk_sample,
+    log_prob=random_walk_log_prob,
+)
 
-        return jstats.norm.logpdf(log_return, loc=return_mean, scale=return_scale)
+
+def skew_rw_loc_scale(
+    latent_history: tuple[LatentVol, LatentVol],
+    condition: TimeIncrement,
+    parameters: LogVolWithSkew,
+) -> tuple[Scalar, Scalar]:
+    last_latent = latent_history[-1]
+    return _random_walk_loc_scale(last_latent, condition, parameters)
+
+
+def skew_rw_sample(
+    key: PRNGKeyArray,
+    latent_history: tuple[LatentVol, LatentVol],
+    condition: TimeIncrement,
+    parameters: LogVolWithSkew,
+) -> LatentVol:
+    loc, scale = skew_rw_loc_scale(latent_history, condition, parameters)
+    return LatentVol(log_vol=loc + scale * jrandom.normal(key))
+
+
+def skew_rw_log_prob(
+    latent_history: tuple[LatentVol, LatentVol],
+    latent: LatentVol,
+    condition: TimeIncrement,
+    parameters: LogVolWithSkew,
+) -> Scalar:
+    loc, scale = skew_rw_loc_scale(latent_history, condition, parameters)
+    log_vol = jnp.clip(latent.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
+    return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
+
+
+skew_random_walk = Transition[
+    tuple[LatentVol, LatentVol], LatentVol, TimeIncrement, LogVolWithSkew
+](
+    order=2,
+    sample=skew_rw_sample,
+    log_prob=skew_rw_log_prob,
+)
+
+
+def log_return_sample(
+    key: PRNGKeyArray,
+    latent: tuple[LatentVol],
+    observation_history: tuple[()],
+    condition: TimeIncrement,
+    parameters: LogVolRW,
+) -> LogReturnObs:
+    (current_latent,) = latent
+    return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_latent.log_vol)
+    log_return = jrandom.normal(key) * return_scale
+    return LogReturnObs(log_return=log_return)
+
+
+def log_return_log_prob(
+    latent: tuple[LatentVol],
+    observation: LogReturnObs,
+    observation_history: tuple[()],
+    condition: TimeIncrement,
+    parameters: LogVolRW,
+) -> Scalar:
+    (current_latent,) = latent
+    return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_latent.log_vol)
+    log_return = observation.log_return
+    return jstats.norm.logpdf(log_return, loc=0.0, scale=return_scale)
+
+
+log_return = Emission[tuple[LatentVol], TimeIncrement, LogReturnObs, LogVolRW](
+    order=1,
+    sample=log_return_sample,
+    log_prob=log_return_log_prob,
+)
+
+
+def skew_return_mean_and_scale(
+    last_latent: LatentVol,
+    current_latent: LatentVol,
+    condition: TimeIncrement,
+    parameters: LogVolWithSkew,
+) -> tuple[Scalar, Scalar]:
+    dt = condition.dt
+
+    current_vol = jnp.exp(current_latent.log_vol)
+    current_var = jnp.exp(2 * current_latent.log_vol)
+
+    log_vol_mean, _ = _random_walk_loc_scale(last_latent, condition, parameters)
+
+    return_mean = -0.5 * dt * current_var
+    return_mean += (
+        parameters.skew
+        * (current_vol / parameters.std_log_vol)
+        * (current_latent.log_vol - log_vol_mean)
+    )
+
+    return_scale = (
+        jnp.sqrt(condition.dt) * current_vol * jnp.sqrt(1 - parameters.skew**2)
+    )
+
+    return return_mean, return_scale
+
+
+def skew_sample(
+    key: PRNGKeyArray,
+    latent: tuple[LatentVol, LatentVol],
+    observation_history: tuple[()],
+    condition: TimeIncrement,
+    parameters: LogVolWithSkew,
+) -> LogReturnObs:
+    last_latent, current_latent = latent
+    return_mean, return_scale = skew_return_mean_and_scale(
+        last_latent,
+        current_latent,
+        condition,
+        parameters,
+    )
+    _ = observation_history  # unused
+    log_return = jrandom.normal(key) * return_scale + return_mean
+    return LogReturnObs(log_return=log_return)
+
+
+def skew_log_prob(
+    latent: tuple[LatentVol, LatentVol],
+    observation: LogReturnObs,
+    observation_history: tuple[()],
+    condition: TimeIncrement,
+    parameters: LogVolWithSkew,
+) -> Scalar:
+    last_latent, current_latent = latent
+    return_mean, return_scale = skew_return_mean_and_scale(
+        last_latent,
+        current_latent,
+        condition,
+        parameters,
+    )
+
+    _ = observation_history  # unused
+    log_return = observation.log_return
+
+    return jstats.norm.logpdf(log_return, loc=return_mean, scale=return_scale)
+
+
+skew_log_return = Emission[
+    tuple[LatentVol, LatentVol],
+    TimeIncrement,
+    LogReturnObs,
+    LogVolWithSkew,
+](
+    order=2,
+    sample=skew_sample,
+    log_prob=skew_log_prob,
+)
 
 
 class SimpleStochasticVol(
@@ -471,14 +498,14 @@ class SimpleStochasticVol(
         LogVolRW,
     ]
 ):
-    latent_cls: type[LatentVol] = LatentVol
-    observation_cls: type[LogReturnObs] = LogReturnObs
-    condition_cls: type[TimeIncrement] = TimeIncrement
-    parameter_cls: type[LogVolRW] = LogVolRW
+    latent_cls = LatentVol
+    observation_cls = LogReturnObs
+    condition_cls = TimeIncrement
+    parameter_cls = LogVolRW
 
-    prior = GaussianStart()
-    transition = RandomWalk()
-    emission = LogReturn()
+    prior = gaussian_start
+    transition = random_walk
+    emission = log_return
 
 
 class SimpleStochasticVolBayesian(
@@ -503,16 +530,19 @@ class SkewStochasticVol(
         LogReturnObs,
         TimeIncrement,
         LogVolWithSkew,
+        tuple[LatentVol, LatentVol],
+        tuple[TimeIncrement, TimeIncrement],
+        tuple[LatentVol, LatentVol],
     ]
 ):
-    latent_cls: type[LatentVol] = LatentVol
-    condition_cls: type[TimeIncrement] = TimeIncrement
-    observation_cls: type[LogReturnObs] = LogReturnObs
-    parameter_cls: type[LogVolWithSkew] = LogVolWithSkew
+    latent_cls = LatentVol
+    condition_cls = TimeIncrement
+    observation_cls = LogReturnObs
+    parameter_cls = LogVolWithSkew
 
-    prior = TwoStepGaussianStart()
-    transition = SkewRandomWalk()
-    emission = SkewLogReturn()
+    prior = two_step_gaussian_start
+    transition = skew_random_walk
+    emission = skew_log_return
 
 
 class SkewStochasticVolBayesian(
@@ -523,6 +553,9 @@ class SkewStochasticVolBayesian(
         LogVolWithSkew,
         LogVolWithSkew,
         HyperParameters,
+        tuple[LatentVol, LatentVol],
+        tuple[TimeIncrement, TimeIncrement],
+        tuple[LatentVol, LatentVol],
     ]
 ):
     inference_parameter_cls = LogVolWithSkew

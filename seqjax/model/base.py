@@ -232,6 +232,11 @@ class BayesianSequentialModel[
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
+    # More complex dependency structure typing is handled here
+    PriorLatentT = tuple[LatentT],
+    PriorConditionT = tuple[ConditionT],
+    LatentHistoryT = tuple[LatentT],
+    ObservationHistoryT = tuple[()],
 ]:
     inference_parameter_cls: type[InferenceParametersT]
     target: SequentialModel[
@@ -239,6 +244,10 @@ class BayesianSequentialModel[
         ObservationT,
         ConditionT,
         ParametersT,
+        PriorLatentT,
+        PriorConditionT,
+        LatentHistoryT,
+        ObservationHistoryT,
     ]
     parameter_prior: ParameterPrior[InferenceParametersT, HyperParametersT]
     target_parameter: Callable[[InferenceParametersT], ParametersT]
