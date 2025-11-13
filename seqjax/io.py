@@ -202,12 +202,12 @@ def get_remote_data(run: WandbRun, data_config: DataConfig):
                 data_config.sequence_length
             )
 
-        x_path, y_path, _, _ = simulate.simulate(
+        x_path, y_path = simulate.simulate(
             data_key,
             data_config.target,
-            condition,
             data_config.generative_parameters,  # needs params
             sequence_length=data_config.sequence_length,
+            condition=condition,
         )
 
         print(f"saving {artifact_name} on remote...")
