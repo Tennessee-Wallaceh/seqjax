@@ -90,7 +90,10 @@ def run_bayesian_nuts[
 ]:
     """Sample parameters and latent paths jointly using NUTS."""
 
-    log_prob_joint = evaluate.get_log_prob_joint_for_target(target_posterior.target)
+    log_prob_joint = partial(
+        evaluate.log_prob_joint,
+        target_posterior.target,
+    )
 
     def logdensity(state):
         latents, params = state
