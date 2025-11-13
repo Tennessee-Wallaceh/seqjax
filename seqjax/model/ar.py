@@ -247,8 +247,6 @@ class AR1Target(
     transition = ar_random_walk
     emission = ar_emission
 
-    reference_emission = ()
-
 
 def fill_parameter(ar_only: AROnlyParameters, ref_params: ARParameters) -> ARParameters:
     return ARParameters(

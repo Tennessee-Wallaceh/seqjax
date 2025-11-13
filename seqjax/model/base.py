@@ -231,8 +231,6 @@ class SequentialModel[
         ObservationHistoryT,
     ]
 
-    reference_emission: ObservationHistoryT
-
     def latent_view_for_emission(
         self,
         latent_history: PriorLatentT,

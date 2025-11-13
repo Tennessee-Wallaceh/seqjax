@@ -311,8 +311,6 @@ class Target_TO2_EO1(
     transition = transition_order_2
     emission = emission_order_1
 
-    reference_emission = ()
-
 
 class Target_TO1_EO1_ED1(
     SequentialModel[
@@ -335,7 +333,6 @@ class Target_TO1_EO1_ED1(
     prior = prior_order_1
     transition = transition_order_1
     emission = emission_order_1_dep_1
-    reference_emission = (TestObs(jnp.array(-1)),)
 
 
 class Target_TO2_EO2(
@@ -359,8 +356,6 @@ class Target_TO2_EO2(
     transition = transition_order_2
     emission = emission_order_2
 
-    reference_emission = ()
-
 
 class Target_TO1_EO2(
     SequentialModel[
@@ -382,8 +377,6 @@ class Target_TO1_EO2(
     prior = prior_order_2
     transition = transition_order_1
     emission = emission_order_2
-
-    reference_emission = ()
 
 
 def test_TO2_EO2():

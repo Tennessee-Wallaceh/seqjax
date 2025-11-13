@@ -121,6 +121,7 @@ def simulate[
     parameters: ParametersT,
     sequence_length: int,
     condition: None | ConditionT = None,
+    reference_emission: ObservationHistoryT = (),
 ) -> tuple[
     LatentT,
     ObservationT,
@@ -135,7 +136,7 @@ def simulate[
       ``t < 0``.  The number of states is ``target.prior.order`` and depends on
       both the transition and emission orders.
     * Initial observations ``y_{t<0}`` are provided via
-      ``parameters.reference_emission``.
+      ``reference_emission``.
 
     For example:
 
@@ -183,6 +184,11 @@ def simulate[
                 )
             )
 
+    if len(reference_emission) != target.emission.observation_dependency:
+        raise jax.errors.JaxRuntimeError(
+            "Reference emission must match emission.observation_dependency"
+        )
+
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
     # special handling for sampling first state
@@ -195,13 +201,13 @@ def simulate[
     y_0 = target.emission.sample(
         init_y_key,
         target.latent_view_for_emission(x_0),
-        target.reference_emission,
+        reference_emission,
         condition_0,
         parameters,
     )
 
     # build start point of scan
-    emission_history = target.add_observation_history(target.reference_emission, y_0)
+    emission_history = target.add_observation_history(reference_emission, y_0)
     state = (x_0, emission_history)
     inputs = (
         (jnp.array(step_keys),)

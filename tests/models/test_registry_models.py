@@ -6,7 +6,6 @@ import pytest
 import jax.numpy as jnp
 import jax.random as jrandom
 
-from seqjax import util
 from seqjax.model import evaluate, registry, simulate
 
 
@@ -26,30 +25,27 @@ def _iter_registry_entries():
 
 
 @pytest.mark.parametrize(
-    "model_label, parameter_label, target_cls, parameters",
+    "model_label, parameter_label, target, parameters",
     list(_iter_registry_entries()),
 )
 def test_registered_models_can_simulate_and_evaluate(
     model_label: registry.SequentialModelLabel,
     parameter_label: str,
-    target_cls,
+    target,
     parameters,
 ):
     """Every registered preset should simulate and evaluate without errors."""
 
     case_id = f"{model_label}[{parameter_label}]"
-    target = target_cls()
     sequence_length = 5
     key = jrandom.PRNGKey(0)
 
     condition_factory = registry.condition_generators.get(model_label)
     condition = (
-        None
-        if condition_factory is None
-        else condition_factory(sequence_length)
+        None if condition_factory is None else condition_factory(sequence_length)
     )
 
-    latents, observations, latent_history, observation_history = simulate.simulate(
+    latents, observation_path = simulate.simulate(
         key,
         target,
         condition=condition,
@@ -57,17 +53,17 @@ def test_registered_models_can_simulate_and_evaluate(
         sequence_length=sequence_length,
     )
 
-    assert latents.batch_shape[0] == sequence_length, case_id
-    assert observations.batch_shape[0] == sequence_length, case_id
-
-    observation_path = util.concat_pytree(observation_history, observations)
+    assert latents.batch_shape[0] == sequence_length + target.prior.order - 1, case_id
+    assert (
+        observation_path.batch_shape[0]
+        == sequence_length + target.emission.observation_dependency
+    ), case_id
 
     log_p_x = evaluate.log_prob_x(
         target,
         latents,
         condition=condition,
         parameters=parameters,
-        x_history=latent_history,
     )
     log_p_y_given_x = evaluate.log_prob_y_given_x(
         target,
@@ -75,7 +71,6 @@ def test_registered_models_can_simulate_and_evaluate(
         observation_path,
         condition=condition,
         parameters=parameters,
-        x_history=latent_history,
     )
     log_p_joint = evaluate.log_prob_joint(
         target,
@@ -83,7 +78,6 @@ def test_registered_models_can_simulate_and_evaluate(
         observation_path,
         condition=condition,
         parameters=parameters,
-        x_history=latent_history,
     )
 
     assert jnp.isfinite(log_p_x), case_id

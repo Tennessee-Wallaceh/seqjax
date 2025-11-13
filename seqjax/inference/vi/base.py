@@ -20,7 +20,7 @@ from flowjax.distributions import (
 
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.embedder import Embedder
-from seqjax.model.evaluate import buffered_log_p_joint
+from seqjax.model.evaluate import log_p_joint
 from seqjax.model.base import BayesianSequentialModel
 
 
@@ -487,7 +487,7 @@ class FullAutoregressiveVI[
         )(theta_q)
 
         batched_log_p_joint = jax.vmap(
-            partial(buffered_log_p_joint, target_posterior.target),
+            partial(log_p_joint, target_posterior.target),
             in_axes=[0, None, None, 0],
         )
         batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, None, None, 0])
@@ -718,7 +718,7 @@ class BufferedSSMVI[
         )(theta_q)
 
         batched_log_p_joint = jax.vmap(
-            partial(buffered_log_p_joint, target_posterior.target),
+            partial(log_p_joint, target_posterior.target),
             in_axes=[0, None, None, 0],
         )
         batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
@@ -798,7 +798,7 @@ class BufferedSSMVI[
         )
 
         batched_log_p_joint = jax.vmap(
-            partial(buffered_log_p_joint, target_posterior.target),
+            partial(log_p_joint, target_posterior.target),
             in_axes=[0, None, None, 0],
         )
         batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
