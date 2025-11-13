@@ -75,9 +75,16 @@ def slice_transition_latent_history[
 def slice_emission_latent_history[
     LatentT: seqjtyping.Latent,
     EmissionLatentHistoryT,
+    ObservationHistoryT,
 ](
     x_path: LatentT,
-    emission: Emission[EmissionLatentHistoryT, typing.Any, typing.Any, typing.Any],
+    emission: Emission[
+        EmissionLatentHistoryT,
+        typing.Any,
+        typing.Any,
+        typing.Any,
+        ObservationHistoryT,
+    ],
     prior: Prior[typing.Any, typing.Any, typing.Any],
 ) -> EmissionLatentHistoryT:
     """
@@ -105,7 +112,11 @@ def slice_emission_observation_history[
 ](
     y_path: ObservationT,
     emission: Emission[
-        ObservationT, typing.Any, typing.Any, typing.Any, ObservationHistoryT
+        typing.Any,
+        typing.Any,
+        typing.Any,
+        typing.Any,
+        ObservationHistoryT,
     ],
 ) -> ObservationHistoryT:
     """
