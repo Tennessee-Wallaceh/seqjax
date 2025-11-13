@@ -113,9 +113,9 @@ DEFAULT_INFERENCE_BUILDERS: dict[str, InferenceBuilder] = {
 def list_models() -> None:
     """Display registered models and their parameter presets."""
 
-    for label, model_cls in sorted(model_registry.sequential_models.items()):
+    for label, model in sorted(model_registry.sequential_models.items()):
         presets = ", ".join(sorted(model_registry.parameter_settings[label].keys()))
-        typer.echo(f"{label}: {model_cls.__name__} (presets: {presets})")
+        typer.echo(f"{label}: {model.__class__.__name__} (presets: {presets})")
 
 
 @app.command("list-inference")
