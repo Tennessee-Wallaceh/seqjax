@@ -126,6 +126,11 @@ condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
 default_parameter_transforms: dict[SequentialModelLabel, dict[str, typing.Any]] = {
     "ar": {"ar": "sigmoid"},
     "double_well": {"energy_barrier": "softplus"},
+    "simple_stochastic_vol": {
+        "std_log_vol": "softplus",
+        "mean_reversion": "softplus",
+        "long_term_vol": "softplus",
+    },
 }
 
 

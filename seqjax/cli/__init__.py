@@ -299,7 +299,10 @@ def run(
         )
         inference_config_obj = replace(inference_config_obj, config=configured_full)
 
-    if code_tokens:
+    if code_tokens and not (
+        inference_config_obj.method == "full-vi"
+        or inference_config_obj.method == "buffer-vi"
+    ):
         raise typer.BadParameter(
             "Shorthand codes are currently only supported for the buffer-vi "
             "and full-vi methods."
