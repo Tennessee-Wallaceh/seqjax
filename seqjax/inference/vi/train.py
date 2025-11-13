@@ -215,9 +215,7 @@ class Tracker[StaticModuleT, TrainableModuleT]:
         self.metric_samples = metric_samples
 
         # configure any custom record functions
-        self.record_trigger = record_trigger or (
-            lambda step, elapsed_time_s: step % 100 == 0
-        )
+        self.record_trigger = record_trigger or (lambda step, elapsed_time_s: True)
         self.custom_record_fcns = custom_record_fcns or []
 
     def track_step(

@@ -42,6 +42,9 @@ def run_full_path_vi[
     config: registry.FullVIConfig = registry.FullVIConfig(),
     tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
+    # set up a default tracker if none provided
+    tracker = train.Tracker(metric_samples=1000)
+
     sequence_length = observation_path.batch_shape[0]
 
     approximation = registry.build_approximation(
@@ -108,6 +111,9 @@ def run_buffered_vi[
     config: registry.BufferedVIConfig = registry.BufferedVIConfig(),
     tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
+    # set up a default tracker if none provided
+    tracker = train.Tracker(metric_samples=1000)
+
     sequence_length = observation_path.batch_shape[0]
 
     approximation = registry.build_approximation(

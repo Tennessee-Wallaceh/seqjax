@@ -20,7 +20,7 @@ from flowjax.distributions import (
 
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.embedder import Embedder
-from seqjax.model.evaluate import log_p_joint
+from seqjax.model.evaluate import log_prob_joint
 from seqjax.model.base import BayesianSequentialModel
 
 
@@ -487,7 +487,7 @@ class FullAutoregressiveVI[
         )(theta_q)
 
         batched_log_p_joint = jax.vmap(
-            partial(log_p_joint, target_posterior.target),
+            partial(log_prob_joint, target_posterior.target),
             in_axes=[0, None, None, 0],
         )
         batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, None, None, 0])
@@ -496,16 +496,15 @@ class FullAutoregressiveVI[
             jax.vmap(self.buffer_params, in_axes=[0, None]), in_axes=[0, None]
         )(theta_q, jnp.ones(observations.batch_shape[0]))
 
-        log_p_y_x_path = batched_log_p_joint(
+        log_p_y_x = batched_log_p_joint(
             x_path,
             observations,
             conditions,
             target_posterior.target_parameter(buffered_theta),
         )
 
-        neg_elbo = (log_q_theta - log_p_theta) + jnp.sum(
-            log_q_x_path - log_p_y_x_path, axis=-1
-        )
+        log_q_x = jnp.sum(log_q_x_path, axis=-1)
+        neg_elbo = (log_q_theta - log_p_theta) + log_q_x - log_p_y_x
 
         return jnp.mean(neg_elbo)
 
@@ -718,7 +717,7 @@ class BufferedSSMVI[
         )(theta_q)
 
         batched_log_p_joint = jax.vmap(
-            partial(log_p_joint, target_posterior.target),
+            partial(log_prob_joint, target_posterior.target),
             in_axes=[0, None, None, 0],
         )
         batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
@@ -727,15 +726,13 @@ class BufferedSSMVI[
             theta_q, theta_mask
         )
 
-        log_p_y_x_path = batched_log_p_joint(
+        log_p_y_x = batched_log_p_joint(
             x_path, y_batch, c_batch, target_posterior.target_parameter(buffered_theta)
         )
 
-        if log_q_x_path.ndim == log_p_y_x_path.ndim:
-            latent_terms = jnp.sum(log_q_x_path - log_p_y_x_path, axis=-1)
-        else:
-            latent_terms = log_q_x_path - jnp.sum(log_p_y_x_path, axis=-1)
+        log_q_x = jnp.sum(log_q_x_path, axis=-1)
 
+        latent_terms = log_q_x - log_p_y_x
         neg_elbo = (log_q_theta - log_p_theta) + latent_scaling * latent_terms
 
         return jnp.mean(neg_elbo)
@@ -798,7 +795,7 @@ class BufferedSSMVI[
         )
 
         batched_log_p_joint = jax.vmap(
-            partial(log_p_joint, target_posterior.target),
+            partial(log_prob_joint, target_posterior.target),
             in_axes=[0, None, None, 0],
         )
         batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
