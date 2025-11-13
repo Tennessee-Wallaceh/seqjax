@@ -120,8 +120,8 @@ def simulate[
     ],
     parameters: ParametersT,
     sequence_length: int,
-    condition: None | ConditionT = None,
-    reference_emission: ObservationHistoryT = (),
+    condition: ConditionT | None = None,
+    reference_emission: ObservationHistoryT | None = None,
 ) -> tuple[
     LatentT,
     ObservationT,
@@ -183,8 +183,9 @@ def simulate[
                     sequence_length,
                 )
             )
-
-    if len(reference_emission) != target.emission.observation_dependency:
+    if reference_emission is None:
+        reference_emission = typing.cast(ObservationHistoryT, ())
+    elif len(reference_emission) != target.emission.observation_dependency:
         raise jax.errors.JaxRuntimeError(
             "Reference emission must match emission.observation_dependency"
         )
