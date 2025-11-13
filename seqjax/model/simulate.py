@@ -30,27 +30,37 @@ def slice_prior_conditions[
 
 def step[
     LatentT: seqjtyping.Latent,
-    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
-    ObservationParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
     ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
+    PriorLatentT: tuple[seqjtyping.Latent, ...],
+    PriorConditionT: tuple[seqjtyping.Condition, ...],
+    TransitionLatentHistoryT: tuple[seqjtyping.Latent, ...],
+    EmissionLatentHistoryT: tuple[seqjtyping.Latent, ...],
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
 ](
     target: SequentialModel[
         LatentT,
         ObservationT,
         ConditionT,
         ParametersT,
+        PriorLatentT,
+        PriorConditionT,
+        TransitionLatentHistoryT,
+        EmissionLatentHistoryT,
+        ObservationHistoryT,
     ],
     parameters: ParametersT,
     state: tuple[
-        tuple[LatentT, ...],
+        PriorLatentT,
         ObservationHistoryT,
     ],
     inputs,
 ) -> tuple[
-    tuple[tuple[LatentT, ...], ObservationHistoryT],
+    tuple[
+        PriorLatentT,
+        ObservationHistoryT,
+    ],
     tuple[LatentT, ObservationT],
 ]:
     """Single simulation step returning updated state and new sample."""
@@ -59,9 +69,7 @@ def step[
     step_key, condition = (inputs + (None,))[:2]
     latents, emissions = state
     transition_key, emission_key = jrandom.split(step_key)
-    latent_history = typing.cast(
-        TransitionParticleHistoryT, latents[-target.transition.order :]
-    )
+    latent_history = target.latent_view_for_transition(latents)
 
     # last latent is at t
     # sample x_t+1 then y_t+1
@@ -72,10 +80,8 @@ def step[
         parameters,
     )
 
-    latents = (*latents, next_latent)
-    emission_p_history = typing.cast(
-        ObservationParticleHistoryT, latents[-target.emission.order :]
-    )
+    latents = target.add_latent_history(latents, next_latent)
+    emission_p_history = target.latent_view_for_emission(latents)
     emission = target.emission.sample(
         emission_key,
         emission_p_history,
@@ -84,29 +90,21 @@ def step[
         parameters,
     )
 
-    # add the next latent to the history before emission
-    # only pass on necessary information
-    # # read off histories of appropriate order
-    max_latent_order = max(target.transition.order, target.emission.order)
-    latent_history = latents[-max_latent_order:]
-    emission_history = (*emissions, emission)
-    emission_history = typing.cast(
-        ObservationHistoryT,
-        emission_history[
-            len(emission_history) - target.emission.observation_dependency :
-        ],
-    )
+    emission_history = target.add_observation_history(emissions, emission)
 
-    return (latent_history, emission_history), (next_latent, emission)
+    return (latents, emission_history), (next_latent, emission)
 
 
 def simulate[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
+    ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-    PriorLatentT,
-    PriorConditionsT,
+    PriorLatentT: tuple[seqjtyping.Latent, ...],
+    PriorConditionT: tuple[seqjtyping.Condition, ...],
+    TransitionLatentHistoryT: tuple[seqjtyping.Latent, ...],
+    EmissionLatentHistoryT: tuple[seqjtyping.Latent, ...],
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
 ](
     key: PRNGKeyArray,
     target: SequentialModel[
@@ -115,16 +113,17 @@ def simulate[
         ConditionT,
         ParametersT,
         PriorLatentT,
-        PriorConditionsT,
+        PriorConditionT,
+        TransitionLatentHistoryT,
+        EmissionLatentHistoryT,
+        ObservationHistoryT,
     ],
     parameters: ParametersT,
     sequence_length: int,
-    condition: ConditionT = seqjtyping.NoCondition(),
+    condition: None | ConditionT = None,
 ) -> tuple[
     LatentT,
     ObservationT,
-    typing.Any,
-    typing.Any,
 ]:
     """Simulate a path of length ``sequence_length`` from ``target``.
 
@@ -151,16 +150,27 @@ def simulate[
     ``sequence_length + target.prior.order - 1`` so that the prior and every
     subsequent transition step receive the correct context.
 
-    Returns ``(latents, observations, latent_history, observation_history)``.
+    Returns ``(latents, observations)``.
     ``latents`` and ``observations`` share the same leading ``Batch`` dimensions
-    while ``SequenceAxis`` corresponds to ``sequence_length``.  The final two
-    values are the latent and observation histories used for the simulation.
+    while ``SequenceAxis`` corresponds to ``sequence_length``.
+
+    ``latents`` will have length ``sequence_length + target.prior.order - 1`` along
+    the ``SequenceAxis`` to account for the prior states.  ``observations`` will have length
+    ``sequence_length``, as no additional observations are needed beyond those.
     """
 
     if sequence_length < 1:
         raise jax.errors.JaxRuntimeError(
             f"sequence_length must be >= 1, got {sequence_length}"
         )
+
+    if condition is None:
+        if target.condition_cls is seqjtyping.NoCondition:
+            condition = typing.cast(ConditionT, seqjtyping.NoCondition())
+        else:
+            raise jax.errors.JaxRuntimeError(
+                "condition cannot be None for models with a condition"
+            )
 
     if target.condition_cls is not seqjtyping.NoCondition:
         cond_length = condition.batch_shape[0]
@@ -180,27 +190,18 @@ def simulate[
 
     condition_0 = index_pytree(condition, target.prior.order - 1)
 
-    # The prior will produce
-    # should a maximal latent history be passed here?
-    # this would simplify the Prior/Transition/Emission history handling
-    # but could lead to issues with correctness if the user is not careful?
-    # The order of the Emission + Transition could be forced to match.
+    # The prior will produce the maximal latent history
     x_0 = target.prior.sample(init_x_key, prior_conditions, parameters)
     y_0 = target.emission.sample(
         init_y_key,
-        x_0,
-        parameters.reference_emission,
+        target.latent_view_for_emission(x_0),
+        target.reference_emission,
         condition_0,
         parameters,
     )
 
     # build start point of scan
-    emission_history = (*parameters.reference_emission, y_0)  # type: ignore[assignment]
-    emission_history = tuple(  # type: ignore[assignment]
-        emission_history[
-            len(emission_history) - target.emission.observation_dependency :
-        ]
-    )
+    emission_history = target.add_observation_history(target.reference_emission, y_0)
     state = (x_0, emission_history)
     inputs = (
         (jnp.array(step_keys),)
@@ -217,31 +218,22 @@ def simulate[
 
     # scan for generic step
     _, (latent_path, observed_path) = jax.lax.scan(
-        partial(step, target, parameters),  # type: ignore[arg-type]
+        partial(step, target, parameters),
         state,
         xs=inputs,
         length=sequence_length - 1,
     )
 
-    latent_full = concat_pytree(*x_0, latent_path)
+    # add the starting values back
+    latent_full = concat_pytree(
+        *typing.cast(
+            tuple[LatentT, ...], x_0
+        ),  # we know x_0 is just a tuple of LatentT, we just can't express that in typing
+        latent_path,
+    )
     observed_full = concat_pytree(
-        *parameters.reference_emission,
         y_0,
         observed_path,
     )
 
-    latent_start = target.prior.order - 1
-    obs_start = target.emission.observation_dependency
-    latent_path = slice_pytree(
-        latent_full, latent_start, latent_start + sequence_length
-    )
-    observed_path = slice_pytree(
-        observed_full,
-        obs_start,
-        obs_start + sequence_length,
-    )
-
-    latent_history = slice_pytree(latent_full, 0, latent_start)
-    observation_history = slice_pytree(observed_full, 0, obs_start)
-
-    return latent_path, observed_path, latent_history, observation_history
+    return latent_full, observed_full

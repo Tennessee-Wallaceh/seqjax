@@ -21,6 +21,7 @@ class WandbRun(Protocol):
 
     name: str
     project: str
+    id: str
 
     def log_artifact(self, artifact: wandb.Artifact) -> None: ...
 

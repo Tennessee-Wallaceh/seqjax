@@ -13,10 +13,12 @@ from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
     BayesianSequentialModel,
+    BayesianSequentialModel_TO2_EO2,
     Emission,
     ParameterPrior,
     Prior,
     SequentialModel,
+    SequentialModel_TO2_EO2,
     Transition,
 )
 from seqjax.model.typing import (
@@ -452,7 +454,6 @@ def skew_sample(
         condition,
         parameters,
     )
-    _ = observation_history  # unused
     log_return = jrandom.normal(key) * return_scale + return_mean
     return LogReturnObs(log_return=log_return)
 
@@ -471,8 +472,6 @@ def skew_log_prob(
         condition,
         parameters,
     )
-
-    _ = observation_history  # unused
     log_return = observation.log_return
 
     return jstats.norm.logpdf(log_return, loc=return_mean, scale=return_scale)
@@ -525,14 +524,11 @@ class SimpleStochasticVolBayesian(
 
 
 class SkewStochasticVol(
-    SequentialModel[
+    SequentialModel_TO2_EO2[
         LatentVol,
         LogReturnObs,
         TimeIncrement,
         LogVolWithSkew,
-        tuple[LatentVol, LatentVol],
-        tuple[TimeIncrement, TimeIncrement],
-        tuple[LatentVol, LatentVol],
     ]
 ):
     latent_cls = LatentVol
@@ -546,16 +542,13 @@ class SkewStochasticVol(
 
 
 class SkewStochasticVolBayesian(
-    BayesianSequentialModel[
+    BayesianSequentialModel_TO2_EO2[
         LatentVol,
         LogReturnObs,
         TimeIncrement,
         LogVolWithSkew,
         LogVolWithSkew,
         HyperParameters,
-        tuple[LatentVol, LatentVol],
-        tuple[TimeIncrement, TimeIncrement],
-        tuple[LatentVol, LatentVol],
     ]
 ):
     inference_parameter_cls = LogVolWithSkew

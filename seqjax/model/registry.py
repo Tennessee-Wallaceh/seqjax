@@ -26,7 +26,7 @@ import jax.numpy as jnp
 
 from . import ar, double_well, stochastic_vol
 
-from .base import BayesianSequentialModel, SequentialModel
+from .base import BayesianSequentialModel, AllSequentialModels
 from .typing import Parameters
 
 PosteriorFactory = typing.Callable[[Parameters], BayesianSequentialModel]
@@ -41,11 +41,11 @@ SequentialModelLabel = typing.Literal[
 # must appear in ``SequentialModelLabel`` and are typically accessed via
 # ``sequential_models[label]``. When adding a new model, extend
 # ``SequentialModelLabel`` and add the class here with the same label.
-sequential_models: dict[SequentialModelLabel, type[SequentialModel]] = {
-    "ar": ar.AR1Target,
-    "double_well": double_well.DoubleWellTarget,
-    "simple_stochastic_vol": stochastic_vol.SimpleStochasticVol,
-    "skew_stochastic_vol": stochastic_vol.SkewStochasticVol,
+sequential_models: dict[SequentialModelLabel, AllSequentialModels] = {
+    "ar": ar.AR1Target(),
+    "double_well": double_well.DoubleWellTarget(),
+    "simple_stochastic_vol": stochastic_vol.SimpleStochasticVol(),
+    "skew_stochastic_vol": stochastic_vol.SkewStochasticVol(),
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model

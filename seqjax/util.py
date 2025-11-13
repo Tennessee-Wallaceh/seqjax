@@ -51,7 +51,9 @@ def dynamic_index_pytree_in_dim(tree: Any, index: int, dim: int) -> Any:
     return jax.tree_util.tree_map(take_index, tree)
 
 
-def slice_pytree(tree: Any, start_index: int, limit_index: int, dim: int = 0) -> Any:
+def slice_pytree[
+    PackableT: seqjtyping.Packable,
+](tree: PackableT, start_index: int, limit_index: int, dim: int = 0) -> PackableT:
     """Slice a pytree along ``dim`` between ``start_index`` and ``limit_index``."""
 
     return jax.tree_util.tree_map(
@@ -63,6 +65,31 @@ def slice_pytree(tree: Any, start_index: int, limit_index: int, dim: int = 0) ->
         ),
         tree,
     )
+
+
+def broadcast_packable[
+    PackableT: seqjtyping.Packable,
+](
+    packable: PackableT,
+    leading_axis_len: int,
+) -> PackableT:
+    """Ensure leading axis of length `leading_axis_len`.
+
+    - If a leaf is already shaped (leading_axis_len, ...) it is left as-is.
+    - Otherwise it is broadcast to (leading_axis_len, ...) using jnp.broadcast_to.
+    """
+
+    def _broadcast_leaf(p):
+        if not isinstance(p, jax.Array):
+            return p
+
+        if p.ndim > 0 and p.shape[0] == leading_axis_len:
+            return p
+
+        # Non-batched: broadcast over a new leading time axis
+        return jnp.broadcast_to(p, (leading_axis_len,) + p.shape)
+
+    return jax.tree_util.tree_map(_broadcast_leaf, packable)
 
 
 def dynamic_slice_pytree(
@@ -86,7 +113,7 @@ def dynamic_slice_pytree(
 
 def concat_pytree[
     PackableT: seqjtyping.Packable,
-](*trees: tuple[PackableT, ...], axis: int = 0) -> PackableT:
+](*trees: PackableT, axis: int = 0) -> PackableT:
     """Concatenate pytrees along ``axis``."""
 
     def _concat(*leaves):

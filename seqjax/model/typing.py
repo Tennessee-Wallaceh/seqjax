@@ -131,8 +131,7 @@ class NoCondition(Condition):
     __slots__ = ()
 
 
-class Parameters[*BatchAxes](Packable[*BatchAxes]):
-    reference_emission = ()
+class Parameters[*BatchAxes](Packable[*BatchAxes]): ...
 
 
 class HyperParameters[*BatchAxes](Packable[*BatchAxes]): ...

@@ -1,7 +1,8 @@
 """Protocol typing for sequential models.
 
-Condition and Parameters are separated. Parameters remain static over time while
+``Condition`` and ``Parameter`` are separated. Parameters remain static over time while
 conditions vary.
+The assumption is that ``Condition`` will be supplied for every point in the overall sequence.
 
 The primary purpose of model components (e.g Prior, Transition, Emission) is to
 pair pure functions for sampling and evaluating log-probabilities.
@@ -9,6 +10,7 @@ We can also use typing to expose order information about the dependency structur
 
 ``SequentialModel`` is then used to group model components that operate on the same
 ``Latent`` and ``Emission`` types.
+
 
 Specific dependency structures can be expressed by defining custom Prior, Transition
 and Emission protocols. The default ones assume first order Markovian structure
@@ -205,13 +207,14 @@ class Emission[
 class SequentialModel[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
+    ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     # More complex dependency structure typing is handled here
-    PriorLatentT = tuple[LatentT],
-    PriorConditionT = tuple[ConditionT],
-    LatentHistoryT = tuple[LatentT],
-    ObservationHistoryT = tuple[()],
+    PriorLatentT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
+    PriorConditionT: tuple[seqjtyping.Condition, ...] = tuple[ConditionT],  # type: ignore
+    TransitionLatentHistoryT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
+    EmissionLatentHistoryT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...] = tuple[()],  # type: ignore
 ]:
     latent_cls: type[LatentT]
     observation_cls: type[ObservationT]
@@ -219,24 +222,97 @@ class SequentialModel[
     condition_cls: type[ConditionT]
 
     prior: Prior[PriorLatentT, PriorConditionT, ParametersT]
-    transition: Transition[LatentHistoryT, LatentT, ConditionT, ParametersT]
+    transition: Transition[TransitionLatentHistoryT, LatentT, ConditionT, ParametersT]
     emission: Emission[
-        LatentHistoryT, ConditionT, ObservationT, ParametersT, ObservationHistoryT
+        EmissionLatentHistoryT,
+        ConditionT,
+        ObservationT,
+        ParametersT,
+        ObservationHistoryT,
     ]
+
+    reference_emission: ObservationHistoryT
+
+    def latent_view_for_emission(
+        self,
+        latent_history: PriorLatentT,
+    ) -> EmissionLatentHistoryT:
+        """Convert full latent history to emission latent history type."""
+        return typing.cast(
+            EmissionLatentHistoryT, latent_history[-self.emission.order :]
+        )
+
+    def latent_view_for_transition(
+        self,
+        latent_history: PriorLatentT,
+    ) -> TransitionLatentHistoryT:
+        """Convert full latent history to transition latent history type."""
+        return typing.cast(
+            TransitionLatentHistoryT, latent_history[-self.transition.order :]
+        )
+
+    def add_observation_history(
+        self, current_history: ObservationHistoryT, new_observation: ObservationT
+    ) -> ObservationHistoryT:
+        """Add new observation to history, maintaining correct length."""
+        emission_history = (*current_history, new_observation)
+        return typing.cast(
+            ObservationHistoryT,
+            tuple(
+                emission_history[
+                    len(emission_history) - self.emission.observation_dependency :
+                ]
+            ),
+        )
+
+    def add_latent_history(
+        self, current_history: PriorLatentT, new_latent: LatentT
+    ) -> PriorLatentT:
+        """Add new latent to history, maintaining correct length."""
+        latent_history = (*current_history, new_latent)
+        return typing.cast(
+            PriorLatentT,
+            tuple(latent_history[len(latent_history) - self.transition.order :]),
+        )
+
+
+# Specify a version of SequentialModel with 2nd order transitions
+class SequentialModel_TO2_EO2[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
+    SequentialModel[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+        tuple[LatentT, LatentT],
+        tuple[ConditionT, ConditionT],
+        tuple[LatentT, LatentT],
+        tuple[LatentT, LatentT],
+        tuple[()],
+    ]
+): ...
+
+
+AllSequentialModels = SequentialModel | SequentialModel_TO2_EO2
 
 
 class BayesianSequentialModel[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
+    ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
     # More complex dependency structure typing is handled here
-    PriorLatentT = tuple[LatentT],
-    PriorConditionT = tuple[ConditionT],
-    LatentHistoryT = tuple[LatentT],
-    ObservationHistoryT = tuple[()],
+    PriorLatentT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
+    PriorConditionT: tuple[seqjtyping.Condition, ...] = tuple[ConditionT],  # type: ignore
+    TransitionLatentHistoryT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
+    EmissionLatentHistoryT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...] = tuple[()],  # type: ignore
 ]:
     inference_parameter_cls: type[InferenceParametersT]
     target: SequentialModel[
@@ -246,8 +322,33 @@ class BayesianSequentialModel[
         ParametersT,
         PriorLatentT,
         PriorConditionT,
-        LatentHistoryT,
+        TransitionLatentHistoryT,
+        EmissionLatentHistoryT,
         ObservationHistoryT,
     ]
     parameter_prior: ParameterPrior[InferenceParametersT, HyperParametersT]
     target_parameter: Callable[[InferenceParametersT], ParametersT]
+
+
+class BayesianSequentialModel_TO2_EO2[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
+    BayesianSequentialModel[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
+        tuple[LatentT, LatentT],
+        tuple[ConditionT, ConditionT],
+        tuple[LatentT, LatentT],
+        tuple[LatentT, LatentT],
+        tuple[()],
+    ]
+): ...
