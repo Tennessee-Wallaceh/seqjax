@@ -202,7 +202,7 @@ def run(
         "base", "--parameters", "--params", help="Parameter preset to use."
     ),
     sequence_length: int = typer.Option(
-        1024, "--sequence-length", min=1, help="Number of observations to simulate."
+        1000, "--sequence-length", min=1, help="Number of observations to simulate."
     ),
     data_seed: int = typer.Option(..., "--data-seed", help="Seed for data simulation."),
     fit_seed: int = typer.Option(..., "--fit-seed", help="Seed for inference."),
@@ -257,8 +257,8 @@ def run(
 
     inference_config_obj = builder()
 
-    if code_tokens:
-        if inference_config_obj.method == "buffer-vi":
+    if inference_config_obj.method == "buffer-vi":
+        if code_tokens:
             try:
                 configured_buffer = shorthand_codes.apply_buffer_vi_codes(
                     inference_config_obj.config,
@@ -267,17 +267,20 @@ def run(
             except shorthand_codes.CodeParseError as exc:
                 raise typer.BadParameter(str(exc)) from exc
 
-            configured_buffer = replace(
-                configured_buffer,
-                parameter_field_bijections=model_registry.default_parameter_transforms[
-                    data_config.target_model_label
-                ],
-            )
             inference_config_obj = replace(
                 inference_config_obj, config=configured_buffer
             )
 
-        elif inference_config_obj.method == "full-vi":
+        configured_buffer = replace(
+            inference_config_obj.config,
+            parameter_field_bijections=model_registry.default_parameter_transforms[
+                data_config.target_model_label
+            ],
+        )
+        inference_config_obj = replace(inference_config_obj, config=configured_buffer)
+
+    if inference_config_obj.method == "full-vi":
+        if code_tokens:
             try:
                 configured_full = shorthand_codes.apply_full_vi_codes(
                     inference_config_obj.config,
@@ -286,18 +289,21 @@ def run(
             except shorthand_codes.CodeParseError as exc:
                 raise typer.BadParameter(str(exc)) from exc
 
-            configured_full = replace(
-                configured_full,
-                parameter_field_bijections=model_registry.default_parameter_transforms[
-                    data_config.target_model_label
-                ],
-            )
             inference_config_obj = replace(inference_config_obj, config=configured_full)
-        else:
-            raise typer.BadParameter(
-                "Shorthand codes are currently only supported for the buffer-vi "
-                "and full-vi methods."
-            )
+
+        configured_full = replace(
+            inference_config_obj.config,
+            parameter_field_bijections=model_registry.default_parameter_transforms[
+                data_config.target_model_label
+            ],
+        )
+        inference_config_obj = replace(inference_config_obj, config=configured_full)
+
+    if code_tokens:
+        raise typer.BadParameter(
+            "Shorthand codes are currently only supported for the buffer-vi "
+            "and full-vi methods."
+        )
 
     experiment_config = ExperimentConfig(
         data_config=data_config,

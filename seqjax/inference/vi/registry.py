@@ -217,7 +217,6 @@ class FullVIConfig:
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
     )
-    num_tracker_steps: int = 100
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, typing.Any]) -> "FullVIConfig":
@@ -277,7 +276,6 @@ class BufferedVIConfig:
     latent_approximation: LatentApproximation = field(
         default_factory=AutoregressiveLatentApproximation
     )
-    num_tracker_steps: int = 100
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, typing.Any]) -> "BufferedVIConfig":
@@ -331,7 +329,6 @@ class BufferedVIConfig:
             latent_approximation=latent_approximation_registry[
                 config_dict["latent_approximation"]["label"]
             ],
-            num_tracker_steps=config_dict.get("num_tracker_steps", 100),
         )
 
 
