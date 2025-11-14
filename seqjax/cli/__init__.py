@@ -161,7 +161,6 @@ class ResultProcessor:
         condition,
     ) -> None:
         if experiment_config.inference.method == "NUTS":
-            param_samples, (time_array_s, latent_samples) = extra_data
             io.save_packable_artifact(
                 wandb_run,
                 f"{wandb_run.name}-samples",
