@@ -156,6 +156,7 @@ def run_experiment(
             config={
                 **config_dict,
                 "inference_name": experiment_config.inference.name,
+                "results": False,
             },
         ),
     )
@@ -175,11 +176,12 @@ def run_experiment(
     process_wandb_run = cast(
         io.WandbRun,
         wandb.init(
-            project=f"{experiment_name}-results",
+            project=experiment_name,
             config={
                 **config_dict,
                 "inference_name": experiment_config.inference.name,
                 "training_run_id": wandb_run.id,
+                "results": True,
             },
             settings=wandb.Settings(start_method="thread"),
         ),
