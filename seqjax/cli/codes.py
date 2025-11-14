@@ -59,9 +59,10 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
         "100K": 100_000,
         "150K": 150_000,
         "1M": 1_000_000,
-        "10M": 1_000_000,
+        "10M": 10_000_000,
+        "100M": 100_000_000,
     },
-    "MAXT": {"L": 5 * 60 * 60, "M": 2 * 60 * 60, "S": 30 * 60},
+    "MAXT": {"5H": 5 * 60 * 60, "2H": 2 * 60 * 60, "30M": 30 * 60},
 }
 
 BUFFER_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
