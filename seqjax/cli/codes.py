@@ -54,6 +54,7 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
         "BiRNN": lambda: vi.registry.BiRNNEmbedder(hidden_dim=5),
     },
     "MAXS": {
+        "NO": None,
         "1K": 1_000,
         "50K": 50_000,
         "100K": 100_000,
@@ -62,7 +63,13 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
         "10M": 10_000_000,
         "100M": 100_000_000,
     },
-    "MAXT": {"5H": 5 * 60 * 60, "2H": 2 * 60 * 60, "30M": 30 * 60},
+    "MAXT": {
+        "5H": 5 * 60 * 60,
+        "2H": 2 * 60 * 60,
+        "30M": 30 * 60,
+        "5M": 5 * 60,
+        "NO": None,
+    },
 }
 
 BUFFER_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
@@ -121,7 +128,7 @@ COMMON_DEFAULT_CODES: List[str] = [
     "MC-1",
     "BS-1",
     "EMB-SC",
-    "MAXT-M",
+    "MAXT-30M",
     "MAXS-100K",
 ]
 

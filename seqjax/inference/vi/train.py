@@ -21,8 +21,7 @@ import jaxtyping
 import optax  # type: ignore[import-untyped]
 from jaxtyping import PyTree
 
-from tqdm.auto import trange  # type: ignore[import-untyped]
-from tqdm.notebook import trange as nbtrange  # type: ignore[import-untyped]
+from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
 from seqjax.model.base import BayesianSequentialModel
 from seqjax.inference.vi.base import (
@@ -203,6 +202,7 @@ class Tracker[StaticModuleT, TrainableModuleT]:
             tuple[list[str], list[LoggedValue]],
         ]
     ]
+    postfix: dict[typing.Any, typing.Any]
 
     def __init__(
         self,
@@ -217,6 +217,7 @@ class Tracker[StaticModuleT, TrainableModuleT]:
         # configure any custom record functions
         self.record_trigger = record_trigger or (lambda step, elapsed_time_s: True)
         self.custom_record_fcns = custom_record_fcns or []
+        self.postfix = {}
 
     def track_step(
         self,
@@ -228,7 +229,7 @@ class Tracker[StaticModuleT, TrainableModuleT]:
         key: jaxtyping.PRNGKeyArray,
         loop: _ProgressIterator,
         force_record: bool = False,
-    ) -> None:
+    ) -> dict[typing.Any, typing.Any]:
         if force_record or self.record_trigger(opt_step, elapsed_time_s):
             update: TrackerLogRow = {
                 "step": int(opt_step + 1),
@@ -258,7 +259,9 @@ class Tracker[StaticModuleT, TrainableModuleT]:
 
             self.update_rows.append(update)
 
-            loop.set_postfix({"loss:": f"{loss.item():.3f} {mean_str}"})
+            self.postfix = {"loss:": f"{loss.item():.3f} {mean_str}"}
+
+        return self.postfix
 
 
 def train(
@@ -270,7 +273,7 @@ def train(
     key: jaxtyping.PRNGKeyArray,
     optim: optax.GradientTransformation,
     run_tracker: Tracker | None,
-    num_steps: int = 1000,
+    num_steps: int | None = 1000,
     filter_spec: PyTree[bool] | None = None,
     observations_per_step: int = 5,
     samples_per_context: int = 10,
@@ -279,6 +282,12 @@ def train(
     initial_opt_state: OptStateT | None = None,
     time_limit_s: int | None = None,
 ) -> tuple[SSMApproximationT, OptStateT]:
+    # check for valid set up
+    if num_steps is None and time_limit_s is None:
+        raise Exception(
+            "Variational fitting requires either num_steps or time_limit_s is set!"
+        )
+
     # set up tracker if needed
     if run_tracker is None:
         run_tracker = Tracker()
@@ -310,8 +319,6 @@ def train(
     loss_and_grad: LossAndGradFn = jax.value_and_grad(loss_fn)
 
     # main training step
-    step_keys = jrandom.split(key, num_steps)
-
     def make_step(
         trainable_in: TrainableModuleT,
         static_in: StaticModuleT,
@@ -339,57 +346,79 @@ def train(
     compiled_make_step = typing.cast(
         CompiledStepFn,
         typing.cast(Any, eqx.filter_jit(make_step))
-        .lower(trainable, static, opt_state, observations, conditions, step_keys[0])
+        .lower(trainable, static, opt_state, observations, conditions, key)
         .compile(),
     )
 
     # train loop
     loop: _ProgressIterator
-    if nb_context:
-        loop = nbtrange(num_steps, position=1)
-    else:
-        loop = trange(num_steps, position=1)
+    loop = tqdm(bar_format="{desc} | elapsed {elapsed} | {postfix}")
 
     # init step (to get tracking info)
-    loss, _trainable, _opt_state = compiled_make_step(
-        trainable, static, opt_state, observations, conditions, step_keys[0]
+    loss, _trainable, _ = compiled_make_step(
+        trainable, static, opt_state, observations, conditions, key
     )
 
-    run_tracker.track_step(-1, -1, static, _trainable, loss, step_keys[0], loop)
+    tracker_postfix = run_tracker.track_step(
+        -1, -1, static, _trainable, loss, key, loop
+    )
 
     elapsed_time_s = 0.0
     phase_start = time.perf_counter()
     SYNC_INTERVAL_S = 10
 
-    for opt_step in loop:
+    opt_step = 0
+    while True:
+        subkey, key = jrandom.split(key)
         loss, trainable, opt_state = compiled_make_step(
-            trainable, static, opt_state, observations, conditions, step_keys[opt_step]
+            trainable, static, opt_state, observations, conditions, subkey
         )
+        sync_now = (time.perf_counter() - phase_start) > SYNC_INTERVAL_S
 
-        now = time.perf_counter()
-        if (now - phase_start) > SYNC_INTERVAL_S:
+        if sync_now:
             # sync now
             loss.block_until_ready()
             t_after = time.perf_counter()
             elapsed_time_s += t_after - phase_start
 
             # we may want expensive operations during the run,
-            # so need to account for this
-            run_tracker.track_step(
+            # so need to account for this, so only start the timer after the step has
+            # been tracked
+            tracker_postfix = run_tracker.track_step(
                 elapsed_time_s,
                 opt_step,
                 static,
                 trainable,
                 loss,
-                step_keys[opt_step],
+                subkey,
                 loop,
             )
 
             if time_limit_s and elapsed_time_s > time_limit_s:
-                print("Early stopping triggered.")
+                print("Stopping due to time limit")
                 break
 
+            if num_steps and opt_step > num_steps:
+                print("Stopping due to step limit")
+                break
+
+            if num_steps is not None:
+                tracker_postfix["iter"] = (
+                    f"{100 * opt_step / num_steps:.0f}% ({num_steps})"
+                )
+
+            if time_limit_s is not None:
+                tracker_postfix["time"] = (
+                    f"{100 * elapsed_time_s / time_limit_s:.0f}% ({time_limit_s / 60:.0f}m)"
+                )
+
+            tracker_postfix["rate"] = f"{opt_step / elapsed_time_s:.1f} it/s"
+
+            loop.set_postfix(tracker_postfix)
+
             phase_start = time.perf_counter()
+            print(f"{t_after - phase_start}s in track")
+        opt_step += 1
 
     # add final record
     run_tracker.track_step(
@@ -398,7 +427,7 @@ def train(
         static,
         trainable,
         loss,
-        step_keys[0],
+        subkey,
         loop,
         force_record=True,
     )
