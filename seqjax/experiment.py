@@ -181,6 +181,7 @@ def run_experiment(
                 **config_dict,
                 "inference_name": experiment_config.inference.name,
                 "training_run_id": wandb_run.id,
+                "training_run_name": wandb_run.name,
                 "results": True,
             },
             settings=wandb.Settings(start_method="thread"),
