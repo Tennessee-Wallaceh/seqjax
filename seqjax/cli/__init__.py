@@ -98,7 +98,10 @@ def _default_full_vi() -> inference_registry.InferenceConfig:
 def _default_nuts() -> inference_registry.InferenceConfig:
     return inference_registry.NUTSInference(
         method="NUTS",
-        config=NUTSConfig(),
+        config=NUTSConfig(
+            num_adaptation=5000,
+            num_warmup=5000,
+        ),
     )
 
 
@@ -157,7 +160,16 @@ class ResultProcessor:
         y_path,
         condition,
     ) -> None:
-        if experiment_config.inference.method == "buffer-vi":
+        if experiment_config.inference.method == "NUTS":
+            param_samples, (time_array_s, latent_samples) = extra_data
+            io.save_packable_artifact(
+                wandb_run,
+                f"{wandb_run.name}-samples",
+                "run_output",
+                [("final_samples", param_samples, {})],
+            )
+            return
+        elif experiment_config.inference.method == "buffer-vi":
             approx_start, x_q, run_tracker, fitted_approximation, opt_state = extra_data
         elif experiment_config.inference.method == "full-vi":
             run_tracker, x_q, fitted_approximation, opt_state = extra_data
