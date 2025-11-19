@@ -17,7 +17,7 @@ from seqjax.model.base import (
 )
 import seqjax.model.typing as seqjtyping
 from seqjax.model import evaluate
-from seqjax.util import pytree_shape
+from seqjax.util import pytree_shape, slice_pytree
 from seqjax.inference.interface import inference_method
 
 import blackjax  # type: ignore
@@ -46,7 +46,7 @@ class NUTSConfig(eqx.Module):
     step_size: float = 1e-3
     num_adaptation: int = 1000
     num_warmup: int = 1000
-    num_steps: int | None = None
+    num_steps: int = 5000  # length of the chain
     inverse_mass_matrix: Any | None = None
     num_chains: int = 1
 
@@ -151,8 +151,7 @@ def run_bayesian_nuts[
     warmup_time = end_warmup_time - start_warmup_time
 
     start_time = time.time()
-    total_samples = config.num_steps or test_samples
-    samples_per_chain = int(total_samples / config.num_chains)
+    samples_per_chain = int(config.num_steps / config.num_chains)
     _, paths = inference_loop_multiple_chains(
         sample_key,
         nuts.step,
@@ -172,4 +171,8 @@ def run_bayesian_nuts[
         * (sample_time / samples_per_chain)
     )
 
+    # take the end of the chain
+    param_samples = slice_pytree(
+        param_samples, config.num_steps - test_samples, config.num_steps
+    )
     return param_samples, (time_array_s, latent_samples)

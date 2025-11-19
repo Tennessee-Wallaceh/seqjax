@@ -4,6 +4,7 @@ All values are in annualised terms.
 
 from collections import OrderedDict
 from typing import ClassVar, Protocol
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -61,6 +62,17 @@ class LogVolRW(Parameters):
     )
 
 
+class LVolStd(Parameters):
+    """Parameters for a log-volatility random walk."""
+
+    std_log_vol: Scalar
+    long_term_vol: Scalar
+    _shape_template: ClassVar = OrderedDict(
+        std_log_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        long_term_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
+
+
 class LogVolWithSkew(Parameters):
     """Random-walk parameters including a skew term."""
 
@@ -73,6 +85,14 @@ class LogVolWithSkew(Parameters):
         mean_reversion=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
         long_term_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
         skew=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
+
+
+def lv_to_std_only(lv_only: LVolStd, ref_params: LogVolRW) -> LogVolRW:
+    return LogVolRW(
+        std_log_vol=lv_only.std_log_vol,
+        long_term_vol=lv_only.long_term_vol,
+        mean_reversion=jnp.ones_like(lv_only.std_log_vol) * ref_params.mean_reversion,
     )
 
 
@@ -156,6 +176,44 @@ class StochVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         )
 
         return std_log_vol_lpdf + base_log_lpdf + mean_reversion_lpdf
+
+
+class StdLogVolPrior(ParameterPrior[LVolStd, HyperParameters]):
+    @staticmethod
+    def sample(key: PRNGKeyArray, hyperparameters: HyperParameters) -> LVolStd:
+        base_p = StochVolParamPrior().sample(key, hyperparameters)
+
+        _ = hyperparameters  # unused
+
+        return LVolStd(
+            std_log_vol=base_p.std_log_vol,
+            long_term_vol=base_p.long_term_vol,
+        )
+
+    @staticmethod
+    def log_prob(parameters: LVolStd, hyperparameters: HyperParameters) -> Scalar:
+        _ = hyperparameters  # unused
+        mean = 3.0
+        scale = 1.0
+        x = parameters.std_log_vol
+        alpha = -mean / scale
+        normalization = 1 - jstats.norm.cdf(alpha)
+
+        z = (x - mean) / scale
+        log_numerator = jstats.norm.logpdf(z) - jnp.log(scale)
+        log_denominator = jnp.log(normalization)
+        std_log_vol_lpdf = jnp.where(
+            (x >= 0.0),
+            log_numerator - log_denominator,
+            -jnp.inf,
+        )
+
+        base_log_lpdf = jstats.norm.logpdf(
+            jnp.log(parameters.long_term_vol),
+            loc=jnp.array(-2.0),
+            scale=jnp.array(0.5),
+        )
+        return std_log_vol_lpdf + base_log_lpdf
 
 
 class SkewStochVolParamPrior(ParameterPrior[LogVolWithSkew, HyperParameters]):
@@ -505,6 +563,26 @@ class SimpleStochasticVol(
     prior = gaussian_start
     transition = random_walk
     emission = log_return
+
+
+class SimpleStochasticVolBayesianStdLogVol(
+    BayesianSequentialModel[
+        LatentVol,
+        LogReturnObs,
+        TimeIncrement,
+        LogVolRW,
+        LVolStd,
+        HyperParameters,
+    ]
+):
+    def __init__(self, ref_params: LogVolRW):
+        self.target_parameter = staticmethod(
+            partial(lv_to_std_only, ref_params=ref_params)
+        )
+
+    inference_parameter_cls = LVolStd
+    target = SimpleStochasticVol()
+    parameter_prior = StdLogVolPrior()
 
 
 class SimpleStochasticVolBayesian(
