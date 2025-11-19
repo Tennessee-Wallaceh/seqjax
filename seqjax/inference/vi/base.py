@@ -94,8 +94,8 @@ class MeanField[TargetStructT: seqjtyping.Packable](
         # self.loc = jnp.zeros((target_struct_cls.flat_dim,))
         # self._unc_scale = jnp.zeros((target_struct_cls.flat_dim,))
 
-        self.loc = jnp.array([2.0, -0.5])
-        self._unc_scale = jnp.array([3.0, 0.5])
+        self.loc = jnp.array([2.0])
+        self._unc_scale = jnp.array([3.0])
 
     def sample_and_log_prob(self, key, condition=None):
         z = jrandom.normal(key, [self.target_struct_cls.flat_dim])
