@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Any, Callable, Dict, Iterable, List, Tuple
 
 from seqjax.inference import vi
+from seqjax.inference.mcmc import NUTSConfig
 from seqjax.inference.optimization import registry as optimization_registry
 
 __all__ = [
@@ -14,10 +15,14 @@ __all__ = [
     "BUFFER_VI_DEFAULT_CODES",
     "FULL_VI_CODES",
     "FULL_VI_DEFAULT_CODES",
+    "NUTS_CODES",
+    "NUTS_DEFAULT_CODES",
     "format_buffer_vi_codes",
     "format_full_vi_codes",
+    "format_nuts_codes",
     "apply_buffer_vi_codes",
     "apply_full_vi_codes",
+    "apply_nuts_codes",
 ]
 
 
@@ -82,6 +87,13 @@ BUFFER_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
 
 FULL_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {}
 
+NUTS_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
+    "SS": {"1e-3": 1e-3, "5e-3": 5e-3, "1e-2": 1e-2, "5e-2": 5e-2},
+    "ADAPT": {"500": 500, "1K": 1_000, "5K": 5_000, "10K": 10_000},
+    "NW": {"200": 200, "500": 500, "1K": 1_000, "5K": 5_000},
+    "NS": {"100": 100, "500": 500, "1K": 1_000, "5K": 5_000, "10K": 10_000},
+}
+
 
 BUFFER_VI_CODES: Dict[str, Dict[str, _CodeValue]] = _merge_code_definitions(
     COMMON_CODE_DEFINITIONS,
@@ -93,6 +105,9 @@ FULL_VI_CODES: Dict[str, Dict[str, _CodeValue]] = _merge_code_definitions(
     COMMON_CODE_DEFINITIONS,
     FULL_SPECIFIC_CODES,
 )
+
+
+NUTS_CODES: Dict[str, Dict[str, _CodeValue]] = dict(NUTS_SPECIFIC_CODES)
 
 
 COMMON_FACTOR_NAMES: Dict[str, str] = {
@@ -112,7 +127,6 @@ BUFFER_SPECIFIC_FACTOR_NAMES: Dict[str, str] = {
 
 FULL_SPECIFIC_FACTOR_NAMES: Dict[str, str] = {}
 
-
 BUFFER_VI_FACTOR_NAMES: Dict[str, str] = {
     **COMMON_FACTOR_NAMES,
     **BUFFER_SPECIFIC_FACTOR_NAMES,
@@ -122,6 +136,14 @@ BUFFER_VI_FACTOR_NAMES: Dict[str, str] = {
 FULL_VI_FACTOR_NAMES: Dict[str, str] = {
     **COMMON_FACTOR_NAMES,
     **FULL_SPECIFIC_FACTOR_NAMES,
+}
+
+
+NUTS_FACTOR_NAMES: Dict[str, str] = {
+    "SS": "step_size",
+    "ADAPT": "num_adaptation",
+    "NW": "num_warmup",
+    "NS": "num_steps",
 }
 
 
@@ -149,6 +171,14 @@ FULL_VI_DEFAULT_CODES: List[str] = [
 
 # Backwards compatibility for older imports
 DEFAULT_CODES = BUFFER_VI_DEFAULT_CODES
+
+
+NUTS_DEFAULT_CODES: List[str] = [
+    "SS-1e-3",
+    "ADAPT-5K",
+    "NW-5K",
+    "NS-1K",
+]
 
 
 def _parse_token(
@@ -209,6 +239,14 @@ def format_buffer_vi_codes() -> str:
 def format_full_vi_codes() -> str:
     lines: List[str] = []
     for factor, entries in sorted(FULL_VI_CODES.items()):
+        values = ", ".join(f"{factor}-{suffix}" for suffix in entries)
+        lines.append(f"{factor}: {values}")
+    return "\n".join(lines)
+
+
+def format_nuts_codes() -> str:
+    lines: List[str] = []
+    for factor, entries in sorted(NUTS_CODES.items()):
         values = ", ".join(f"{factor}-{suffix}" for suffix in entries)
         lines.append(f"{factor}: {values}")
     return "\n".join(lines)
@@ -296,4 +334,25 @@ def apply_full_vi_codes(
         observations_per_step=resolved["minibatch_size"],
         samples_per_context=resolved["mc_samples"],
         embedder=embedder,
+    )
+
+
+def apply_nuts_codes(config: NUTSConfig, raw_tokens: Iterable[str]) -> NUTSConfig:
+    tokens = _normalise_tokens(raw_tokens)
+    try:
+        resolved = _resolve_config(
+            tokens,
+            defaults=NUTS_DEFAULT_CODES,
+            code_definitions=NUTS_CODES,
+            factor_names=NUTS_FACTOR_NAMES,
+        )
+    except CodeParseError as exc:  # pragma: no cover - exercised via CLI
+        raise exc
+
+    return replace(
+        config,
+        step_size=resolved["step_size"],
+        num_adaptation=resolved["num_adaptation"],
+        num_warmup=resolved["num_warmup"],
+        num_steps=resolved["num_steps"],
     )

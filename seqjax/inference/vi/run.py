@@ -17,6 +17,11 @@ from seqjax.inference.interface import inference_method
 from seqjax.inference.vi import registry
 from seqjax.inference.optimization import registry as optimization_registry
 
+AdamOpt = optimization_registry.AdamOpt
+AutoregressiveLatentApproximation = (
+    registry.AutoregressiveLatentApproximation
+)
+
 
 @inference_method
 def run_full_path_vi[

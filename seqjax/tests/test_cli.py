@@ -113,3 +113,35 @@ def test_run_show_codes_exits_early() -> None:
     assert result.exit_code == 0
     assert "Buffer VI shorthand codes" in result.stdout
     assert "Full VI shorthand codes" in result.stdout
+    assert "NUTS shorthand codes" in result.stdout
+
+
+def test_run_with_shorthand_codes_overrides_nuts_defaults() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "demo",
+            "--model",
+            "simple_stochastic_vol",
+            "--data-seed",
+            "1",
+            "--fit-seed",
+            "2",
+            "--inference",
+            "NUTS",
+            "--code",
+            "SS-5e-3,ADAPT-500",
+            "--code",
+            "NW-200,NS-500",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    inference_config = payload["config"]["inference"]["config"]
+    assert inference_config["step_size"] == 5e-3
+    assert inference_config["num_adaptation"] == 500
+    assert inference_config["num_warmup"] == 200
+    assert inference_config["num_steps"] == 500
+    assert payload["config"]["test_samples"] == 500

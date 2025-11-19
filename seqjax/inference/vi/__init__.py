@@ -4,6 +4,7 @@ from . import base
 from . import transformed
 from . import transformations
 from . import registry
+from .registry import BufferedVIConfig, FullVIConfig
 
 from .run import (
     run_buffered_vi,
@@ -19,4 +20,6 @@ __all__ = [
     "transformed",
     "transformations",
     "registry",
+    "BufferedVIConfig",
+    "FullVIConfig",
 ]
