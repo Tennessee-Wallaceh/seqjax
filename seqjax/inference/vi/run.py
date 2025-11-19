@@ -8,6 +8,7 @@ import typing
 import jax
 import jax.numpy as jnp
 import jaxtyping
+import optax  # type: ignore[import-untyped]
 
 from seqjax.inference.vi import train
 from seqjax.model.base import BayesianSequentialModel
@@ -57,6 +58,7 @@ def run_full_path_vi[
 
     optim = optimization_registry.build_optimizer(config.optimization)
 
+    opt_state: optax.GradientTransformation
     fitted_approximation, opt_state = train.train(
         model=approximation,
         observations=observation_path,
@@ -126,7 +128,7 @@ def run_buffered_vi[
     )
 
     optim = optimization_registry.build_optimizer(config.optimization)
-
+    opt_state: optax.GradientTransformation
     if config.pre_training_steps > 0:
         approximation, _ = train.train(
             model=approximation,

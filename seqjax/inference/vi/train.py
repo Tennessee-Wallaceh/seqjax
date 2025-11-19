@@ -183,7 +183,7 @@ def sample_theta_qs(
     )
 
 
-class Tracker[StaticModuleT, TrainableModuleT]:
+class Tracker:
     metric_samples: int
     elapsed_time_s: float
     update_rows: list[TrackerLogRow]
@@ -198,6 +198,7 @@ class Tracker[StaticModuleT, TrainableModuleT]:
                 TrainableModuleT,
                 int,
                 jaxtyping.Scalar,
+                jaxtyping.PRNGKeyArray,
             ],
             tuple[list[str], list[LoggedValue]],
         ]

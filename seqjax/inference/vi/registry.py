@@ -366,6 +366,10 @@ def build_approximation(
     )
 
     approximation: base.SSMVariationalApproximation
+    latent_approximation: (
+        autoregressive.AmortizedUnivariateAutoregressor
+        | base.AmortizedMaskedAutoregressiveFlow
+    )
     if isinstance(config, FullVIConfig):
         latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
             target_latent_class,
