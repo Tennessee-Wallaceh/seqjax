@@ -417,7 +417,7 @@ def train(
             loop.set_postfix(tracker_postfix)
 
             phase_start = time.perf_counter()
-            print(f"{t_after - phase_start}s in track")
+
         opt_step += 1
 
     # add final record

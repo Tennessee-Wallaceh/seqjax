@@ -56,21 +56,21 @@ def _build_embedder(
     embedding_key: jaxtyping.PRNGKeyArray,
 ) -> embedder.Embedder:
     embed: embedder.Embedder
-    if embedder_config.label == "short-window":
+    if isinstance(embedder_config, ShortContextEmbedder):
         embed = embedder.WindowEmbedder(
             sequence_length,
             embedder_config.prev_window,
             embedder_config.post_window,
             target_dim,
         )
-    elif embedder_config.label == "long-window":
+    elif isinstance(embedder_config, LongContextEmbedder):
         embed = embedder.WindowEmbedder(
             sequence_length,
             embedder_config.prev_window,
             embedder_config.post_window,
             target_dim,
         )
-    elif embedder_config.label == "bi-rnn":
+    elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
             embedder_config.hidden_dim,
             target_dim,
@@ -365,6 +365,7 @@ def build_approximation(
         embedding_key,
     )
 
+    approximation: base.SSMVariationalApproximation
     if isinstance(config, FullVIConfig):
         latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
             target_latent_class,
@@ -378,7 +379,7 @@ def build_approximation(
             key=approximation_key,
         )
 
-        approximation: base.SSMVariationalApproximation = base.FullAutoregressiveVI(
+        approximation = base.FullAutoregressiveVI(
             latent_approximation,
             parameter_approximation,
             embed,
@@ -386,7 +387,6 @@ def build_approximation(
 
     elif isinstance(config, BufferedVIConfig):
         latent_config = config.latent_approximation
-        latent_approximation: base.AmortizedVariationalApproximation
 
         if isinstance(latent_config, AutoregressiveLatentApproximation):
             latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
@@ -420,7 +420,7 @@ def build_approximation(
             raise ValueError(
                 f"Unknown latent approximation configuration: {latent_config!r}"
             )
-        approximation: base.SSMVariationalApproximation = base.BufferedSSMVI(
+        approximation = base.BufferedSSMVI(
             latent_approximation,
             parameter_approximation,
             embed,
