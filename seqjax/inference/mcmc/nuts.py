@@ -56,6 +56,7 @@ class NUTSConfig(eqx.Module):
             step_size=config_dict.get("step_size", 1e-3),
             num_adaptation=config_dict.get("num_adaptation", 1000),
             num_warmup=config_dict.get("num_warmup", 1000),
+            num_steps=config_dict.get("num_steps"),
             inverse_mass_matrix=config_dict.get("inverse_mass_matrix", None),
             num_chains=config_dict.get("num_chains", 1),
         )
