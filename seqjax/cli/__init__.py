@@ -25,6 +25,9 @@ def _show_codes_callback(ctx: typer.Context, value: bool) -> bool:
         typer.echo()
         typer.echo("Full VI shorthand codes:")
         typer.echo(shorthand_codes.format_full_vi_codes())
+        typer.echo()
+        typer.echo("NUTS shorthand codes:")
+        typer.echo(shorthand_codes.format_nuts_codes())
         raise typer.Exit(code=0)
     return value
 
@@ -267,6 +270,7 @@ def run(
         )
 
     inference_config_obj = builder()
+    resolved_test_samples = test_samples
 
     if inference_config_obj.method == "buffer-vi":
         if code_tokens:
@@ -310,18 +314,34 @@ def run(
         )
         inference_config_obj = replace(inference_config_obj, config=configured_full)
 
-    if code_tokens and not (
-        inference_config_obj.method == "full-vi"
-        or inference_config_obj.method == "buffer-vi"
-    ):
+    if inference_config_obj.method == "NUTS":
+        configured_nuts = inference_config_obj.config
+        if code_tokens:
+            try:
+                configured_nuts = shorthand_codes.apply_nuts_codes(
+                    configured_nuts,
+                    code_tokens,
+                )
+            except shorthand_codes.CodeParseError as exc:
+                raise typer.BadParameter(str(exc)) from exc
+
+        inference_config_obj = replace(inference_config_obj, config=configured_nuts)
+        if configured_nuts.num_steps is not None:
+            resolved_test_samples = configured_nuts.num_steps
+
+    if code_tokens and inference_config_obj.method not in {
+        "full-vi",
+        "buffer-vi",
+        "NUTS",
+    }:
         raise typer.BadParameter(
-            "Shorthand codes are currently only supported for the buffer-vi "
-            "and full-vi methods."
+            "Shorthand codes are currently only supported for the buffer-vi, "
+            "full-vi, and NUTS methods."
         )
 
     experiment_config = ExperimentConfig(
         data_config=data_config,
-        test_samples=test_samples,
+        test_samples=resolved_test_samples,
         fit_seed=fit_seed,
         inference=inference_config_obj,
     )

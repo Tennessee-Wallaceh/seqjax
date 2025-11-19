@@ -46,6 +46,7 @@ class NUTSConfig(eqx.Module):
     step_size: float = 1e-3
     num_adaptation: int = 1000
     num_warmup: int = 1000
+    num_steps: int | None = None
     inverse_mass_matrix: Any | None = None
     num_chains: int = 1
 
@@ -55,6 +56,7 @@ class NUTSConfig(eqx.Module):
             step_size=config_dict.get("step_size", 1e-3),
             num_adaptation=config_dict.get("num_adaptation", 1000),
             num_warmup=config_dict.get("num_warmup", 1000),
+            num_steps=config_dict.get("num_steps"),
             inverse_mass_matrix=config_dict.get("inverse_mass_matrix", None),
             num_chains=config_dict.get("num_chains", 1),
         )
@@ -149,7 +151,8 @@ def run_bayesian_nuts[
     warmup_time = end_warmup_time - start_warmup_time
 
     start_time = time.time()
-    samples_per_chain = int(test_samples / config.num_chains)
+    total_samples = config.num_steps or test_samples
+    samples_per_chain = int(total_samples / config.num_chains)
     _, paths = inference_loop_multiple_chains(
         sample_key,
         nuts.step,
