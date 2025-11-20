@@ -9,7 +9,7 @@ from seqjax.model import ar, registry as model_registry, simulate
 def _make_ar1_problem(sequence_length: int = 6):
     parameters = model_registry.parameter_settings["ar"]["base"]
     posterior = ar.AR1Bayesian(parameters)
-    _latents, observations, _latent_hist, _obs_hist = simulate.simulate(
+    _latents, observations = simulate.simulate(
         jrandom.PRNGKey(0),
         posterior.target,
         condition=None,

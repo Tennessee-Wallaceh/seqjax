@@ -24,12 +24,12 @@ def _build_test_components(sequence_length: int = 6, num_particles: int = 8):
         transition_std=jnp.array(0.2),
     )
     posterior = AR1Bayesian(ref_params)
-    _, observations, _, _ = simulate(
+    _, observations = simulate(
         key,
         posterior.target,
-        None,
-        ref_params,
-        sequence_length,
+        parameters=ref_params,
+        sequence_length=sequence_length,
+        condition=None,
     )
     base_filter = BootstrapParticleFilter(posterior.target, num_particles=num_particles)
     return posterior, HyperParameters(), observations, base_filter
