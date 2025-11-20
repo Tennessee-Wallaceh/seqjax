@@ -16,7 +16,7 @@ model = AR1Target()
 
 key = jrandom.key(0)
 
-latent_path, observation_path, latent_hist, obs_hist = simulate.simulate(
+latent_path, observation_path = simulate.simulate(
     key, model, condition=None, parameters=parameters, sequence_length=5,
 )
 print(observation_path)

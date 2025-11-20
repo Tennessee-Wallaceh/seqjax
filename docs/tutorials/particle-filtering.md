@@ -28,7 +28,7 @@ true_parameters = ARParameters(
 )
 model = AR1Target()
 
-_, observations, _, _ = simulate.simulate(
+_, observations = simulate.simulate(
     key,
     model,
     condition=None,

@@ -154,7 +154,7 @@ def ar1_problem() -> tuple[ar.AR1Bayesian, ar.NoisyEmission]:
     sequence_length = 10
     parameters = model_registry.parameter_settings["ar"]["base"]
     posterior = ar.AR1Bayesian(parameters)
-    _latents, observations, _latent_history, _observation_history = simulate.simulate(
+    _latents, observations = simulate.simulate(
         jrandom.PRNGKey(0),
         posterior.target,
         condition=None,
