@@ -5,11 +5,11 @@ import math
 from typing import (
     ClassVar,
     TypeVarTuple,
+    get_origin,
 )
 import typing
 from collections import OrderedDict
-
-import equinox as eqx
+from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
@@ -17,7 +17,8 @@ import jax.numpy as jnp
 BatchAxes = TypeVarTuple("BatchAxes")
 
 
-class Packable[*BatchAxes](eqx.Module):
+@dataclass
+class Packable[*BatchAxes]:
     """
     Mix-in that flattens only the *feature* axis, leaving any leading batch
     axes intact.  Sub-classes provide `_shape_template`, a dict whose values
@@ -27,15 +28,32 @@ class Packable[*BatchAxes](eqx.Module):
     _shape_template: ClassVar[OrderedDict[str, jax.ShapeDtypeStruct]]
     flat_dim: ClassVar[int]
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, *, abstract: bool = False, **kwargs):
         super().__init_subclass__(**kwargs)
-        if cls is Packable:
+        if cls is Packable or abstract:
             return
 
         # ensure subclass provided a template
         template = getattr(cls, "_shape_template", None)
-        if not template:
-            return
+        if template is None:
+            raise TypeError(
+                f"{cls.__qualname__} is Packable so must define _shape_template"
+            )
+
+        # check the fields against the template
+        field_names = {
+            name
+            for name, tp in cls.__annotations__.items()
+            if not name.startswith("_") and get_origin(tp) is not ClassVar
+        }
+        template_names = set(template.keys())
+        missing = field_names - template_names
+        extra = template_names - field_names
+        if missing or extra:
+            raise TypeError(
+                f"{cls.__qualname__}: _shape_template mismatch; "
+                f"missing={sorted(missing)} extra={sorted(extra)}"
+            )
 
         # compute the flat dim
         cls.flat_dim = sum(
@@ -118,20 +136,20 @@ class Packable[*BatchAxes](eqx.Module):
         )
 
 
-class Latent[*BatchAxes](Packable[*BatchAxes]): ...
+class Latent[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 
 
-class Observation[*BatchAxes](Packable[*BatchAxes]): ...
+class Observation[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 
 
-class Condition[*BatchAxes](Packable[*BatchAxes]): ...
+class Condition[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 
 
 class NoCondition(Condition):
     __slots__ = ()
 
 
-class Parameters[*BatchAxes](Packable[*BatchAxes]): ...
+class Parameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 
 
-class HyperParameters[*BatchAxes](Packable[*BatchAxes]): ...
+class HyperParameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...

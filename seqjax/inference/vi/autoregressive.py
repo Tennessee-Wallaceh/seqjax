@@ -105,21 +105,10 @@ class AmortizerMLP(eqx.Module):
     def __call__(self, x: Array, theta: Array, context: Array, missing: Array) -> Array:
         p_x = self.proj_x(x)
         p_theta = self.proj_theta(theta)
-
         p_context = self.proj_context(context)
         p_missing = self.proj_missing(missing)
         combined = p_x + p_theta + p_context + p_missing
         return self.mlp(combined)
-
-
-class Residual(eqx.Module):
-    mlp: eqx.nn.MLP
-
-    def __init__(self, mlp: eqx.nn.MLP) -> None:
-        self.mlp = mlp
-
-    def __call__(self, x: Array, *args, **kwargs) -> Array:  # noqa: ANN001
-        return self.mlp(x, *args, **kwargs) + x
 
 
 def flat_to_chol(flat: Array, dim: int) -> Tuple[Array, Array]:
