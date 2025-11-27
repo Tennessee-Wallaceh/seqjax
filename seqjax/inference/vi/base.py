@@ -94,8 +94,8 @@ class MeanField[TargetStructT: seqjtyping.Packable](
         # self.loc = jnp.zeros((target_struct_cls.flat_dim,))
         # self._unc_scale = jnp.zeros((target_struct_cls.flat_dim,))
 
-        self.loc = jnp.array([2.0])
-        self._unc_scale = jnp.array([3.0])
+        self.loc = jnp.array([0.0])
+        self._unc_scale = jnp.array([0.5])
 
     def sample_and_log_prob(self, key, condition=None):
         z = jrandom.normal(key, [self.target_struct_cls.flat_dim])
@@ -801,15 +801,14 @@ class BufferedSSMVI[
             partial(log_prob_joint, target_posterior.target),
             in_axes=[0, None, None, 0],
         )
-        batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
+        batched_log_p_joint = jax.vmap(batched_log_p_joint)
 
-        log_p_y_x_path = batched_log_p_joint(
+        log_p_y_x = batched_log_p_joint(
             x_path, y_batch, c_batch, target_posterior.target_parameter(buffered_theta)
         )
 
-        if log_q_x_path.ndim == log_p_y_x_path.ndim:
-            neg_elbo = jnp.sum(log_q_x_path - log_p_y_x_path, axis=-1)
-        else:
-            neg_elbo = log_q_x_path - jnp.sum(log_p_y_x_path, axis=-1)
+        log_q_x = jnp.sum(log_q_x_path, axis=-1)
+
+        neg_elbo = log_q_x - log_p_y_x
 
         return jnp.mean(neg_elbo)
