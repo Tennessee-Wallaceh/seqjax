@@ -57,6 +57,8 @@ class Proposal[
     """
     Proposal distribution for sequential importance sampling.
     Implementation is via an eqx.Module to support parameterized proposals.
+    The proposal can maintain a longer particle history than required for the model.
+
     """
 
     order: eqx.AbstractClassVar[int]
