@@ -85,6 +85,7 @@ def run_bayesian_nuts[
     condition_path: ConditionT,
     test_samples: int,
     config: NUTSConfig = NUTSConfig(),
+    seed_initial_latents=None,
     tracker: Any = None,
 ) -> tuple[
     InferenceParametersT,
@@ -111,13 +112,16 @@ def run_bayesian_nuts[
         initial_parameters = target_posterior.parameter_prior.sample(
             param_key, hyperparameters
         )
-        initial_latents, _ = simulate(
-            latent_key,
-            target_posterior.target,
-            target_posterior.target_parameter(initial_parameters),
-            pytree_shape(observation_path)[0][0],
-            condition=condition_path,
-        )
+        if seed_initial_latents:
+            initial_latents = seed_initial_latents
+        else:
+            initial_latents, _ = simulate(
+                latent_key,
+                target_posterior.target,
+                target_posterior.target_parameter(initial_parameters),
+                pytree_shape(observation_path)[0][0],
+                condition=condition_path,
+            )
         return (initial_latents, initial_parameters)
 
     warmup_key, init_key, sample_key = jrandom.split(key, 3)
