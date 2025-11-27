@@ -91,11 +91,8 @@ class MeanField[TargetStructT: seqjtyping.Packable](
     def __init__(self, target_struct_cls: type[TargetStructT]):
         super().__init__(target_struct_cls, shape=(target_struct_cls.flat_dim,))
         self.target_struct_cls = target_struct_cls
-        # self.loc = jnp.zeros((target_struct_cls.flat_dim,))
-        # self._unc_scale = jnp.zeros((target_struct_cls.flat_dim,))
-
-        self.loc = jnp.array([0.0])
-        self._unc_scale = jnp.array([0.5])
+        self.loc = jnp.zeros((target_struct_cls.flat_dim,))
+        self._unc_scale = jnp.zeros((target_struct_cls.flat_dim,))
 
     def sample_and_log_prob(self, key, condition=None):
         z = jrandom.normal(key, [self.target_struct_cls.flat_dim])
