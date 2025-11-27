@@ -10,7 +10,7 @@ SeqJAX provides utilities for building sequential probabilistic models with [JAX
 
 ## Installation
 
-SeqJAX requires Python 3.12 or later. Install the latest version directly from the source repository:
+SeqJAX requires Python 3.13 or later. Install the latest version directly from the source repository:
 
 ```bash
 pip install git+https://github.com/bayesianshift/seqjax.git
@@ -34,7 +34,7 @@ model = AR1Target()
 
 key = jrandom.key(0)
 
-latent_path, observation_path, latent_hist, obs_hist = simulate.simulate(
+latent_path, observation_path = simulate.simulate(
     key, model, condition=None, parameters=parameters, sequence_length=5,
 )
 print(observation_path)

@@ -22,7 +22,13 @@ def _setup(T: int = 10, rho: float = 0.7):
     )
     model = LinearGaussianSSM()
     key = jrandom.PRNGKey(0)
-    _latents, obs, _lat_hist, _obs_hist = simulate(key, model, None, params, T)
+    _latents, obs = simulate(
+        key,
+        model,
+        parameters=params,
+        sequence_length=T,
+        condition=None,
+    )
     kf_means, kf_covs, kf_logm = run_kalman_filter(params, obs)
     return model, params, obs, kf_means, kf_covs, kf_logm
 

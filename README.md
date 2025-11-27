@@ -6,7 +6,7 @@ SeqJAX ships with a handful of toy models demonstrating this approach: an AR(1) 
 
 ## Installation
 
-SeqJAX requires Python 3.12 or later. Only installation from source is currently available:
+SeqJAX requires Python 3.13 or later. Only installation from source is currently available:
 
 ```bash
 pip install git+https://github.com/bayesianshift/seqjax.git
@@ -32,7 +32,7 @@ model = AR1Target()
 key = jrandom.key(0)
 
 # Simulate a sequence of length 5
-latent_path, observation_path, latent_hist, obs_hist = simulate.simulate(
+latent_path, observation_path = simulate.simulate(
     key, model, condition=None, parameters=parameters, sequence_length=5
 )
 print(observation_path)

@@ -28,7 +28,7 @@ true_parameters = ARParameters(
 model = AR1Target()
 posterior = AR1Bayesian(true_parameters)
 
-_, observations, _, _ = simulate.simulate(
+_, observations = simulate.simulate(
     key,
     model,
     condition=None,
