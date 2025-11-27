@@ -268,7 +268,7 @@ class BufferedVIConfig:
     observations_per_step: int = 10
     samples_per_context: int = 5
     control_variate: bool = False
-    pre_training_steps: int = 0
+    pre_training_optimization: None | optimization_registry.OptConfig = None
     embedder: EmbedderConfig = field(default_factory=ShortContextEmbedder)
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation

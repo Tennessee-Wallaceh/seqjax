@@ -30,6 +30,8 @@ from seqjax.inference.vi.base import (
 )
 import seqjax.model.typing as seqjtyping
 
+DEFAULT_SYNC_INTERVAL_S = 10
+
 
 class _ProgressIterator(Protocol):
     def __iter__(self) -> Iterator[int]: ...
@@ -282,12 +284,16 @@ def train(
     nb_context: bool = False,
     initial_opt_state: OptStateT | None = None,
     time_limit_s: int | None = None,
+    sync_interval_s: float | None = None,
 ) -> tuple[SSMApproximationT, OptStateT]:
     # check for valid set up
     if num_steps is None and time_limit_s is None:
         raise Exception(
             "Variational fitting requires either num_steps or time_limit_s is set!"
         )
+
+    if sync_interval_s is None:
+        sync_interval_s = DEFAULT_SYNC_INTERVAL_S
 
     # set up tracker if needed
     if run_tracker is None:
@@ -366,7 +372,6 @@ def train(
 
     elapsed_time_s = 0.0
     phase_start = time.perf_counter()
-    SYNC_INTERVAL_S = 10
 
     opt_step = 0
     while True:
@@ -374,7 +379,7 @@ def train(
         loss, trainable, opt_state = compiled_make_step(
             trainable, static, opt_state, observations, conditions, subkey
         )
-        sync_now = (time.perf_counter() - phase_start) > SYNC_INTERVAL_S
+        sync_now = (time.perf_counter() - phase_start) > sync_interval_s
 
         if sync_now:
             # sync now

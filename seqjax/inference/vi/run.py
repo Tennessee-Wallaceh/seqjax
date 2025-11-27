@@ -18,9 +18,7 @@ from seqjax.inference.vi import registry
 from seqjax.inference.optimization import registry as optimization_registry
 
 AdamOpt = optimization_registry.AdamOpt
-AutoregressiveLatentApproximation = (
-    registry.AutoregressiveLatentApproximation
-)
+AutoregressiveLatentApproximation = registry.AutoregressiveLatentApproximation
 
 
 @inference_method
@@ -115,6 +113,8 @@ def run_buffered_vi[
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
     condition_path: ConditionT | None = None,
+    start_approximation: typing.Any | None = None,
+    sync_interval_s: float | None = None,
     test_samples: int = 1000,
     config: registry.BufferedVIConfig = registry.BufferedVIConfig(),
     tracker: typing.Any = None,
@@ -125,43 +125,56 @@ def run_buffered_vi[
 
     sequence_length = observation_path.batch_shape[0]
 
-    approximation = registry.build_approximation(
-        config,
-        sequence_length,
-        target_posterior,
-        key,
-    )
+    if start_approximation is not None:
+        approximation = start_approximation
+    else:
+        approximation = registry.build_approximation(
+            config,
+            sequence_length,
+            target_posterior,
+            key,
+        )
 
     optim = optimization_registry.build_optimizer(config.optimization)
     opt_state: optax.GradientTransformation
-    if config.pre_training_steps > 0:
+    if config.pre_training_optimization:
+        pre_train_optim = optimization_registry.build_optimizer(
+            config.pre_training_optimization
+        )
         approximation, _ = train.train(
+            model=approximation,
+            observations=observation_path,
+            conditions=condition_path,
+            key=key,
+            optim=pre_train_optim,
+            target=target_posterior,
+            num_steps=config.pre_training_optimization.total_steps,
+            run_tracker=tracker,
+            observations_per_step=config.observations_per_step,
+            samples_per_context=config.samples_per_context,
+            pre_train=True,
+            time_limit_s=config.pre_training_optimization.time_limit_s,
+            sync_interval_s=sync_interval_s,
+        )
+
+    if config.optimization.total_steps == 0:
+        fitted_approximation = approximation
+        opt_state = None
+    else:
+        fitted_approximation, opt_state = train.train(
             model=approximation,
             observations=observation_path,
             conditions=condition_path,
             key=key,
             optim=optim,
             target=target_posterior,
-            num_steps=config.pre_training_steps,
+            num_steps=config.optimization.total_steps,
             run_tracker=tracker,
             observations_per_step=config.observations_per_step,
             samples_per_context=config.samples_per_context,
-            pre_train=True,
+            time_limit_s=config.optimization.time_limit_s,
+            sync_interval_s=sync_interval_s,
         )
-
-    fitted_approximation, opt_state = train.train(
-        model=approximation,
-        observations=observation_path,
-        conditions=condition_path,
-        key=key,
-        optim=optim,
-        target=target_posterior,
-        num_steps=config.optimization.total_steps,
-        run_tracker=tracker,
-        observations_per_step=config.observations_per_step,
-        samples_per_context=config.samples_per_context,
-        time_limit_s=config.optimization.time_limit_s,
-    )
 
     # run sample again for testing purposes
     n_context = 100
