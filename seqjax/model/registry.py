@@ -34,6 +34,7 @@ SequentialModelLabel = typing.Literal[
     "ar",
     "double_well",
     "simple_stochastic_vol",
+    "aicher_stochastic_vol",
     "skew_stochastic_vol",
 ]
 
@@ -45,6 +46,7 @@ sequential_models: dict[SequentialModelLabel, AllSequentialModels] = {
     "ar": ar.AR1Target(),
     "double_well": double_well.DoubleWellTarget(),
     "simple_stochastic_vol": stochastic_vol.SimpleStochasticVol(),
+    "aicher_stochastic_vol": stochastic_vol.SimpleStochasticVar(),
     "skew_stochastic_vol": stochastic_vol.SkewStochasticVol(),
 }
 
@@ -61,6 +63,10 @@ posterior_factories: dict[SequentialModelLabel, PosteriorFactory] = {
     "skew_stochastic_vol": typing.cast(
         PosteriorFactory,
         lambda _ref_params: stochastic_vol.SkewStochasticVolBayesian(),
+    ),
+    "aicher_stochastic_vol": typing.cast(
+        PosteriorFactory,
+        lambda _ref_params: stochastic_vol.SimpleStochasticVarBayesian(_ref_params),
     ),
 }
 
@@ -94,6 +100,12 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
             std_log_vol=jnp.array(3.2),
             mean_reversion=jnp.array(12.0),
             long_term_vol=jnp.array(0.16),
+        ),
+    },
+    "aicher_stochastic_vol": {
+        "base": stochastic_vol.LogVarAR(
+            std_log_var=jnp.array(0.5),
+            ar=jnp.array(0.9),
         ),
     },
     "skew_stochastic_vol": {
@@ -130,6 +142,9 @@ default_parameter_transforms: dict[SequentialModelLabel, dict[str, typing.Any]] 
         "std_log_vol": "softplus",
         "mean_reversion": "softplus",
         "long_term_vol": "softplus",
+    },
+    "aicher_stochastic_vol": {
+        "std_log_var": "softplus",
     },
 }
 

@@ -10,6 +10,7 @@ from seqjax import io
 from seqjax.inference import registry as inference_registry
 from seqjax.model import registry as model_registry
 from seqjax.inference import vi
+import seqjax.model.typing as seqjtyping
 
 
 def make_record_trigger(interval_seconds: int):
@@ -144,6 +145,8 @@ def run_experiment(
     x_path, y_path, condition = io.get_remote_data(
         data_wandb_run, experiment_config.data_config
     )
+    if condition is None:
+        condition = seqjtyping.NoCondition()
 
     data_wandb_run.finish()
 
