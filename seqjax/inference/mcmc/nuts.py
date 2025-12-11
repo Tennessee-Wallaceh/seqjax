@@ -17,7 +17,7 @@ from seqjax.model.base import (
 )
 import seqjax.model.typing as seqjtyping
 from seqjax.model import evaluate
-from seqjax.util import pytree_shape, slice_pytree
+from seqjax.util import pytree_shape
 from seqjax.inference.interface import inference_method
 
 import blackjax  # type: ignore
@@ -40,6 +40,20 @@ def inference_loop_multiple_chains(
     )
 
     return final_state[1], states
+
+
+def subsample_posterior(samples, n_sub, key):
+    if len(samples.shape) == 2:
+        samples = jnp.expand_dims(samples, axis=-1)
+
+    n_draws, n_chains, dim = samples.shape
+    flat = samples.reshape(n_draws * n_chains, dim)
+    n_total = flat.shape[0]
+    if n_sub > n_total:
+        raise ValueError("n_sub > total number of draws")
+
+    idx = jrandom.choice(key, n_total, shape=(n_sub,), replace=False)
+    return flat[idx, :]  # (n_sub, dim)
 
 
 class NUTSConfig(eqx.Module):
@@ -86,10 +100,11 @@ def run_bayesian_nuts[
     test_samples: int,
     config: NUTSConfig = NUTSConfig(),
     seed_initial_latents=None,
+    seed_initial_params=None,
     tracker: Any = None,
 ) -> tuple[
     InferenceParametersT,
-    tuple[jaxtyping.Array, ParticleT],
+    tuple[jaxtyping.Array, ParticleT, InferenceParametersT],
 ]:
     """Sample parameters and latent paths jointly using NUTS."""
 
@@ -109,9 +124,13 @@ def run_bayesian_nuts[
 
     def initial_state(key):
         param_key, latent_key = jrandom.split(key)
-        initial_parameters = target_posterior.parameter_prior.sample(
-            param_key, hyperparameters
-        )
+        if seed_initial_params is not None:
+            initial_parameters = seed_initial_params
+        else:
+            initial_parameters = target_posterior.parameter_prior.sample(
+                param_key, hyperparameters
+            )
+
         if seed_initial_latents:
             initial_latents = seed_initial_latents
         else:
@@ -164,10 +183,6 @@ def run_bayesian_nuts[
         num_samples=samples_per_chain,
         num_chains=config.num_chains,
     )
-    param_samples: InferenceParametersT = jax.tree_util.tree_map(
-        partial(jnp.concatenate, axis=-1), paths.position
-    )[1]
-    latent_samples: ParticleT = paths.position[0]
 
     end_time = time.time()
     sample_time = end_time - start_time
@@ -176,8 +191,11 @@ def run_bayesian_nuts[
         * (sample_time / samples_per_chain)
     )
 
-    # take the end of the chain
-    param_samples = slice_pytree(
-        param_samples, config.num_steps - test_samples, config.num_steps
+    # randomly down sample chains to give desired number of test samples
+    latent_samples: ParticleT = paths.position[0]
+    full_param_samples: InferenceParametersT = paths.position[1]
+    param_samples: InferenceParametersT = jax.tree_util.tree_map(
+        partial(subsample_posterior, n_sub=test_samples, key=key), full_param_samples
     )
-    return param_samples, (time_array_s, latent_samples)
+
+    return param_samples, (time_array_s, latent_samples, full_param_samples)

@@ -164,12 +164,18 @@ class ResultProcessor:
         condition,
     ) -> None:
         if experiment_config.inference.method == "NUTS":
+            _, latent_samples, full_param_samples = extra_data
             io.save_packable_artifact(
                 wandb_run,
                 f"{wandb_run.name}-samples",
                 "run_output",
-                [("final_samples", param_samples, {})],
+                [
+                    ("final_samples", param_samples, {}),
+                    ("full_param_samples", full_param_samples, {}),
+                    ("latent_samples", latent_samples, {}),
+                ],
             )
+
             return
         elif experiment_config.inference.method == "buffer-vi":
             approx_start, x_q, run_tracker, fitted_approximation, opt_state = extra_data

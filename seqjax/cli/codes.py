@@ -91,9 +91,24 @@ FULL_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {}
 
 NUTS_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
     "SS": {"1e-3": 1e-3, "5e-3": 5e-3, "1e-2": 1e-2, "5e-2": 5e-2},
-    "ADAPT": {"500": 500, "1K": 1_000, "5K": 5_000, "10K": 10_000},
-    "NW": {"200": 200, "500": 500, "1K": 1_000, "5K": 5_000},
-    "NS": {"100": 100, "500": 500, "1K": 1_000, "5K": 5_000, "10K": 10_000},
+    "ADAPT": {"500": 500, "1K": 1_000, "5K": 5_000, "10K": 10_000, "50K": 50_000},
+    "NW": {
+        "200": 200,
+        "500": 500,
+        "1K": 1_000,
+        "5K": 5_000,
+        "10K": 10_000,
+        "50K": 50_000,
+    },
+    "NS": {
+        "100": 100,
+        "500": 500,
+        "1K": 1_000,
+        "5K": 5_000,
+        "10K": 10_000,
+        "50K": 50_000,
+    },
+    "NC": {"1": 1, "2": 2, "4": 4, "8": 8},
 }
 
 
@@ -148,6 +163,7 @@ NUTS_FACTOR_NAMES: Dict[str, str] = {
     "ADAPT": "num_adaptation",
     "NW": "num_warmup",
     "NS": "num_steps",
+    "NC": "num_chains",
 }
 
 
@@ -184,6 +200,7 @@ NUTS_DEFAULT_CODES: List[str] = [
     "ADAPT-5K",
     "NW-5K",
     "NS-1K",
+    "NC-1",
 ]
 
 
@@ -370,4 +387,5 @@ def apply_nuts_codes(config: NUTSConfig, raw_tokens: Iterable[str]) -> NUTSConfi
         num_adaptation=resolved["num_adaptation"],
         num_warmup=resolved["num_warmup"],
         num_steps=resolved["num_steps"],
+        num_chains=resolved["num_chains"],
     )
