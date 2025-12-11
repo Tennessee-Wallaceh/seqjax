@@ -80,9 +80,9 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
 }
 
 BUFFER_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
-    "PT-MAXT": {"5M": 5 * 60, "10M": 10 * 60, "30M": 30 * 60, "1H": 60 * 60},
-    "PT-MAXS": {"0": 0, "10K": 10_000, "50K": 50_000, "100K": 100_000},
-    "PT-LR": {"1e-2": 1e-2, "5e-3": 5e-3, "1e-3": 1e-3, "1e-4": 1e-4},
+    "PT_MAXT": {"5M": 5 * 60, "10M": 10 * 60, "30M": 30 * 60, "1H": 60 * 60},
+    "PT_MAXS": {"0": 0, "10K": 10_000, "50K": 50_000, "100K": 100_000},
+    "PT_LR": {"1e-2": 1e-2, "5e-3": 5e-3, "1e-3": 1e-3, "1e-4": 1e-4},
     "B": {"0": 0, "5": 5, "10": 10, "20": 20, "50": 50},
     "M": {"5": 5, "10": 10, "20": 20},
 }
@@ -122,9 +122,9 @@ COMMON_FACTOR_NAMES: Dict[str, str] = {
 }
 
 BUFFER_SPECIFIC_FACTOR_NAMES: Dict[str, str] = {
-    "PT-MAXT": "pretrain_time_limit_s",
-    "PT-MAXS": "pretrain_total_steps",
-    "PT-LR": "pretrain_learning_rate",
+    "PT_MAXT": "pretrain_time_limit_s",
+    "PT_MAXS": "pretrain_total_steps",
+    "PT_LR": "pretrain_learning_rate",
     "B": "buffer_len",
     "M": "batch_len",
 }
@@ -163,9 +163,9 @@ COMMON_DEFAULT_CODES: List[str] = [
 
 BUFFER_VI_DEFAULT_CODES: List[str] = [
     *COMMON_DEFAULT_CODES,
-    "PT-LR-1e-3",
-    "PT-MAXT-0",
-    "PT-MAXS-0",
+    "PT_LR-1e-3",
+    "PT_MAXT-0",
+    "PT_MAXS-0",
     "B-5",
     "M-5",
 ]
