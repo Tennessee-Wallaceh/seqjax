@@ -161,7 +161,6 @@ def run_bayesian_nuts[
 
     chain_inits = jax.vmap(initial_state)(jrandom.split(key, config.num_chains))
     initial_states = jax.vmap(nuts.init, in_axes=(0))(chain_inits)
-    print(initial_states)
 
     warmup_states, _ = inference_loop_multiple_chains(
         sample_key,
@@ -198,4 +197,8 @@ def run_bayesian_nuts[
         partial(subsample_posterior, n_sub=test_samples, key=key), full_param_samples
     )
 
-    return param_samples, (time_array_s, latent_samples, full_param_samples)
+    return jax.tree_util.tree_map(jnp.squeeze, param_samples), (
+        time_array_s,
+        latent_samples,
+        full_param_samples,
+    )

@@ -13,7 +13,7 @@ from seqjax.experiment import ExperimentConfig, run_experiment
 from seqjax.inference import registry as inference_registry, vi
 from seqjax.inference.mcmc import NUTSConfig
 from seqjax.model import registry as model_registry
-from seqjax import io
+from seqjax import io, util
 
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
 
@@ -165,15 +165,24 @@ class ResultProcessor:
     ) -> None:
         if experiment_config.inference.method == "NUTS":
             _, latent_samples, full_param_samples = extra_data
+
+            param_sample_chains = [
+                (
+                    f"full_param_samples_c{chain}",
+                    util.index_pytree_in_dim(full_param_samples, dim=1, index=chain),
+                    {},
+                )
+                for chain in range(full_param_samples.batch_shape[1])
+            ]
+
             io.save_packable_artifact(
                 wandb_run,
                 f"{wandb_run.name}-samples",
                 "run_output",
                 [
                     ("final_samples", param_samples, {}),
-                    ("full_param_samples", full_param_samples, {}),
-                    ("latent_samples", latent_samples, {}),
-                ],
+                ]
+                + param_sample_chains,
             )
 
             return
