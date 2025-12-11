@@ -164,7 +164,7 @@ COMMON_DEFAULT_CODES: List[str] = [
 BUFFER_VI_DEFAULT_CODES: List[str] = [
     *COMMON_DEFAULT_CODES,
     "PT_LR-1e-3",
-    "PT_MAXT-0",
+    "PT_MAXT-5M",
     "PT_MAXS-0",
     "B-5",
     "M-5",
