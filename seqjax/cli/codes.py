@@ -289,13 +289,14 @@ def apply_buffer_vi_codes(
     if not isinstance(embedder, vi.registry.EmbedderConfig):
         raise CodeParseError("Invalid embedder resolved from shorthand codes.")
 
-    pre_training_optimization = (
-        optimization_registry.AdamOpt(
+    if resolved["pretrain_total_steps"] > 0:
+        pre_training_optimization = optimization_registry.AdamOpt(
             lr=resolved["pretrain_learning_rate"],
             total_steps=resolved["pretrain_total_steps"],
             time_limit_s=resolved["pretrain_time_limit_s"],
-        ),
-    )
+        )
+    else:
+        pre_training_optimization = None
 
     return replace(
         config,
