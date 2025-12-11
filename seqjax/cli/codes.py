@@ -80,7 +80,9 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
 }
 
 BUFFER_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
-    "PT": {"N": 0, "Y": 5000},
+    "PT-MAXT": {"5M": 5 * 60, "10M": 10 * 60, "30M": 30 * 60, "1H": 60 * 60},
+    "PT-MAXS": {"0": 0, "10K": 10_000, "50K": 50_000, "100K": 100_000},
+    "PT-LR": {"1e-2": 1e-2, "5e-3": 5e-3, "1e-3": 1e-3, "1e-4": 1e-4},
     "B": {"0": 0, "5": 5, "10": 10, "20": 20, "50": 50},
     "M": {"5": 5, "10": 10, "20": 20},
 }
@@ -120,7 +122,9 @@ COMMON_FACTOR_NAMES: Dict[str, str] = {
 }
 
 BUFFER_SPECIFIC_FACTOR_NAMES: Dict[str, str] = {
-    "PT": "pretrain_steps",
+    "PT-MAXT": "pretrain_time_limit_s",
+    "PT-MAXS": "pretrain_total_steps",
+    "PT-LR": "pretrain_learning_rate",
     "B": "buffer_len",
     "M": "batch_len",
 }
@@ -159,7 +163,9 @@ COMMON_DEFAULT_CODES: List[str] = [
 
 BUFFER_VI_DEFAULT_CODES: List[str] = [
     *COMMON_DEFAULT_CODES,
-    "PT-N",
+    "PT-LR-1e-3",
+    "PT-MAXT-0",
+    "PT-MAXS-0",
     "B-5",
     "M-5",
 ]
@@ -283,6 +289,14 @@ def apply_buffer_vi_codes(
     if not isinstance(embedder, vi.registry.EmbedderConfig):
         raise CodeParseError("Invalid embedder resolved from shorthand codes.")
 
+    pre_training_optimization = (
+        optimization_registry.AdamOpt(
+            lr=resolved["pretrain_learning_rate"],
+            total_steps=resolved["pretrain_total_steps"],
+            time_limit_s=resolved["pretrain_time_limit_s"],
+        ),
+    )
+
     return replace(
         config,
         optimization=optimization,
@@ -290,7 +304,7 @@ def apply_buffer_vi_codes(
         batch_length=resolved["batch_len"],
         observations_per_step=resolved["minibatch_size"],
         samples_per_context=resolved["mc_samples"],
-        pre_training_steps=resolved["pretrain_steps"],
+        pre_training_optimization=pre_training_optimization,
         embedder=embedder,
     )
 

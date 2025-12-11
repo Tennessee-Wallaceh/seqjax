@@ -199,6 +199,5 @@ def run_buffered_vi[
             tracker,
             fitted_approximation,
             opt_state,
-            start_approximation,
         ),
     )
