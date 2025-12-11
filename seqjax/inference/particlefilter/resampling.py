@@ -22,7 +22,6 @@ def multinomial_resample_from_log_weights[
     key: PRNGKeyArray,
     raw_log_weights: Array,
     particles: tuple[ParticleT, ...],
-    _ess_e: Scalar,
     num_resample: int,
 ) -> tuple[tuple[ParticleT, ...], Array, Array]:
     """Resample particles using standard multinomial sampling."""

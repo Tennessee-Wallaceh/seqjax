@@ -134,10 +134,11 @@ def run_buffered_vi[
             target_posterior,
             key,
         )
-
+    start_approximation = approximation
     optim = optimization_registry.build_optimizer(config.optimization)
     opt_state: optax.GradientTransformation
     if config.pre_training_optimization:
+        print("Starting pre-training...")
         pre_train_optim = optimization_registry.build_optimizer(
             config.pre_training_optimization
         )
@@ -192,5 +193,12 @@ def run_buffered_vi[
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
     return (
         flat_theta_q,
-        (approx_start, x_q, tracker, fitted_approximation, opt_state),
+        (
+            approx_start,
+            x_q,
+            tracker,
+            fitted_approximation,
+            opt_state,
+            start_approximation,
+        ),
     )

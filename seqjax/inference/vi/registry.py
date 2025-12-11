@@ -399,11 +399,28 @@ def build_approximation(
                 batch_length=config.batch_length,
                 context_dim=embed.context_dimension,
                 parameter_dim=target_param_class.flat_dim,
+                condition_dim=target_posterior.target.condition_cls.flat_dim,
                 lag_order=latent_config.lag_order,
                 nn_width=latent_config.nn_width,
                 nn_depth=latent_config.nn_depth,
                 key=approximation_key,
             )
+
+            # latent_approximation = (
+            #     autoregressive.AmortizedInnovationUnivariateAutoregressor(
+            #         target_posterior,
+            #         buffer_length=config.buffer_length,
+            #         batch_length=config.batch_length,
+            #         context_dim=embed.context_dimension,
+            #         parameter_dim=target_param_class.flat_dim,
+            #         condition_dim=target_posterior.target.condition_cls.flat_dim,
+            #         lag_order=latent_config.lag_order,
+            #         nn_width=latent_config.nn_width,
+            #         nn_depth=latent_config.nn_depth,
+            #         key=approximation_key,
+            #     )
+            # )
+
         elif isinstance(latent_config, MaskedAutoregressiveFlowLatentApproximation):
             latent_approximation = base.AmortizedMaskedAutoregressiveFlow(
                 target_latent_class,

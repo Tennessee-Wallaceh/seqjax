@@ -1,7 +1,7 @@
 from typing import Tuple, Type
-import typing
 
 from seqjax.inference.vi.base import AmortizedVariationalApproximation
+from seqjax.model.base import BayesianSequentialModel
 import seqjax.model.typing
 import equinox as eqx
 import jax
@@ -126,6 +126,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     buffer_length: int
     batch_length: int
     context_dim: int
+    condition_dim: int
     parameter_dim: int
     lag_order: int
 
@@ -136,6 +137,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         buffer_length: int,
         context_dim: int,
         parameter_dim: int,
+        condition_dim: int,
         lag_order: int,
     ) -> None:
         sample_length = 2 * buffer_length + batch_length
@@ -147,6 +149,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         )
         self.context_dim = context_dim
         self.parameter_dim = parameter_dim
+        self.condition_dim = condition_dim
         self.lag_order = lag_order
 
     def conditional(
@@ -156,6 +159,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         previous_available_flag: Bool[Array, " lag_order"],
         theta_context: Float[Array, " param_dim"],
         context: Float[Array, " context_dim"],
+        condition_context: Float[Array, " condition_dim"],
     ) -> tuple[Float[Array, " x_dim"], Float[Array, ""]]:
         raise NotImplementedError
 
@@ -164,46 +168,78 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         key: PRNGKeyArray,
         theta_context: Float[Array, "sample_length param_dim"],
         context: Float[Array, "sample_length context_dim"],
+        condition_context: Float[Array, "sample_length condition_dim"],
         num_steps: int,
         offset: int,
         init: tuple[Array, ...],
     ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
         def update(carry, key_context):
-            key, ctx, step_theta_context = key_context
+            key, ctx, step_theta_context, condition = key_context
             ix, prev_x = carry
             previous_available_flag = (
                 jnp.arange(self.lag_order) + ix - self.lag_order >= 0
             )
             next_x, log_q_x_ix = self.conditional(
-                key, prev_x, previous_available_flag, step_theta_context, ctx
+                key, prev_x, previous_available_flag, step_theta_context, ctx, condition
             )
             next_x_context = (*prev_x[1:], next_x)
             return (ix + 1, next_x_context), (next_x, log_q_x_ix)
 
         init_state = (offset, init)
+
         keys = jrandom.split(key, num_steps)
         subpath_context = context[offset : offset + num_steps]
         subpath_theta_context = theta_context[offset : offset + num_steps]
+        subpath_condition_context = condition_context[offset : offset + num_steps]
+        target_condition_shape = (
+            subpath_context.shape[:-1] + subpath_condition_context.shape[-1:]
+        )  # keep condition last dim, take context leading dims
+        subpath_condition_context = jnp.broadcast_to(
+            subpath_condition_context, target_condition_shape
+        )
+
         _, (x_path, log_q_x_path) = jax.lax.scan(
-            update, init_state, (keys, subpath_context, subpath_theta_context)
+            update,
+            init_state,
+            (keys, subpath_context, subpath_theta_context, subpath_condition_context),
         )
         return self.target_struct_cls.unravel(x_path), jnp.sum(log_q_x_path, axis=-1)
 
     def sample_and_log_prob(
         self,
         key: PRNGKeyArray,
-        condition: typing.Any,
+        condition: tuple[
+            Float[Array, " sample_length param_dim"],
+            Float[Array, " sample_length context_dim"],
+            Float[Array, " sample_length condition_dim"],
+        ],
     ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
-        parameter_context, observation_context = condition
+        parameter_context, observation_context, condition_context = condition
+        initial_prev_x_key, sample_key = jrandom.split(key, 2)
         x_path, log_q_x_path = self.sample_sub_path(
-            key,
+            sample_key,
             parameter_context,
             observation_context,
+            condition_context,
             self.shape[0],
             0,
-            tuple(jnp.zeros(self.shape[1]) for _ in range(self.lag_order)),
+            self.initial_x_context(
+                initial_prev_x_key, parameter_context, condition_context
+            ),
         )
         return x_path, log_q_x_path
+
+    def initial_x_context(
+        self,
+        key: PRNGKeyArray,
+        parameter_context: PRNGKeyArray,
+        condition_context: PRNGKeyArray,
+    ) -> tuple[Float[Array, " x_dim"], ...]:
+        """Return initial context of zeros."""
+        return tuple(
+            jnp.zeros((self.shape[1],), dtype=jnp.float32)
+            for _ in range(self.lag_order)
+        )
 
 
 class RandomAutoregressor(AutoregressiveApproximation):
@@ -224,6 +260,7 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
         batch_length: int,
         context_dim: int,
         parameter_dim: int,
+        condition_dim: int,
         lag_order: int,
         nn_width: int,
         nn_depth: int,
@@ -235,9 +272,10 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
             batch_length=batch_length,
             context_dim=context_dim,
             parameter_dim=parameter_dim,
+            condition_dim=condition_dim,
             lag_order=lag_order,
         )
-        input_dim = lag_order * 2 + context_dim + parameter_dim
+        input_dim = lag_order * 2 + context_dim + parameter_dim + condition_dim
         self.amortizer_mlp = ResNetMLP(
             in_size=input_dim,
             width=nn_width,
@@ -246,17 +284,144 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
             use_batchnorm=False,
             key=key,
         )
+        # self.amortizer_mlp = eqx.nn.MLP(
+        #     in_size=input_dim,
+        #     width_size=nn_width,
+        #     out_size=2,
+        #     depth=nn_depth,
+        #     # use_batchnorm=False,
+        #     key=key,
+        # )
 
-    def conditional(self, key, prev_x, previous_available_flag, theta_context, context):
+    def conditional(
+        self,
+        key,
+        prev_x,
+        previous_available_flag,
+        theta_context,
+        context,
+        condition_context,
+    ):
         inputs = jnp.concatenate(
-            [*prev_x, previous_available_flag, theta_context, context]
+            [
+                *prev_x,
+                previous_available_flag,
+                theta_context,
+                context,
+                condition_context,
+            ]
         )
         z = jrandom.normal(key, shape=(1,))
         loc, _unc_scale = self.amortizer_mlp(inputs)
-        scale = jnp.clip(jax.nn.softplus(_unc_scale), 1e-10, 1e2)
+        scale = jax.nn.softplus(_unc_scale)
         x = z * scale + loc
         log_q_x = jstats.norm.logpdf(x, loc, scale)
         return x, log_q_x
+
+
+class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
+    amortizer_mlp: eqx.nn.MLP | ResNetMLP
+    model: BayesianSequentialModel
+
+    def __init__(
+        self,
+        model: BayesianSequentialModel,
+        *,
+        buffer_length: int,
+        batch_length: int,
+        context_dim: int,
+        parameter_dim: int,
+        condition_dim: int,
+        lag_order: int,
+        nn_width: int,
+        nn_depth: int,
+        key: PRNGKeyArray,
+    ) -> None:
+        super().__init__(
+            model.target.latent_cls,
+            buffer_length=buffer_length,
+            batch_length=batch_length,
+            context_dim=context_dim,
+            parameter_dim=parameter_dim,
+            condition_dim=condition_dim,
+            lag_order=lag_order,
+        )
+        input_dim = lag_order * 2 + context_dim + parameter_dim + condition_dim
+        self.amortizer_mlp = ResNetMLP(
+            in_size=input_dim,
+            width=nn_width,
+            out_size=2,
+            depth=nn_depth,
+            use_batchnorm=False,
+            key=key,
+        )
+        self.model = model
+
+    def conditional(
+        self,
+        key,
+        prev_x,
+        previous_available_flag,
+        theta_context,
+        context,
+        condition_context,
+    ):
+        inputs = jnp.concatenate(
+            [
+                *prev_x,
+                previous_available_flag,
+                theta_context,
+                context,
+                condition_context,
+            ]
+        )
+
+        z = jrandom.normal(key, shape=(1,))
+        loc, _unc_scale = self.amortizer_mlp(inputs)
+        scale = jax.nn.softplus(_unc_scale)
+        eps = z * scale + loc
+
+        # this is a fixed reparameterization into the model prior
+        latent_history = tuple(
+            self.model.target.transition.latent_t.unravel(px) for px in prev_x
+        )
+        model_params = self.model.target_parameter(
+            self.model.inference_parameter_cls.unravel(theta_context)
+        )
+        condition = self.model.target.condition_cls.unravel(condition_context)
+        prior_l, prior_scale = self.model.target.transition.loc_scale(
+            latent_history,
+            condition,
+            jax.lax.stop_gradient(model_params),
+        )
+
+        x = prior_l + prior_scale * eps
+
+        log_q_x = jstats.norm.logpdf(eps, loc, scale) - jnp.log(prior_scale)
+
+        return x, log_q_x
+
+    def initial_x_context(
+        self,
+        key,
+        parameter_context,
+        condition_context,
+    ):
+        model_params = self.model.target_parameter(
+            self.model.inference_parameter_cls.unravel(parameter_context[0])
+        )
+
+        condition = self.model.target.condition_cls.unravel(condition_context[0])
+
+        #
+        start = tuple(
+            self.model.target.latent_cls.ravel(
+                self.model.target.prior.sample(k, condition, model_params)[0]
+            )
+            for k in jrandom.split(key, self.lag_order)
+        )
+
+        return start
 
 
 """

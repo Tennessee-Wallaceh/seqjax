@@ -44,7 +44,7 @@ def inference_loop_multiple_chains(
 
 class NUTSConfig(eqx.Module):
     step_size: float = 1e-3
-    num_adaptation: int = 1000
+    num_adaptation: int = 10000
     num_warmup: int = 1000
     num_steps: int = 5000  # length of the chain
     inverse_mass_matrix: Any | None = None
@@ -142,6 +142,7 @@ def run_bayesian_nuts[
 
     chain_inits = jax.vmap(initial_state)(jrandom.split(key, config.num_chains))
     initial_states = jax.vmap(nuts.init, in_axes=(0))(chain_inits)
+    print(initial_states)
 
     warmup_states, _ = inference_loop_multiple_chains(
         sample_key,

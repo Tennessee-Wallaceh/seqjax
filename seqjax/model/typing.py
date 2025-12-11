@@ -9,16 +9,15 @@ from typing import (
 )
 import typing
 from collections import OrderedDict
-from dataclasses import dataclass
+import dataclasses
 import jax
 import jax.numpy as jnp
-
+import equinox as eqx
 
 BatchAxes = TypeVarTuple("BatchAxes")
 
 
-@dataclass
-class Packable[*BatchAxes]:
+class Packable[*BatchAxes](eqx.Module):
     """
     Mix-in that flattens only the *feature* axis, leaving any leading batch
     axes intact.  Sub-classes provide `_shape_template`, a dict whose values
@@ -39,6 +38,9 @@ class Packable[*BatchAxes]:
             raise TypeError(
                 f"{cls.__qualname__} is Packable so must define _shape_template"
             )
+
+        if not abstract:
+            dataclasses.dataclass()(cls)
 
         # check the fields against the template
         field_names = {
@@ -68,9 +70,6 @@ class Packable[*BatchAxes]:
         typing.Callable[["Packable"], jnp.ndarray],
         typing.Callable[[jnp.ndarray], "Packable"],
     ]:
-        if cls is Packable or not cls._shape_template:
-            raise TypeError(f"{cls.__name__} must define a non-empty _shape_template")
-
         items = tuple(cls._shape_template.items())
         flat_sizes = tuple(math.prod(spec.shape or (1,)) for _, spec in items)
         split_idx = tuple(sum(flat_sizes[: i + 1]) for i in range(len(flat_sizes) - 1))
@@ -85,7 +84,10 @@ class Packable[*BatchAxes]:
                     shape = (1,)
                 batch = leaf.shape[: -len(shape)] if shape else leaf.shape
                 parts.append(jnp.reshape(leaf, batch + (-1,)))
-            return jnp.concatenate(parts, axis=-1)
+            if len(parts) == 0:
+                return jnp.zeros(obj.batch_shape + (0,), dtype=jnp.float32)
+            else:
+                return jnp.concatenate(parts, axis=-1)
 
         def unravel(vec: jnp.ndarray) -> "Packable":
             batch = vec.shape[:-1]
@@ -104,9 +106,8 @@ class Packable[*BatchAxes]:
 
         return ravel, unravel
 
-    @classmethod
-    def ravel(cls, obj: "Packable") -> jnp.ndarray:
-        return cls._ravel_pair()[0](obj)
+    def ravel(self) -> jnp.ndarray:
+        return self._ravel_pair()[0](self)
 
     @classmethod
     def unravel(cls, vec: jnp.ndarray) -> "Packable":
@@ -115,6 +116,9 @@ class Packable[*BatchAxes]:
     @property
     def batch_shape(self) -> tuple[int, ...]:
         # choose the first entry in the template to know feature rank
+        if len(self._shape_template) == 0:
+            return ()
+
         first_field = next(iter(self._shape_template))
         feat_rank = len(self._shape_template[first_field].shape)
         leaf = getattr(self, first_field)
@@ -147,6 +151,7 @@ class Condition[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 
 class NoCondition(Condition):
     __slots__ = ()
+    _shape_template = OrderedDict()
 
 
 class Parameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...

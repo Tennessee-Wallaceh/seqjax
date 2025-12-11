@@ -70,7 +70,7 @@ class WindowEmbedder(Embedder):
     def embed(
         self, observations: seqjtyping.Observation
     ) -> Float[Array, "batch_length x_dimension context_length"]:
-        observation_array = observations.ravel(observations)
+        observation_array = observations.ravel()
         per_dim_context = jax.vmap(self._pad, in_axes=[1])(observation_array)
         # flip so leading dim is step index, and flatten each step
         return jax.vmap(jnp.ravel)(jnp.transpose(per_dim_context, (1, 0, 2)))
@@ -110,7 +110,7 @@ class NoReshapeEmbedder(Embedder):
     def embed(
         self, observations: seqjtyping.Observation
     ) -> Float[Array, "batch_length context_dimension"]:
-        return observations.ravel(observations)
+        return observations.ravel()
 
 
 class SquareDiffEmbedder(WindowEmbedder):
@@ -210,7 +210,7 @@ class RNNEmbedder(Embedder):
     def embed(
         self, obs: seqjtyping.Packable
     ) -> Float[Array, "batch_length context_dimension"]:
-        seq = obs.ravel(obs)  # (T, y_dim)
+        seq = obs.ravel()  # (T, y_dim)
         h_fwd = self._scan(self.cell_fwd, seq)
         h_rev = self._scan(self.cell_rev, seq[::-1])[::-1]
         return jnp.concatenate([h_fwd, h_rev], axis=-1)  # (T, 2*hidden)

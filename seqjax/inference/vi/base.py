@@ -422,7 +422,7 @@ class FullAutoregressiveVI[
         parameters, log_q_theta = jax.vmap(
             jax.vmap(self.parameter_approximation.sample_and_log_prob)
         )(parameter_keys, None)
-        theta_array = parameters.ravel(parameters)
+        theta_array = parameters.ravel()
         theta_array = jnp.tile(
             theta_array[:, :, None, :], (1, 1, observations.batch_shape[0], 1)
         )  # repeat down sequence axis for each sample
@@ -637,28 +637,36 @@ class BufferedSSMVI[
             )
         )(jrandom.split(start_key, context_samples))
 
-        buffered_theta_array = parameters.ravel(
-            jax.vmap(jax.vmap(self.buffer_params, in_axes=[0, None]))(
-                parameters, theta_mask
-            )
-        )
+        buffered_theta_array = jax.vmap(
+            jax.vmap(self.buffer_params, in_axes=[0, None])
+        )(parameters, theta_mask).ravel()
+
         buffered_theta_array = jax.lax.select(
             self.control_variate,
             buffered_theta_array,
             jax.lax.stop_gradient(buffered_theta_array),
         )
 
+        condition_context = c_batch.ravel()
+        observation_context = jax.vmap(self.embedding.embed)(y_batch)
+        target_condition_shape = (
+            observation_context.shape[:-1] + condition_context.shape[-1:]
+        )  # keep condition last dim, take context leading dims
+        condition_context = jnp.broadcast_to(condition_context, target_condition_shape)
+
         # vmap down the outer samples
         # then just latent_keys and the parameter samples
         x_path, log_q_x_path = jax.vmap(
             jax.vmap(
-                self.latent_approximation.sample_and_log_prob, in_axes=[0, (0, None)]
+                self.latent_approximation.sample_and_log_prob,
+                in_axes=[0, (0, None, None)],
             ),
         )(
             latent_keys,
             (
                 buffered_theta_array,
-                jax.vmap(self.embedding.embed)(y_batch),
+                observation_context,
+                condition_context,
             ),
         )
 
@@ -778,19 +786,29 @@ class BufferedSSMVI[
         buffered_theta = jax.vmap(jax.vmap(self.buffer_params, in_axes=[0, None]))(
             parameters, theta_mask
         )
-        buffered_theta_array = parameters.ravel(buffered_theta)
+        buffered_theta_array = buffered_theta.ravel()
 
         # vmap down the outer samples
         # then just latent_keys and the parameter samples
+
+        condition_context = c_batch.ravel()
+        observation_context = jax.vmap(self.embedding.embed)(y_batch)
+        target_condition_shape = (
+            observation_context.shape[:-1] + condition_context.shape[-1:]
+        )  # keep condition last dim, take context leading dims
+        condition_context = jnp.broadcast_to(condition_context, target_condition_shape)
+
         x_path, log_q_x_path = jax.vmap(
             jax.vmap(
-                self.latent_approximation.sample_and_log_prob, in_axes=[0, (0, None)]
+                self.latent_approximation.sample_and_log_prob,
+                in_axes=[0, (0, None, None)],
             ),
         )(
             latent_keys,
             (
                 buffered_theta_array,
-                jax.vmap(self.embedding.embed)(y_batch),
+                observation_context,
+                condition_context,
             ),
         )
 

@@ -26,8 +26,10 @@ Alternatives:
 
 from typing import Callable
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+import jax.random as jrandom
+import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 import seqjax.model.typing as seqjtyping
@@ -143,6 +145,68 @@ class Transition[
     order: int
     sample: TransitionSample[LatentHistoryT, ConditionT, ParametersT, LatentT]
     log_prob: TransitionLogProb[LatentHistoryT, ConditionT, ParametersT, LatentT]
+
+
+class GaussianLocScale1[LatentT, ConditionT, ParametersT](typing.Protocol):
+    def __call__(
+        self,
+        latent_history: tuple[LatentT],
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> tuple[Scalar, Scalar]:
+        """Return (loc_x, scale_x) for x-space Gaussian transition."""
+
+
+@dataclass(frozen=True)
+class GaussianLocScaleTransition[
+    LatentHistoryT,
+    LatentT: seqjtyping.Latent,
+    ConditionT,
+    ParametersT: seqjtyping.Parameters,
+](Transition):
+    """
+    Defines a Transition via a location scale fcn.
+    """
+
+    loc_scale: GaussianLocScale1[LatentT, ConditionT, ParametersT]
+    latent_t: type[LatentT]
+
+    order: int = field(init=False)
+    sample: TransitionSample[LatentHistoryT, ConditionT, ParametersT, LatentT] = field(
+        init=False
+    )
+    log_prob: TransitionLogProb[LatentHistoryT, ConditionT, ParametersT, LatentT] = (
+        field(init=False)
+    )
+
+    def __post_init__(self):
+        def sample(
+            key: PRNGKeyArray,
+            latent_history: tuple[LatentT],
+            condition: ConditionT,
+            parameters: ParametersT,
+        ) -> LatentT:
+            loc_x, scale_x = self.loc_scale(latent_history, condition, parameters)
+            eps = jrandom.normal(key)
+            next_x = loc_x + eps * scale_x
+            return self.latent_t.unravel(next_x)
+
+        def log_prob(
+            latent_history: tuple[LatentT],
+            latent: LatentT,
+            condition: ConditionT,
+            parameters: ParametersT,
+        ) -> Scalar:
+            loc_x, scale_x = self.loc_scale(latent_history, condition, parameters)
+            x = latent.ravel()
+            lp = jstats.norm.logpdf(x, loc=loc_x, scale=scale_x)
+            return lp
+
+        super().__init__(
+            order=1,
+            sample=sample,
+            log_prob=log_prob,
+        )
 
 
 class EmissionSample[

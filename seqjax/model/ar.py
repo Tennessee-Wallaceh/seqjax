@@ -17,7 +17,7 @@ from seqjax.model.base import (
     Prior,
     SequentialModel,
     BayesianSequentialModel,
-    Transition,
+    GaussianLocScaleTransition,
 )
 from seqjax.model.typing import (
     HyperParameters,
@@ -33,7 +33,7 @@ class LatentValue(Latent):
 
     x: Scalar
 
-    _shape_template: ClassVar = OrderedDict(
+    _shape_template = OrderedDict(
         x=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
     )
 
@@ -148,44 +148,20 @@ initial_value = Prior[tuple[LatentValue], tuple[NoCondition], ARParameters](
 )
 
 
-def ar_sample(
-    key: PRNGKeyArray,
+def ar_loc_scale(
     latent_history: tuple[LatentValue],
     condition: NoCondition,
     parameters: ARParameters,
-) -> LatentValue:
-    """Sample the next latent state."""
+) -> tuple[jax.Array, jax.Array]:
     (last_latent,) = latent_history
-    next_x = (
-        parameters.ar * last_latent.x + jrandom.normal(key) * parameters.transition_std
-    )
-    return LatentValue(x=next_x)
+    loc_x = parameters.ar * last_latent.x
+    scale_x = parameters.transition_std
+    return loc_x, scale_x
 
 
-def ar_log_prob(
-    latent_history: tuple[LatentValue],
-    latent: LatentValue,
-    condition: NoCondition,
-    parameters: ARParameters,
-) -> Scalar:
-    """Return the transition log-density."""
-    (last_latent,) = latent_history
-    return jstats.norm.logpdf(
-        latent.x,
-        loc=parameters.ar * last_latent.x,
-        scale=parameters.transition_std,
-    )
-
-
-ar_random_walk = Transition[
-    tuple[LatentValue],
-    LatentValue,
-    NoCondition,
-    ARParameters,
-](
-    order=1,
-    sample=ar_sample,
-    log_prob=ar_log_prob,
+ar_random_walk = GaussianLocScaleTransition(
+    loc_scale=ar_loc_scale,
+    latent_t=LatentValue,
 )
 
 

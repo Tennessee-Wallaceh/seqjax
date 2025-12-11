@@ -56,7 +56,7 @@ def process_parquet_metadata(md: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def packable_to_df(packable: Packable) -> pl.DataFrame:
-    flat_array = np.asarray(packable.ravel(packable))
+    flat_array = np.asarray(packable.ravel())
     return pl.DataFrame(flat_array, schema=packable.flat_fields())
 
 

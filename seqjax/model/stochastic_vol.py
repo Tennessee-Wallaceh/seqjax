@@ -16,6 +16,7 @@ from seqjax.model.base import (
     BayesianSequentialModel,
     BayesianSequentialModel_TO2_EO2,
     Emission,
+    GaussianLocScaleTransition,
     ParameterPrior,
     Prior,
     SequentialModel,
@@ -77,8 +78,8 @@ class LogVarAR(Parameters):
 
     std_log_var: Scalar
     ar: Scalar
-    _shape_template: ClassVar = OrderedDict(
-        std_log_vol=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    _shape_template = OrderedDict(
+        std_log_var=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
         ar=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
     )
 
@@ -164,7 +165,7 @@ class StochVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
         std_key, mr_key, ltv_key = jrandom.split(key, 3)
 
         std_mean = jnp.array(3.0)
-        std_scale = jnp.array(0.5)
+        std_scale = jnp.array(1.5)
         std_lower = (0.0 - std_mean) / std_scale
         std_log_vol = std_mean + std_scale * jrandom.truncated_normal(
             std_key, lower=std_lower, upper=jnp.inf
@@ -380,10 +381,10 @@ def gaussian_start_sample(
     conditions: tuple[TimeIncrement],
     parameters: LogVolRW,
 ) -> tuple[LatentVol]:
-    mu = jnp.array(-2.0)
-    sigma = jnp.array(0.5)
+    mu = jnp.log(jnp.array(0.1))
+    sigma = jnp.array(1.6) / jnp.sqrt(2.0 * 6.0)
 
-    start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(key))
+    start_lv = LatentVol(log_vol=(mu + sigma * jrandom.normal(key)))
     return (start_lv,)
 
 
@@ -393,9 +394,8 @@ def gaussian_start_log_prob(
     parameters: LogVolRW,
 ) -> Scalar:
     (start_lv,) = latent
-    mu = jnp.array(-2.0)
-    sigma = jnp.array(0.5)
-
+    mu = jnp.log(jnp.array(0.1))
+    sigma = jnp.array(1.6) / jnp.sqrt(2.0 * 6.0)
     base_log_p = jstats.norm.logpdf(
         start_lv.log_vol,
         loc=mu,
@@ -455,6 +455,11 @@ two_step_gaussian_start = Prior[
 )
 
 
+"""
+Transitions
+"""
+
+
 def loc_scale(
     latent_history: tuple[LatentVol],
     condition: TimeIncrement,
@@ -464,39 +469,9 @@ def loc_scale(
     return _random_walk_loc_scale(prev_latent, condition, parameters)
 
 
-"""
-Transitions
-"""
-
-
-def random_walk_sample(
-    key: PRNGKeyArray,
-    latent_history: tuple[LatentVol],
-    condition: TimeIncrement,
-    parameters: LogVolRW,
-) -> LatentVol:
-    loc, scale = loc_scale(latent_history, condition, parameters)
-    return LatentVol(log_vol=loc + scale * jrandom.normal(key))
-
-
-def random_walk_log_prob(
-    latent_history: tuple[LatentVol],
-    latent: LatentVol,
-    condition: TimeIncrement,
-    parameters: LogVolRW,
-) -> Scalar:
-    loc, scale = loc_scale(latent_history, condition, parameters)
-    # clip evaluations to reasonable level, if we are sampling outside this frequently
-    # something has gone wrong
-    # TODO: should this be an error instead?
-    log_vol = jnp.clip(latent.log_vol, a_min=jnp.log(0.001), a_max=jnp.log(10))
-    return jstats.norm.logpdf(log_vol, loc=loc, scale=scale)
-
-
-random_walk = Transition[tuple[LatentVol], LatentVol, TimeIncrement, LogVolRW](
-    order=1,
-    sample=random_walk_sample,
-    log_prob=random_walk_log_prob,
+random_walk = GaussianLocScaleTransition(
+    loc_scale=loc_scale,
+    latent_t=LatentVol,
 )
 
 
