@@ -428,11 +428,19 @@ class FullAutoregressiveVI[
         )  # repeat down sequence axis for each sample
 
         # vmap down the latent_keys and the parameter samples
-        vmap_axes = [0, (0, None)]
+        condition_context = conditions.ravel()
+        observation_context = self.embedding.embed(observations)
+
+        target_condition_shape = (
+            observation_context.shape[:-1] + condition_context.shape[-1:]
+        )  # keep condition last dim, take context leading dims
+        condition_context = jnp.broadcast_to(condition_context, target_condition_shape)
+
+        vmap_axes = [0, (0, None, None)]
         context = jnp.linspace(-3, 3, self.latent_approximation.shape[0]).reshape(
             -1, 1
         )  # give location information
-        embedded_context = jnp.hstack([context, self.embedding.embed(observations)])
+        embedded_context = jnp.hstack([context, observation_context])
 
         x_path, log_q_x_path = jax.vmap(
             jax.vmap(
@@ -442,7 +450,7 @@ class FullAutoregressiveVI[
             in_axes=vmap_axes,
         )(
             latent_keys,
-            (theta_array, embedded_context),
+            (theta_array, embedded_context, condition_context),
         )
 
         return (parameters, log_q_theta, x_path, log_q_x_path, None)
@@ -649,6 +657,7 @@ class BufferedSSMVI[
 
         condition_context = c_batch.ravel()
         observation_context = jax.vmap(self.embedding.embed)(y_batch)
+
         target_condition_shape = (
             observation_context.shape[:-1] + condition_context.shape[-1:]
         )  # keep condition last dim, take context leading dims

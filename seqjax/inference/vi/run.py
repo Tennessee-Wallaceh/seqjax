@@ -81,7 +81,7 @@ def run_full_path_vi[
     s_per_context = int(test_samples / n_context)
     theta_q, log_q_theta, x_q, log_q_x_path, _ = (
         fitted_approximation.joint_sample_and_log_prob(
-            observation_path, None, key, n_context, s_per_context
+            observation_path, condition_path, key, n_context, s_per_context
         )
     )
 

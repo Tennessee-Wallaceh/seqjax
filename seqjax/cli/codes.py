@@ -50,9 +50,17 @@ def _merge_code_definitions(
 
 
 COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
-    "LR": {"1e-2": 1e-2, "5e-3": 5e-3, "1e-3": 1e-3, "1e-4": 1e-4},
-    "MC": {"1": 1, "10": 10, "50": 50, "100": 100},
-    "BS": {"1": 1, "10": 10, "50": 50, "100": 100},
+    "LR": {
+        "1e-2": 1e-2,
+        "5e-3": 5e-3,
+        "1e-3": 1e-3,
+        "5e-4": 5e-4,
+        "1e-4": 1e-4,
+        "5e-5": 5e-5,
+        "1e-5": 1e-5,
+    },
+    "MC": {"1": 1, "10": 10, "20": 20, "50": 50, "100": 100},
+    "BS": {"1": 1, "10": 10, "20": 20, "50": 50, "100": 100},
     "EMB": {
         "LC": lambda: vi.registry.LongContextEmbedder(prev_window=5, post_window=5),
         "SC": lambda: vi.registry.ShortContextEmbedder(prev_window=2, post_window=2),

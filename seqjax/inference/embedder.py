@@ -27,11 +27,12 @@ class WindowEmbedder(Embedder):
     each step in the batch
     """
 
+    sample_length: int
     prev_window: int
     post_window: int
-    sample_length: int
-    window_size: int
     y_dimension: int
+
+    window_size: int
     indexer: Int[Array, "sample_length window_size"]
 
     def __init__(
