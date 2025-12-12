@@ -52,23 +52,23 @@ embedder_registry: dict[EmbedderName, EmbedderConfig] = {
 def _build_embedder(
     embedder_config: EmbedderConfig,
     target_dim: int,
-    sequence_length: int,
+    sample_length: int,
     embedding_key: jaxtyping.PRNGKeyArray,
 ) -> embedder.Embedder:
     embed: embedder.Embedder
     if isinstance(embedder_config, ShortContextEmbedder):
         embed = embedder.WindowEmbedder(
-            sequence_length,
-            embedder_config.prev_window,
-            embedder_config.post_window,
-            target_dim,
+            sample_length=sample_length,
+            prev_window=embedder_config.prev_window,
+            post_window=embedder_config.post_window,
+            y_dimension=target_dim,
         )
     elif isinstance(embedder_config, LongContextEmbedder):
         embed = embedder.WindowEmbedder(
-            sequence_length,
-            embedder_config.prev_window,
-            embedder_config.post_window,
-            target_dim,
+            sample_length=sample_length,
+            prev_window=embedder_config.prev_window,
+            post_window=embedder_config.post_window,
+            y_dimension=target_dim,
         )
     elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
@@ -358,12 +358,21 @@ def build_approximation(
         field_bijections,
         key=parameter_key,
     )
-    embed = _build_embedder(
-        config.embedder,
-        target_observation_class.flat_dim,
-        sequence_length,
-        embedding_key,
-    )
+
+    if isinstance(config, FullVIConfig):
+        embed = _build_embedder(
+            config.embedder,
+            target_observation_class.flat_dim,
+            sequence_length,
+            embedding_key,
+        )
+    elif isinstance(config, BufferedVIConfig):
+        embed = _build_embedder(
+            config.embedder,
+            target_observation_class.flat_dim,
+            config.batch_length + 2 * config.buffer_length,
+            embedding_key,
+        )
 
     approximation: base.SSMVariationalApproximation
     latent_approximation: (
@@ -377,8 +386,9 @@ def build_approximation(
             batch_length=sequence_length,
             context_dim=embed.context_dimension + 1,  # just location
             parameter_dim=target_param_class.flat_dim,
+            condition_dim=target_posterior.target.condition_cls.flat_dim,
             lag_order=1,
-            nn_width=10,
+            nn_width=20,
             nn_depth=2,
             key=approximation_key,
         )
