@@ -81,6 +81,7 @@ COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
         "10H": 10 * 60 * 60,
         "5H": 5 * 60 * 60,
         "2H": 2 * 60 * 60,
+        "2H_m10M": 2 * 60 * 60 - 10 * 60,
         "30M": 30 * 60,
         "5M": 5 * 60,
         "NO": None,
