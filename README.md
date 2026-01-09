@@ -39,3 +39,10 @@ print(observation_path)
 ```
 
 SeqJAX will check at runtime that `AR1Target` and its components implement the required interface. When extending the library, these checks help catch mistakes such as missing `sample` or `log_prob` implementations.
+
+
+## Design
+
+- `registry` converts static config to objects
+- `run` defines an interface between static config and models, building appropriate objects and using them to produce posterior samples
+- `cli` is a command line interface for targeting data with inference configured by command line options. It relies on a remmote backend for storing+loading run outputs.

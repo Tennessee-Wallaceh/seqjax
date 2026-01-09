@@ -14,9 +14,13 @@ from seqjax.model.base import (
     Transition,
 )
 import seqjax.model.typing as seqjtyping
+from seqjax.model import BayesianSequentialModel
 from seqjax import util
 from .resampling import Resampler
-from .metrics import compute_esse_from_log_weights
+from seqjax.model.evaluate import (
+    slice_emission_observation_history,
+    slice_prior_conditions,
+)
 
 
 @dataclass
@@ -25,17 +29,13 @@ class FilterData:
     Encapsulates the data arising from a filter step
     """
 
+    start_log_w: Array
+    resampled_log_w: Array
     log_w: Array
+
     particles: tuple[seqjtyping.Latent, ...]
     ancestor_ix: Array
-    observation: seqjtyping.Observation
-    observation_history: tuple[seqjtyping.Observation, ...]
-    condition: seqjtyping.Condition | seqjtyping.NoCondition
-    last_log_w: Array
-    last_particles: Array
-    ess_e: Array
-    log_weight_increment: Array
-    parameters: seqjtyping.Parameters
+    log_w_inc: Array
 
 
 class Recorder(Protocol):
@@ -55,13 +55,14 @@ class Proposal[
     eqx.Module,
 ):
     """
-    Proposal distribution for sequential importance sampling.
+    Proposal distribution for SMC.
     Implementation is via an eqx.Module to support parameterized proposals.
     The proposal can maintain a longer particle history than required for the model.
-
+    The proposal operates on the full particle set, rather than element wise.
+    This is necessary to support resampling procedures.
     """
 
-    order: eqx.AbstractClassVar[int]
+    order: int
 
     @staticmethod
     @abstractmethod
@@ -71,7 +72,11 @@ class Proposal[
         observation: ObservationT,
         condition: ConditionT,
         parameters: ParametersT,
-    ) -> ParticleT: ...
+    ) -> tuple[ParticleT, Array]: ...
+
+    """
+    Leading axis is num particles
+    """
 
     @staticmethod
     @abstractmethod
@@ -89,24 +94,54 @@ class TransitionProposal[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-    HistoryT,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+    PriorLatentT: tuple[seqjtyping.Latent, ...],
+    PriorConditionT: tuple[seqjtyping.Condition, ...],
+    TransitionLatentHistoryT: tuple[seqjtyping.Latent, ...],
+    EmissionLatentHistoryT: tuple[seqjtyping.Latent, ...],
+    ObservationHistoryT = tuple[seqjtyping.Observation, ...],
 ](
-    eqx.Module,
+    Proposal,
 ):
-    """Adapter converting a ``Transition`` to a ``Proposal``."""
+    """
+    Wraps a SSM ``Transition`` to a ``Proposal``.
+    This is what is done to produce the "Bootstrap" particle filter.
+    We also supply an optional resampling scheme.
+    If there is no resampling scheme this is SIS.
+    """
 
-    transition: Transition[ParticleT, ConditionT, ParametersT, HistoryT]
-    order: int
+    transition: Transition[TransitionLatentHistoryT, ParticleT, ConditionT, ParametersT]
     # I don't actually care what this does, as long as it produces ParametersT.
-    target_parameters: Callable[[ParametersT], ParametersT] = lambda x: x
+    target_parameters: Callable[[InferenceParametersT], ParametersT]
+
+    def __init__(
+        self,
+        model: BayesianSequentialModel[
+            ParticleT,
+            ObservationT,
+            ConditionT,
+            ParametersT,
+            InferenceParametersT,
+            HyperParametersT,
+            PriorLatentT,
+            PriorConditionT,
+            TransitionLatentHistoryT,
+            EmissionLatentHistoryT,
+            ObservationHistoryT,
+        ],
+    ):
+        self.transition = model.target.transition
+        self.target_parameters = model.target_parameter
+        super().__init__(order=self.transition.order)
 
     def sample(
         self,
         key: PRNGKeyArray,
-        particle_history: HistoryT,
+        particle_history: TransitionLatentHistoryT,
         observation: ObservationT,
         condition: ConditionT,
-        parameters: ParametersT,
+        parameters: InferenceParametersT,
     ) -> ParticleT:
         return self.transition.sample(
             key, particle_history, condition, self.target_parameters(parameters)
@@ -114,36 +149,18 @@ class TransitionProposal[
 
     def log_prob(
         self,
-        particle_history: HistoryT,
+        particle_history: TransitionLatentHistoryT,
         observation: ObservationT,
-        particle: ParticleT,
+        new_particles: ParticleT,
         condition: ConditionT,
-        parameters: ParametersT,
-    ) -> Scalar:
+        parameters: InferenceParametersT,
+    ) -> Array:
         return self.transition.log_prob(
-            particle_history, particle, condition, self.target_parameters(parameters)
+            particle_history,
+            new_particles,
+            condition,
+            self.target_parameters(parameters),
         )
-
-
-def proposal_from_transition[
-    ParticleT: seqjtyping.Latent,
-    TransitionParticleHistoryT: tuple[seqjtyping.Latent, ...],
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition,
-    ParametersT: seqjtyping.Parameters,
-](
-    transition: Transition[
-        TransitionParticleHistoryT, ParticleT, ConditionT, ParametersT
-    ],
-    target_parameters: Callable = lambda x: x,
-) -> TransitionProposal[
-    ParticleT, TransitionParticleHistoryT, ObservationT, ConditionT, ParametersT
-]:
-    return TransitionProposal(
-        transition=transition,
-        order=transition.order,
-        target_parameters=target_parameters,
-    )
 
 
 class SMCSampler[
@@ -195,25 +212,20 @@ class SMCSampler[
         condition: ConditionT,
         params: ParametersT,
         target_parameters: Callable = lambda x: x,
-    ) -> tuple[
-        Array,
-        tuple[ParticleT, ...],
-        tuple[ObservationT, ...],
-        Scalar,
-        Scalar,
-        Array,
-    ]:
+    ) -> FilterData:
         resample_key, proposal_key = jrandom.split(step_key)
 
-        ess_e = compute_esse_from_log_weights(log_w)
-        particles, log_w, ancestor_ix = self.resampler(
-            resample_key, log_w, particles, ess_e, self.num_particles
+        resampled_particles, ancestor_ix, resampled_log_w, _, _ = self.resampler(
+            resample_key,
+            log_w,
+            particles,
+            self.num_particles,
         )
 
-        proposal_history = particles[-self.proposal.order :]
-        transition_history = particles[-self.target.transition.order :]
+        proposal_history = resampled_particles[-self.proposal.order :]
+        transition_history = self.target.latent_view_for_transition(resampled_particles)
 
-        next_particles = self.proposal_sample(
+        proposed_particles = self.proposal_sample(
             jrandom.split(proposal_key, self.num_particles),
             proposal_history,
             observation,
@@ -226,7 +238,7 @@ class SMCSampler[
             if self.target.emission.order > 1
             else ()
         )
-        emission_particles = (*emission_history, next_particles)
+        emission_particles = (*emission_history, proposed_particles)
 
         obs_history = (
             observation_history[-self.target.emission.observation_dependency :]
@@ -234,34 +246,37 @@ class SMCSampler[
             else ()
         )
 
-        inc_weight = (
-            self.transition_logp(
-                transition_history, next_particles, condition, target_parameters(params)
-            )
-            + self.emission_logp(
-                emission_particles,
-                obs_history,
-                observation,
+        log_weight_inc = (
+            self.transition_log_prob(
+                transition_history,
+                proposed_particles,
                 condition,
                 target_parameters(params),
             )
-            - self.proposal_logp(
-                proposal_history, observation, next_particles, condition, params
+            + self.emission_log_prob(
+                emission_particles,
+                observation,
+                obs_history,
+                condition,
+                target_parameters(params),
+            )
+            - self.proposal_log_prob(
+                proposal_history, observation, proposed_particles, condition, params
             )
         )
-        log_w = log_w + inc_weight
 
-        max_order = max(self.target.transition.order, self.target.emission.order)
-        particles = (*particles, next_particles)[-max_order:]
+        particles = (*resampled_particles, proposed_particles)[
+            -max(self.target.transition.order, self.target.emission.order) :
+        ]
 
-        if self.target.emission.observation_dependency > 0:
-            observation_history = (*observation_history, observation)[
-                -self.target.emission.observation_dependency :
-            ]
-        else:
-            observation_history = ()
-
-        return (log_w, particles, observation_history, ess_e, ancestor_ix, inc_weight)
+        return FilterData(
+            start_log_w=log_w,
+            resampled_log_w=resampled_log_w,
+            log_w=resampled_log_w + log_weight_inc,
+            particles=particles,
+            ancestor_ix=ancestor_ix,
+            log_w_inc=log_weight_inc,
+        )
 
 
 def run_filter[
@@ -270,17 +285,17 @@ def run_filter[
     ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
 ](
+    key: PRNGKeyArray,
     smc: SMCSampler[
         ParticleT,
         ObservationT,
         ConditionT,
         ParametersT,
     ],
-    key: PRNGKeyArray,
     parameters: ParametersT,
     observation_path: ObservationT,
-    condition_path: ConditionT,
     *,
+    condition_path: ConditionT = seqjtyping.NoCondition(),
     recorders: tuple[Recorder, ...] | None = None,
     target_parameters: Callable = lambda x: x,
 ) -> tuple[
@@ -296,25 +311,11 @@ def run_filter[
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
 
-    # TODO: validate initial conditions and observation history
-    # if initial_conditions is None:
-    #     if smc.target.prior.order > 1:
-    #         raise ValueError(
-    #             "initial_conditions must be provided when the prior has order > 0"
-    #         )
-    initial_conditions = ()
-
-    # if observation_history is None:
-    #     if smc.target.emission.observation_dependency > 0:
-    #         raise ValueError(
-    #             "observation_history must be provided when the emission has observation dependency > 0"
-    #         )
-    observation_history = ()
-
-    if condition_path is None:
-        initial_condition = None
-    else:
-        initial_condition = util.index_pytree(condition_path, 0)
+    initial_conditions = slice_prior_conditions(condition_path, smc.target.prior)
+    observation_history = slice_emission_observation_history(
+        observation_path,
+        smc.target.emission,
+    )
 
     init_key, *step_keys = jrandom.split(key, sequence_length)
 
@@ -322,36 +323,24 @@ def run_filter[
     # rather than the proposal.
     init_particles = jax.vmap(smc.target.prior.sample, in_axes=[0, None, None])(
         jrandom.split(init_key, smc.num_particles),
-        typing.cast(typing.Any, initial_conditions),
+        initial_conditions,
         target_parameters(parameters),
     )
-    log_weights = smc.emission_logp(
+    log_weights = smc.emission_log_prob(
         init_particles,
-        observation_history,
         util.index_pytree(observation_path, 0),
-        initial_condition,
+        observation_history,
+        initial_conditions,
         target_parameters(parameters),
     )
-    if smc.target.emission.observation_dependency > 0:
-        observation_history = (
-            *observation_history,
-            util.index_pytree(observation_path, 0),
-        )
 
     filter_data = FilterData(
+        start_log_w=log_weights,
+        resampled_log_w=log_weights,
         log_w=log_weights,
         particles=init_particles,
         ancestor_ix=jnp.full((smc.num_particles,), -1, dtype=jnp.int32),
-        observation=util.index_pytree(observation_path, 0),
-        obs_hist=observation_history,
-        condition=initial_condition,
-        last_log_w=jnp.zeros(smc.num_particles),
-        last_particles=jax.tree_util.tree_map(
-            lambda x: jnp.full_like(x, fill_value=-1.0), init_particles
-        ),
-        ess_e=compute_esse_from_log_weights(log_weights),
-        log_weight_increment=log_weights,
-        parameters=parameters,
+        log_w_inc=-jnp.ones_like(log_weights) * jnp.log(smc.num_particles),
     )
     intial_record = (
         tuple(r(filter_data) for r in recorders) if recorders is not None else ()
@@ -359,44 +348,29 @@ def run_filter[
 
     # Define the main body
     def body(state, inputs):
+        obs_hist = ()  # TODO slice_emission_observation_history(
         if sliced_condition_path is None:
             step_key, observation = inputs
             condition = None
         else:
             step_key, observation, condition = inputs
-        last_log_w, last_particles, obs_hist = state
-
-        log_w, particles, obs_hist, ess_e, ancestor_ix, weight_inc = smc.sample_step(
+        log_w, particles = state
+        step_data = smc.sample_step(
             step_key,
-            last_log_w,
-            last_particles,
+            log_w,
+            particles,
             obs_hist,
             observation,
             condition,
             parameters,
             target_parameters,
         )
-        filter_data = FilterData(
-            log_w=log_w,
-            particles=particles,
-            ancestor_ix=ancestor_ix,
-            observation=observation,
-            obs_hist=obs_hist,
-            condition=condition,
-            last_log_w=last_log_w,
-            last_particles=last_particles,
-            ess_e=ess_e,
-            log_weight_increment=weight_inc,
-            parameters=parameters,
-        )
+
         recorder_vals = (
-            tuple(r(filter_data) for r in recorders) if recorders is not None else ()
+            tuple(r(step_data) for r in recorders) if recorders is not None else ()
         )
-        return (
-            log_w,
-            particles,
-            obs_hist,
-        ), recorder_vals
+
+        return (step_data.log_w, step_data.particles), recorder_vals
 
     observation_path = util.slice_pytree(observation_path, 1, sequence_length)
     if condition_path is not None:
@@ -416,7 +390,7 @@ def run_filter[
 
     final_state, recorder_history = jax.lax.scan(
         body,
-        (log_weights, init_particles, observation_history),
+        (filter_data.log_w, filter_data.particles),
         body_inputs,
     )
 
@@ -426,11 +400,9 @@ def run_filter[
     recorder_history = jax.tree_util.tree_map(
         expand_concat, intial_record, recorder_history
     )
-
-    log_weights, particles, _ = final_state
-
+    (log_w, particles) = final_state
     return (
-        log_weights,
+        log_w,
         particles,
         recorder_history,
     )

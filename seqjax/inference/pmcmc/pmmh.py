@@ -14,7 +14,8 @@ from seqjax.model.base import (
     BayesianSequentialModel,
 )
 
-from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
+from seqjax.inference.particlefilter import SMCSampler, run_filter
+from seqjax.inference.particlefilter.base import FilterData
 from seqjax.inference.mcmc.metropolis import (
     RandomWalkConfig,
     run_random_walk_metropolis,
@@ -25,6 +26,16 @@ from .tuning import (
     ParticleFilterTuningConfig,
     tune_particle_filter_variance,
 )
+import jax.scipy as jsp
+
+
+def log_marginal_increment(filter_data: FilterData):
+    return jax.lax.select(
+        filter_data.ancestor_ix[0] == -1,
+        jsp.special.logsumexp(filter_data.log_w) - jnp.log(filter_data.log_w.shape[0]),
+        jsp.special.logsumexp(filter_data.resampled_log_w + filter_data.log_w)
+        - jsp.special.logsumexp(filter_data.resampled_log_w),
+    )
 
 
 class ParticleMCMCConfig(
@@ -68,14 +79,13 @@ def _make_log_joint_estimator[
         params: InferenceParametersT,
         key: PRNGKeyArray,
     ) -> jaxtyping.Array:
-        model_params = target_posterior.target_parameter(params)
         _, _, (log_marginal_increments,) = run_filter(
-            particle_filter,
             key,
-            model_params,
+            particle_filter,
+            params,
             observation_path,
-            condition_path,
-            recorders=(log_marginal,),
+            condition_path=seqjtyping.NoCondition(),
+            recorders=(log_marginal_increment,),
         )
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
         return jnp.sum(log_marginal_increments) + log_prior

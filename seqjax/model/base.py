@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
+import jax.numpy as jnp
 
 import seqjax.model.typing as seqjtyping
 
@@ -132,29 +133,20 @@ class Transition[
     ConditionT,
     ParametersT: seqjtyping.Parameters,
 ]:
-    """Prior must define density + sampling up to the start state t=0.
-    As such it receives conditions up to t=0, length corresponding to order.
-
-    This could be over a number of latents if the dependency structure of the model requires.
-
-    For example if the transition is (x_t1, x_t2) -> x_t3 then the prior must produce 2 latents (x_t-1, x_t0).
-    Even if the transition is (x_t1,) -> x_t2, if emission is (x_t1, x_t2) -> y_t2 then
-    the prior must specify p(x_t-1, x_t0), so that p(y_t0 | x_t-1, x_t0) can be evaluated.
-    """
-
     order: int
     sample: TransitionSample[LatentHistoryT, ConditionT, ParametersT, LatentT]
     log_prob: TransitionLogProb[LatentHistoryT, ConditionT, ParametersT, LatentT]
 
 
 class GaussianLocScale1[LatentT, ConditionT, ParametersT](typing.Protocol):
+    """Return (loc_x, scale_x) for x-space Gaussian transition."""
+
     def __call__(
         self,
         latent_history: tuple[LatentT],
         condition: ConditionT,
         parameters: ParametersT,
-    ) -> tuple[Scalar, Scalar]:
-        """Return (loc_x, scale_x) for x-space Gaussian transition."""
+    ) -> tuple[Scalar, Scalar]: ...
 
 
 @dataclass(frozen=True)
@@ -200,7 +192,7 @@ class GaussianLocScaleTransition[
             loc_x, scale_x = self.loc_scale(latent_history, condition, parameters)
             x = latent.ravel()
             lp = jstats.norm.logpdf(x, loc=loc_x, scale=scale_x)
-            return lp
+            return jnp.sum(lp)
 
         super().__init__(
             order=1,
@@ -295,18 +287,18 @@ class SequentialModel[
         ObservationHistoryT,
     ]
 
-    def latent_view_for_emission(
+    def latent_view_for_emission[ParticleHistoryT: tuple[seqjtyping.Latent, ...]](
         self,
-        latent_history: PriorLatentT,
+        latent_history: ParticleHistoryT,
     ) -> EmissionLatentHistoryT:
         """Convert full latent history to emission latent history type."""
         return typing.cast(
             EmissionLatentHistoryT, latent_history[-self.emission.order :]
         )
 
-    def latent_view_for_transition(
+    def latent_view_for_transition[ParticleHistoryT: tuple[seqjtyping.Latent, ...]](
         self,
-        latent_history: PriorLatentT,
+        latent_history: ParticleHistoryT,
     ) -> TransitionLatentHistoryT:
         """Convert full latent history to transition latent history type."""
         return typing.cast(
@@ -327,13 +319,13 @@ class SequentialModel[
             ),
         )
 
-    def add_latent_history(
-        self, current_history: PriorLatentT, new_latent: LatentT
-    ) -> PriorLatentT:
+    def add_latent_history[ParticleHistoryT: tuple[seqjtyping.Latent, ...]](
+        self, current_history: ParticleHistoryT, new_latent: LatentT
+    ) -> ParticleHistoryT:
         """Add new latent to history, maintaining correct length."""
         latent_history = (*current_history, new_latent)
         return typing.cast(
-            PriorLatentT,
+            ParticleHistoryT,
             tuple(latent_history[len(latent_history) - self.transition.order :]),
         )
 
