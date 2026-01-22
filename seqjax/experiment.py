@@ -36,7 +36,7 @@ class ResultProcessor(Protocol):
         param_samples: Any,
         extra_data: Any,
         x_path: Any,
-        y_path: Any,
+        observation_path: Any,
         condition: Any,
     ) -> None: ...
 
@@ -72,7 +72,7 @@ def process_results(
     param_samples: Any,
     extra_data: Any,
     x_path: Any,
-    y_path: Any,
+    observation_path: Any,
     condition: Any,
     result_processor: ResultProcessor | None,
 ) -> None:
@@ -87,7 +87,7 @@ def process_results(
         param_samples,
         extra_data,
         x_path,
-        y_path,
+        observation_path,
         condition,
     )
 
@@ -142,7 +142,7 @@ def run_experiment(
     target_params = experiment_config.data_config.generative_parameters
     model = experiment_config.posterior_factory(target_params)
 
-    x_path, y_path, condition = io.get_remote_data(
+    x_path, observation_path, condition = io.get_remote_data(
         data_wandb_run, experiment_config.data_config
     )
     if condition is None:
@@ -167,7 +167,7 @@ def run_experiment(
         model,
         hyperparameters=None,
         key=jrandom.key(experiment_config.fit_seed),
-        observation_path=y_path,
+        observation_path=observation_path,
         condition_path=condition,
         test_samples=experiment_config.test_samples,
         config=experiment_config.inference.config,
@@ -196,10 +196,10 @@ def run_experiment(
         param_samples,
         extra_data,
         x_path,
-        y_path,
+        observation_path,
         condition,
         result_processor,
     )
     process_wandb_run.finish()
 
-    return (param_samples, extra_data, x_path, y_path)
+    return (param_samples, extra_data, x_path, observation_path)

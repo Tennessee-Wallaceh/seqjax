@@ -41,7 +41,7 @@ class ARResultProcessor:
         param_samples,
         extra_data,
         x_path,
-        y_path,
+        observation_path,
         condition=None,
     ) -> None:
         experiment_shorthand = (

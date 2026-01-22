@@ -178,7 +178,7 @@ class ResultProcessor:
         param_samples,
         extra_data,
         x_path,
-        y_path,
+        observation_path,
         condition,
     ) -> None:
         if experiment_config.inference.method == "NUTS":

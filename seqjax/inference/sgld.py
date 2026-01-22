@@ -364,7 +364,7 @@ def run_buffer_sgld_mcmc[
             sequence_length,
             batch_length=batch_length,
             buffer_length=buffer_length,
-            y_path=observation_path,
+            observation_path=observation_path,
             condition=seqjtyping.NoCondition()
         )
 
