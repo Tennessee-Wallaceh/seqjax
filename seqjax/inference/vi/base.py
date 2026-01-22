@@ -511,7 +511,7 @@ class FullAutoregressiveVI[
             x_path,
             observations,
             conditions,
-            target_posterior.target_parameter(buffered_theta),
+            target_posterior.convert_to_model_parameters(buffered_theta),
         )
 
         log_q_x = jnp.sum(log_q_x_path, axis=-1)
@@ -754,7 +754,10 @@ class BufferedSSMVI[
         )
 
         log_p_y_x = batched_log_p_joint(
-            x_path, y_batch, c_batch, target_posterior.target_parameter(buffered_theta)
+            x_path,
+            y_batch,
+            c_batch,
+            target_posterior.convert_to_model_parameters(buffered_theta),
         )
 
         log_q_x = jnp.sum(log_q_x_path, axis=-1)
@@ -838,7 +841,10 @@ class BufferedSSMVI[
         batched_log_p_joint = jax.vmap(batched_log_p_joint)
 
         log_p_y_x = batched_log_p_joint(
-            x_path, y_batch, c_batch, target_posterior.target_parameter(buffered_theta)
+            x_path,
+            y_batch,
+            c_batch,
+            target_posterior.convert_to_model_parameters(buffered_theta),
         )
 
         log_q_x = jnp.sum(log_q_x_path, axis=-1)

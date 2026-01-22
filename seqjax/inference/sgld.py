@@ -74,7 +74,7 @@ def _tree_randn_like[ParametersT: seqjtyping.Parameters](
 def estimate_initial_step_score(model, filter_data: FilterData):
     # grad wrt to parameters
     def model_initial_log_prob(particles, inference_parameters):    
-        model_parameters = model.target_parameter(inference_parameters)
+        model_parameters = model.convert_to_model_parameters(inference_parameters)
         return model.target.emission.log_prob(
             particles, 
             filter_data.observation, 
@@ -97,7 +97,7 @@ def estimate_initial_step_score(model, filter_data: FilterData):
 def estimate_step_score(model, filter_data: FilterData):          
     # grad wrt to parameters
     def model_step_log_prob(particles, emission_particles, transition_history, inference_parameters):    
-        model_parameters = model.target_parameter(inference_parameters)
+        model_parameters = model.convert_to_model_parameters(inference_parameters)
         return (
             model.target.emission.log_prob(
                 emission_particles, 
@@ -245,7 +245,7 @@ def run_full_sgld_mcmc[
                 partial(estimate_score_increment, model), 
                 lambda fd: fd.ancestor_ix,
             ),
-            target_parameters=model.target_parameter,
+            convert_to_model_parameters=model.convert_to_model_parameters,
         )
 
         log_weights, _, (score_increments, ancestor_ix) = out
@@ -378,7 +378,7 @@ def run_buffer_sgld_mcmc[
                 partial(estimate_score_increment, model), 
                 lambda fd: fd.ancestor_ix,
             ),
-            target_parameters=model.target_parameter,
+            convert_to_model_parameters=model.convert_to_model_parameters,
         )
 
         log_weights, _, (score_increments, ancestor_ix) = out

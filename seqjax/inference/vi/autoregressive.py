@@ -385,7 +385,7 @@ class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
         latent_history = tuple(
             self.model.target.transition.latent_t.unravel(px) for px in prev_x
         )
-        model_params = self.model.target_parameter(
+        model_params = self.model.convert_to_model_parameters(
             self.model.inference_parameter_cls.unravel(theta_context)
         )
         condition = self.model.target.condition_cls.unravel(condition_context)
@@ -407,7 +407,7 @@ class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
         parameter_context,
         condition_context,
     ):
-        model_params = self.model.target_parameter(
+        model_params = self.model.convert_to_model_parameters(
             self.model.inference_parameter_cls.unravel(parameter_context[0])
         )
 

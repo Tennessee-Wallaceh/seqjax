@@ -725,7 +725,7 @@ class SimpleStochasticVolBayesianStdLogVol(
     ]
 ):
     def __init__(self, ref_params: LogVolRW):
-        self.target_parameter = staticmethod(
+        self.convert_to_model_parameters = staticmethod(
             partial(lv_to_std_only, ref_params=ref_params)
         )
 
@@ -763,7 +763,7 @@ class SimpleStochasticVarBayesian(
     ]
 ):
     def __init__(self, ref_params: LogVarAR):
-        self.target_parameter = staticmethod(
+        self.convert_to_model_parameters = staticmethod(
             partial(lvar_to_std_only, ref_params=ref_params)
         )
 
@@ -785,7 +785,7 @@ class SimpleStochasticVolBayesian(
     inference_parameter_cls = LogVolRW
     target = SimpleStochasticVol()
     parameter_prior = StochVolParamPrior()
-    target_parameter = staticmethod(lambda parameters: parameters)
+    convert_to_model_parameters = staticmethod(lambda parameters: parameters)
 
 
 class SkewStochasticVol(
@@ -819,7 +819,7 @@ class SkewStochasticVolBayesian(
     inference_parameter_cls = LogVolWithSkew
     target = SkewStochasticVol()
     parameter_prior = SkewStochVolParamPrior()
-    target_parameter = staticmethod(lambda parameters: parameters)
+    convert_to_model_parameters = staticmethod(lambda parameters: parameters)
 
 
 def make_constant_time_increments(

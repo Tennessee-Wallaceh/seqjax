@@ -119,7 +119,7 @@ class TransitionProposal[
 
     transition: Transition[TransitionLatentHistoryT, ParticleT, ConditionT, ParametersT]
     # I don't actually care what this does, as long as it produces ParametersT.
-    target_parameters: Callable[[InferenceParametersT], ParametersT]
+    convert_to_model_parameters: Callable[[InferenceParametersT], ParametersT]
 
     def __init__(
         self,
@@ -138,7 +138,7 @@ class TransitionProposal[
         ],
     ):
         self.transition = model.target.transition
-        self.target_parameters = model.target_parameter
+        self.convert_to_model_parameters = model.convert_to_model_parameters
         super().__init__(order=self.transition.order)
 
     def sample(
@@ -150,7 +150,7 @@ class TransitionProposal[
         parameters: InferenceParametersT,
     ) -> ParticleT:
         return self.transition.sample(
-            key, particle_history, condition, self.target_parameters(parameters)
+            key, particle_history, condition, self.convert_to_model_parameters(parameters)
         )
 
     def log_prob(
@@ -165,7 +165,7 @@ class TransitionProposal[
             particle_history,
             new_particles,
             condition,
-            self.target_parameters(parameters),
+            self.convert_to_model_parameters(parameters),
         )
 
 class SMCSampler[
@@ -217,7 +217,7 @@ class SMCSampler[
         observation: ObservationT,
         condition: ConditionT,
         params: ParametersT,
-        target_parameters: Callable = lambda x: x,
+        convert_to_model_parameters: Callable = lambda x: x,
     ) -> FilterData:
         resample_key, proposal_key = jrandom.split(step_key)
 
@@ -256,16 +256,16 @@ class SMCSampler[
             self.transition_log_prob(
                 transition_history,
                 proposed_particles,
-                condition,
-                target_parameters(params),
-            )
-            + self.emission_log_prob(
-                emission_particles,
-                observation,
-                obs_history,
-                condition,
-                target_parameters(params),
-            )
+            condition,
+            convert_to_model_parameters(params),
+        )
+        + self.emission_log_prob(
+            emission_particles,
+            observation,
+            obs_history,
+            condition,
+            convert_to_model_parameters(params),
+        )
             - self.proposal_log_prob(
                 proposal_history, observation, proposed_particles, condition, params
             )
@@ -308,7 +308,7 @@ def run_filter[
     *,
     condition_path: ConditionT | seqjtyping.NoCondition = seqjtyping.NoCondition(),
     recorders: tuple[Recorder, ...] | None = None,
-    target_parameters: Callable = lambda x: x,
+    convert_to_model_parameters: Callable = lambda x: x,
 ) -> tuple[
     Array,
     ParticleT,
@@ -335,14 +335,14 @@ def run_filter[
     init_particles = jax.vmap(smc.target.prior.sample, in_axes=[0, None, None])(
         jrandom.split(init_key, smc.num_particles),
         initial_conditions,
-        target_parameters(parameters),
+        convert_to_model_parameters(parameters),
     )
     log_weights = smc.emission_log_prob(
         init_particles,
         util.index_pytree(observation_path, 0),
         observation_history,
         initial_conditions,
-        target_parameters(parameters),
+        convert_to_model_parameters(parameters),
     )
 
     filter_data = FilterData(
@@ -378,7 +378,7 @@ def run_filter[
             observation,
             condition,
             parameters,
-            target_parameters,
+            convert_to_model_parameters,
         )
 
         recorder_vals = (
