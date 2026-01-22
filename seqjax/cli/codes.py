@@ -23,6 +23,7 @@ __all__ = [
     "apply_buffer_vi_codes",
     "apply_full_vi_codes",
     "apply_nuts_codes",
+    "apply_buffer_sgld_codes",
 ]
 
 
@@ -133,6 +134,47 @@ NUTS_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
     "NC": {"1": 1, "2": 2, "4": 4, "8": 8},
 }
 
+
+BUFFER_SGLD_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
+    "SS": {"1e-0": 1, "1e-1": 0.1, "1e-2": 0.01, "1e-3": 0.001},
+    "B": {"0": 0, "5": 5, "10": 10, "20": 20, "40": 40, "50": 50},
+    "M": {"5": 5, "10": 10, "20": 20, "40": 40},
+    "MAXS": {
+        "NO": None,
+        "1K": 1_000,
+        "50K": 50_000,
+        "100K": 100_000,
+        "150K": 150_000,
+        "1M": 1_000_000,
+        "10M": 10_000_000,
+        "100M": 100_000_000,
+    },
+    "MAXT": {
+        "20H": 20 * 60 * 60,
+        "10H": 10 * 60 * 60,
+        "5H": 5 * 60 * 60,
+        "2H": 2 * 60 * 60,
+        "2H_m10M": 2 * 60 * 60 - 10 * 60,
+        "30M": 30 * 60,
+        "5M": 5 * 60,
+        "NO": None,
+    },
+}
+BUFFER_SGLD_DEFAULT_CODES = [
+    "SS-1e-2",
+    "B-10",
+    "M-10",
+    "MAXT-NO",
+    "MAXS-50k",
+]
+
+BUFFER_SGLD_FACTOR_NAMES = {
+    "SS": "step_size",
+    "B": "buffer_length",
+    "M": "batch_length",
+    "MAXS": "num_samples",
+    "MAXT": "time_limit_s",
+}
 
 BUFFER_VI_CODES: Dict[str, Dict[str, _CodeValue]] = _merge_code_definitions(
     COMMON_CODE_DEFINITIONS,
@@ -411,3 +453,17 @@ def apply_nuts_codes(config: NUTSConfig, raw_tokens: Iterable[str]) -> NUTSConfi
         num_steps=resolved["num_steps"],
         num_chains=resolved["num_chains"],
     )
+
+def apply_buffer_sgld_codes(config, raw_tokens):
+    tokens = _normalise_tokens(raw_tokens)
+    try:
+        resolved = _resolve_config(
+            tokens,
+            defaults=BUFFER_SGLD_DEFAULT_CODES,
+            code_definitions=BUFFER_SGLD_SPECIFIC_CODES,
+            factor_names=BUFFER_SGLD_FACTOR_NAMES,
+        )
+    except CodeParseError as exc:  # pragma: no cover - exercised via CLI
+        raise exc
+    
+    return replace(config, **resolved)

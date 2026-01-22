@@ -22,48 +22,40 @@ from functools import partial
 from seqjax.inference.vi.base import sample_batch_and_mask
 from seqjax.inference.particlefilter import SMCSampler, run_filter
 from seqjax.inference.particlefilter.base import TransitionProposal, FilterData
+from seqjax.inference.particlefilter import registry as particle_filter_registry
 
 class SGLDConfig[
-    LatentT: seqjtyping.Latent,
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
     eqx.Module,
 ):
     """Configuration for :func:`run_sgld`."""
 
-    particle_filter: SMCSampler[
-        LatentT,
-        ObservationT,
-        ConditionT,
-        ParametersT,
-    ]
+    particle_filter_config: particle_filter_registry.BootstrapFilterConfig
     step_size: float | ParametersT = 1e-3
     num_samples: int = 100
     initial_parameter_guesses: int = 20
-
+    time_limit_s: None | float = None
 
 class BufferedSGLDConfig[
-    ParticleT: seqjtyping.Latent,
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
     eqx.Module,
 ):
     """Configuration for :func:`run_sgld`."""
 
-    particle_filter: SMCSampler[
-        ParticleT,
-        ObservationT,
-        ConditionT,
-        ParametersT,
-    ]
+    particle_filter_config: particle_filter_registry.BootstrapFilterConfig
     step_size: float | ParametersT = 1e-3
-    num_samples: int = 100
+    num_samples: None | int = 5000
+    time_limit_s: None | float = None
     buffer_length: int = 5
     batch_length: int = 10
+
+    @classmethod
+    def from_dict(cls, config_dict: dict[str, typing.Any]):
+        return cls(
+            **config_dict
+        )
 
 
 def _tree_randn_like[ParametersT: seqjtyping.Parameters](
@@ -232,14 +224,14 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
     key: jaxtyping.PRNGKeyArray,
     initial_parameters: ParametersT,
     config: SGLDConfig | BufferedSGLDConfig,
+    num_samples: int,
     noise_rescale: float = 1.
 ) -> ParametersT:
     """Run SGLD updates using ``grad_estimator``."""
 
-    n_iters = config.num_samples
-    split_keys = jrandom.split(key, 2 * n_iters)
-    grad_keys = split_keys[:n_iters]
-    noise_keys = split_keys[n_iters:]
+    split_keys = jrandom.split(key, 2 * num_samples)
+    grad_keys = split_keys[:num_samples]
+    noise_keys = split_keys[num_samples:]
 
     if jax.tree_util.tree_structure(config.step_size) == jax.tree_util.tree_structure(
         initial_parameters
@@ -250,7 +242,7 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
             lambda _: config.step_size, initial_parameters
         )
 
-    @scan_tqdm(n_iters)
+    @scan_tqdm(num_samples)
     def step(
         carry: tuple[int, ParametersT],
         inp: tuple[jaxtyping.PRNGKeyArray, jaxtyping.PRNGKeyArray],
@@ -286,7 +278,7 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
     )
 
     samples: ParametersT = jax.lax.scan(
-        step, (0, initial_parameters), (jnp.arange(n_iters), (grad_keys, noise_keys))
+        step, (0, initial_parameters), (jnp.arange(num_samples), (grad_keys, noise_keys))
     )[1]
     return samples
 
@@ -449,6 +441,9 @@ def run_buffer_sgld_mcmc[
 ) -> tuple[InferenceParametersT, typing.Any]:
     sequence_length = observation_path.batch_shape[0]
 
+    particle_filter = particle_filter_registry._build_filter(
+        target_posterior, config.particle_filter_config
+    )
     def _buffered_estimate_score(particle_filter, observation_path, model, batch_length, buffer_length, params, key):
         latent_scaling = (batch_length + observation_path.batch_shape[0] - 1) / batch_length
 
@@ -506,31 +501,54 @@ def run_buffer_sgld_mcmc[
 
     score_esimator = jax.jit(partial(
         _buffered_estimate_score,
-        config.particle_filter, 
+        particle_filter, 
         observation_path, 
         target_posterior,
         config.batch_length,
         config.buffer_length,
     ))
 
-    init_time_start = time.time()
-    init_key, sample_key = jrandom.split(key)
+    inference_time_start = time.time()
+    init_key, next_sample_key = jrandom.split(key)
     initial_parameters = target_posterior.parameter_prior.sample(init_key, None)
-    init_time_end = time.time()
-    init_time_s = init_time_end - init_time_start
 
-    sample_time_start = time.time()
-    samples = run_sgld(
-        score_esimator,
-        sample_key,
-        initial_parameters,
-        config,
-        noise_rescale=1 / sequence_length # this is what Aicher does 
+    # by default sample in chunks of 1000
+    num_samples = (
+        config.num_samples 
+        if config.num_samples is not None 
+        else 1000
     )
-    sample_time_end = time.time()
-    sample_time_s = sample_time_end - sample_time_start
-    time_array_s = init_time_s + (
-        jnp.arange(config.num_samples) * (sample_time_s / config.num_samples)
-    )
+    sample_blocks = [
+        jax.tree_util.tree_map(partial(jnp.expand_dims, axis=0), initial_parameters)
+    ]
+    samples_taken = 0
+    block_times_s = []
+    while True:
+        sample_key, next_sample_key = jrandom.split(next_sample_key)
+        start_parameter = util.index_pytree(sample_blocks[-1], -1)
+        samples = run_sgld(
+            score_esimator,
+            sample_key,
+            start_parameter,
+            config,
+            num_samples,
+            noise_rescale=1 / sequence_length # this is what Aicher does 
+        )
+        samples_taken += num_samples
 
-    return samples, None
+        elapsed_time_s = time.time() - inference_time_start
+        block_times_s.append((elapsed_time_s, samples_taken))
+        sample_blocks.append(samples)
+
+        if config.time_limit_s and elapsed_time_s > config.time_limit_s:
+            print("Stopping due to time limit")
+            break
+
+        if config.num_samples and samples_taken >= config.num_samples:
+            print("Stopping due to sample limit")
+            break
+        
+        print(f"Elapsed time: {int(elapsed_time_s / 60)} minutes")
+
+    all_samples = util.concat_pytree(*sample_blocks)
+    return all_samples, block_times_s

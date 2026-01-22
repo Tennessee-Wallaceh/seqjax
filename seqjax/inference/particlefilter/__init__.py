@@ -16,6 +16,7 @@ from .recorders import (
     log_marginal,
     effective_sample_size,
 )
+from . import registry
 
 __all__ = [
     "SMCSampler",

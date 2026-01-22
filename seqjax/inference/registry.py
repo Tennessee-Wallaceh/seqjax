@@ -11,6 +11,7 @@ inference_functions: dict[str, InferenceMethod] = {
     "full-vi": vi.run_full_path_vi,
     "particle-mcmc": pmcmc.run_particle_mcmc,
     "full-sgld": sgld.run_full_sgld_mcmc,
+    "buffer-sgld": sgld.run_buffer_sgld_mcmc,
 }
 
 
@@ -95,8 +96,26 @@ class FullSGLDInference:
         return name
 
 
+@dataclass
+class BufferSGLDInference:
+    method: typing.Literal["buffer-sgld"]
+    config: sgld.BufferedSGLDConfig
+
+    @property
+    def name(self) -> str:
+        num_particles = self.config.particle_filter_config.num_particles
+        name = f"full-sgld-n{self.config.num_samples}-p{num_particles}"
+        name += f"-b{self.config.buffer_length}-m{self.config.batch_length}-ss{self.config.step_size}"
+        return name
+
+
 InferenceConfig = (
-    NUTSInference | BufferVI | FullVI | ParticleMCMCInference | FullSGLDInference
+    NUTSInference 
+    | BufferVI 
+    | FullVI 
+    | ParticleMCMCInference 
+    | FullSGLDInference
+    | BufferSGLDInference
 )
 
 
@@ -126,6 +145,11 @@ def from_dict(config_dict: dict[str, typing.Any]) -> InferenceConfig:
         return FullSGLDInference(
             method="full-sgld",
             config=sgld.SGLDConfig.from_dict(config_dict["config"]),
+        )
+    elif method == "buffer-sgld":
+        return FullSGLDInference(
+            method="full-sgld",
+            config=sgld.BufferedSGLDConfig.from_dict(config_dict["config"]),
         )
     else:
         raise ValueError(f"Unknown inference method: {method}")

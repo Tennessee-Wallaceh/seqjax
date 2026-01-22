@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from typing import Any, Protocol
 import typing
+import pickle
 
 import equinox as eqx
 
@@ -76,6 +77,22 @@ def download_artifact(artifact: wandb.Artifact) -> str:
     return artifact_dir
 
 
+def save_python_artifact(
+    run: WandbRun,
+    artifact_name: str,
+    wandb_type: str,
+    file_names_and_data: list[tuple[str, object]],
+):
+    artifact = wandb.Artifact(name=artifact_name, type=wandb_type)
+
+    for file_name, python_object in file_names_and_data:
+        file_loc = f"{SEQJAX_DATA_DIR}/{file_name}.pkl"
+        with open(file_loc, 'wb') as f:
+            pickle.dump(python_object, f)
+        artifact.add_file(local_path=file_loc)
+    run.log_artifact(artifact)
+
+
 def save_packable_artifact(
     run: WandbRun,
     artifact_name: str,
@@ -127,6 +144,27 @@ def load_model_artifact(
         model = eqx.tree_deserialise_leaves(f, like=model)
 
     return model
+
+def load_python_object(
+    target_run: WandbRun,
+    artifact_name: str,
+    file_names: list[str],
+) -> eqx.Module:
+    print(
+        f"Loading {target_run.name}-{artifact_name}:latest from wandb {target_run.project}..."
+    )
+    run = wandb.init(project=target_run.project)
+    artifact = run.use_artifact(
+        f"{target_run.name}-{artifact_name}:latest", type="run_output"
+    )
+
+    artifact_dir = download_artifact(artifact)
+    file_path = os.path.join(artifact_dir, f"{target_run.name}-{artifact_name}.eqx")
+
+    with open(file_path, "rb") as f:
+        python_object = pickle.load(f)
+
+    return python_object
 
 
 def packable_artifact_present(
