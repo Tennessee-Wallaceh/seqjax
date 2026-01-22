@@ -20,6 +20,7 @@ __all__ = [
     "format_buffer_vi_codes",
     "format_full_vi_codes",
     "format_nuts_codes",
+    "format_buffer_sgld_codes",
     "apply_buffer_vi_codes",
     "apply_full_vi_codes",
     "apply_nuts_codes",
@@ -334,6 +335,13 @@ def format_full_vi_codes() -> str:
 def format_nuts_codes() -> str:
     lines: List[str] = []
     for factor, entries in sorted(NUTS_CODES.items()):
+        values = ", ".join(f"{factor}-{suffix}" for suffix in entries)
+        lines.append(f"{factor}: {values}")
+    return "\n".join(lines)
+
+def format_buffer_sgld_codes() -> str:
+    lines: List[str] = []
+    for factor, entries in sorted(BUFFER_SGLD_SPECIFIC_CODES.items()):
         values = ", ".join(f"{factor}-{suffix}" for suffix in entries)
         lines.append(f"{factor}: {values}")
     return "\n".join(lines)
