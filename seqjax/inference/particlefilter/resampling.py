@@ -52,7 +52,7 @@ def multinomial_resample_from_log_weights(
         0,
     )
     resampled_log_w = jnp.zeros((num_resample,), dtype=raw_log_weights.dtype)
-    return resampled_particles, ancestor_ix, resampled_log_w, 0.0, 0.0
+    return resampled_particles, ancestor_ix, resampled_log_w, 0.0
 
 
 def no_resample(
@@ -61,7 +61,7 @@ def no_resample(
     particles,
     num_resample,
 ):
-    return particles, jnp.arange(num_resample), raw_log_weights, 0.0, 0.0
+    return particles, jnp.arange(num_resample), raw_log_weights, 0.0
 
 
 def _ess_efficiency_from_log_weights(log_weights: Array) -> Array:

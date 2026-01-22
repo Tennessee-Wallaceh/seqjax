@@ -56,7 +56,10 @@ class VariationalApproximation[
 
 class AmortizedVariationalApproximation[
     TargetStructT: seqjtyping.Packable,
-](VariationalApproximation[TargetStructT, tuple[jaxtyping.Array, jaxtyping.Array]]):
+](VariationalApproximation[
+    TargetStructT, 
+    tuple[jaxtyping.Array, jaxtyping.Array, jaxtyping.Array]
+]):
     batch_length: int
     buffer_length: int
 
@@ -301,9 +304,9 @@ class AmortizedMaskedAutoregressiveFlow[
     def sample_and_log_prob(
         self,
         key: jaxtyping.PRNGKeyArray,
-        condition: tuple[jaxtyping.Array, jaxtyping.Array],
+        condition: tuple[jaxtyping.Array, jaxtyping.Array, jaxtyping.Array],
     ) -> tuple[TargetStructT, jaxtyping.Scalar]:
-        theta_context, observation_context = condition
+        theta_context, observation_context, _ = condition
         cond = self._build_condition(theta_context, observation_context)
         flow_key = _ensure_prng_key(key)
         flat_sample = self.distribution.sample(flow_key, condition=cond)

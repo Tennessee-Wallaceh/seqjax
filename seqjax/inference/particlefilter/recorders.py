@@ -76,19 +76,3 @@ def current_particle_variance(filter_data: FilterData) -> PyTree:
         return jnp.sum(expanded * (arr - mean) ** 2, axis=0)
 
     return jax.tree_util.tree_map(_var, particle)
-
-
-def log_marginal(filter_data: FilterData) -> PyTree:
-    """Record the log marginal likelihood increment at each step."""
-
-    log_w_increment = filter_data.log_weight_increment
-    lw_max = jnp.max(log_w_increment)
-    w = jnp.exp(log_w_increment - lw_max)
-    w_sum = jnp.sum(w)
-    return jnp.log(w_sum) + lw_max - jnp.log(filter_data.ancestor_ix.shape[0])
-
-
-def effective_sample_size(filter_data: FilterData) -> PyTree:
-    """Record the effective sample size at each step."""
-
-    return filter_data.ess_e

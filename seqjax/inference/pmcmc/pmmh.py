@@ -14,6 +14,7 @@ from seqjax.model.base import (
     BayesianSequentialModel,
 )
 
+from seqjax.inference.particlefilter import registry as particle_filter_registry
 from seqjax.inference.particlefilter import SMCSampler, run_filter
 from seqjax.inference.particlefilter.base import FilterData
 from seqjax.inference.mcmc.metropolis import (
@@ -43,11 +44,15 @@ class ParticleMCMCConfig(
 ):
     """Configuration for :func:`run_particle_mcmc`."""
 
-    particle_filter: SMCSampler
+    particle_filter_config: particle_filter_registry.BootstrapFilterConfig
     mcmc: RandomWalkConfig = RandomWalkConfig()
     initial_parameter_guesses: int = 10
     tuning: ParticleFilterTuningConfig | None = None
 
+    @classmethod
+    def from_dict(cls, config_dict):
+        return cls(**config_dict)
+    
 
 def _make_log_joint_estimator[
     ParticleT: seqjtyping.Latent,
@@ -72,6 +77,7 @@ def _make_log_joint_estimator[
     def estimate_log_joint(
         particle_filter: SMCSampler[
             ParticleT,
+            tuple[ParticleT,...],
             ObservationT,
             ConditionT,
             ParametersT,
@@ -124,26 +130,24 @@ def run_particle_mcmc[
         target_posterior, hyperparameters, observation_path, condition_path
     )
 
+    particle_filter = particle_filter_registry._build_filter(
+        target_posterior, 
+        config=config.particle_filter_config
+    )
+    
     tuning_diagnostics = None
-    working_config = config
     if config.tuning is not None:
         key, tuning_key = jrandom.split(key)
         tuned_filter, tuning_diagnostics = tune_particle_filter_variance(
             estimate_log_joint,
-            config.particle_filter,
+            particle_filter,
             target_posterior,
             hyperparameters,
             config.tuning,
             tuning_key,
         )
-        working_config = eqx.tree_at(
-            lambda c: c.particle_filter,
-            config,
-            tuned_filter,
-        )
 
-    particle_filter = working_config.particle_filter
-    log_joint_fn = functools.partial(estimate_log_joint, particle_filter)
+    log_joint_fn = functools.partial(estimate_log_joint, tuned_filter)
     jit_log_joint_fn = jax.jit(log_joint_fn)
 
     init_time_start = time.time()

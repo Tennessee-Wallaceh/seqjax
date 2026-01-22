@@ -73,7 +73,7 @@ class ParticleMCMCInference:
     def name(self) -> str:
         name = "particle-mcmc"
 
-        num_particles = self.config.particle_filter.num_particles
+        num_particles = self.config.particle_filter_config.num_particles
         if num_particles is not None:
             name += f"-p{num_particles}"
 
@@ -91,7 +91,7 @@ class FullSGLDInference:
 
     @property
     def name(self) -> str:
-        num_particles = self.config.particle_filter.num_particles
+        num_particles = self.config.particle_filter_config.num_particles
         name = f"full-sgld-n{self.config.num_samples}-p{num_particles}"
         return name
 

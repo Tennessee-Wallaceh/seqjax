@@ -313,15 +313,19 @@ class BufferedVIConfig:
             config_dict["optimization"]["label"]
         ].from_dict(config_dict["optimization"])
 
+        pre_training_optimization = optimization_registry.registry[
+            config_dict["pre_training_optimization"]["label"]
+        ].from_dict(config_dict["pre_training_optimization"])
+
         return cls(
             optimization=optimization,
+            pre_training_optimization=pre_training_optimization,
             parameter_field_bijections=config_dict["parameter_field_bijections"],
             buffer_length=config_dict["buffer_length"],
             batch_length=config_dict["batch_length"],
             observations_per_step=config_dict["observations_per_step"],
             samples_per_context=config_dict["samples_per_context"],
             control_variate=config_dict["control_variate"],
-            pre_training_steps=config_dict["pre_training_steps"],
             embedder=embedder_registry[config_dict["embedder"]["label"]],
             parameter_approximation=parameter_approximation_registry[
                 config_dict["parameter_approximation"]["label"]

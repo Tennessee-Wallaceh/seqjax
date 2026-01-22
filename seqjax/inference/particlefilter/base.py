@@ -52,6 +52,7 @@ class Recorder(Protocol):
 
 class Proposal[
     ParticleT: seqjtyping.Latent,
+    ParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
@@ -68,24 +69,24 @@ class Proposal[
 
     order: int
 
-    @staticmethod
     @abstractmethod
     def sample(
+        self,
         key: PRNGKeyArray,
-        particle_history: tuple[ParticleT, ...],
+        particle_history: ParticleHistoryT,
         observation: ObservationT,
         condition: ConditionT,
         parameters: ParametersT,
-    ) -> tuple[ParticleT, Array]: ...
+    ) -> ParticleT: ...
 
     """
     Leading axis is num particles
     """
 
-    @staticmethod
     @abstractmethod
     def log_prob(
-        particle_history: tuple[ParticleT, ...],
+        self,
+        particle_history: ParticleHistoryT,
         observation: ObservationT,
         particle: ParticleT,
         condition: ConditionT,
@@ -102,9 +103,10 @@ class TransitionProposal[
     HyperParametersT: seqjtyping.HyperParameters,
     PriorLatentT: tuple[seqjtyping.Latent, ...],
     PriorConditionT: tuple[seqjtyping.Condition, ...],
+    ParticleHistoryT: tuple[seqjtyping.Latent, ...],
     TransitionLatentHistoryT: tuple[seqjtyping.Latent, ...],
     EmissionLatentHistoryT: tuple[seqjtyping.Latent, ...],
-    ObservationHistoryT = tuple[seqjtyping.Observation, ...],
+    ObservationHistoryT: tuple[seqjtyping.Observation, ...],
 ](
     Proposal,
 ):
@@ -166,9 +168,9 @@ class TransitionProposal[
             self.target_parameters(parameters),
         )
 
-
 class SMCSampler[
     ParticleT: seqjtyping.Latent,
+    ParticleHistoryT: tuple[seqjtyping.Latent, ...],
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
@@ -183,8 +185,8 @@ class SMCSampler[
         ConditionT,
         ParametersT,
     ]
-    proposal: Proposal[ParticleT, ObservationT, ConditionT, ParametersT]
-    resampler: Resampler
+    proposal: Proposal[ParticleT, ParticleHistoryT, ObservationT, ConditionT, ParametersT]
+    resampler: Resampler[ParticleT]
     num_particles: int
 
     @cached_property
@@ -219,7 +221,7 @@ class SMCSampler[
     ) -> FilterData:
         resample_key, proposal_key = jrandom.split(step_key)
 
-        resampled_particles, ancestor_ix, resampled_log_w, _, _ = self.resampler(
+        resampled_particles, ancestor_ix, resampled_log_w, _ = self.resampler(
             resample_key,
             log_w,
             particles,
@@ -290,12 +292,13 @@ class SMCSampler[
 def run_filter[
     ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
+    ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
     key: PRNGKeyArray,
     smc: SMCSampler[
         ParticleT,
+        tuple[ParticleT,...],
         ObservationT,
         ConditionT,
         ParametersT,
@@ -303,7 +306,7 @@ def run_filter[
     parameters: ParametersT,
     observation_path: ObservationT,
     *,
-    condition_path: ConditionT = seqjtyping.NoCondition(),
+    condition_path: ConditionT | seqjtyping.NoCondition = seqjtyping.NoCondition(),
     recorders: tuple[Recorder, ...] | None = None,
     target_parameters: Callable = lambda x: x,
 ) -> tuple[
@@ -415,6 +418,6 @@ def run_filter[
     (log_w, particles) = final_state
     return (
         log_w,
-        particles,
+        typing.cast(ParticleT, particles),
         recorder_history,
     )

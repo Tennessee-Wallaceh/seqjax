@@ -41,7 +41,7 @@ def run_full_path_vi[
     hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
-    condition_path: ConditionT | None = None,
+    condition_path: ConditionT,
     test_samples: int = 1000,
     config: registry.FullVIConfig = registry.FullVIConfig(),
     tracker: typing.Any = None,
@@ -113,8 +113,6 @@ def run_buffered_vi[
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
     condition_path: ConditionT | None = None,
-    start_approximation: typing.Any | None = None,
-    sync_interval_s: float | None = None,
     test_samples: int = 1000,
     config: registry.BufferedVIConfig = registry.BufferedVIConfig(),
     tracker: typing.Any = None,
@@ -122,6 +120,10 @@ def run_buffered_vi[
     # set up a default tracker if none provided
     if tracker is None:
         tracker = train.Tracker(metric_samples=1000)
+
+    #TODO: find a way to pass dynamic objects to inference runs
+    start_approximation = None
+    sync_interval_s = None
 
     sequence_length = observation_path.batch_shape[0]
 

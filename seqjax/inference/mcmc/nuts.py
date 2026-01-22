@@ -70,7 +70,7 @@ class NUTSConfig(eqx.Module):
             step_size=config_dict.get("step_size", 1e-3),
             num_adaptation=config_dict.get("num_adaptation", 1000),
             num_warmup=config_dict.get("num_warmup", 1000),
-            num_steps=config_dict.get("num_steps"),
+            num_steps=config_dict.get("num_steps", 1000),
             inverse_mass_matrix=config_dict.get("inverse_mass_matrix", None),
             num_chains=config_dict.get("num_chains", 1),
         )
@@ -99,8 +99,6 @@ def run_bayesian_nuts[
     condition_path: ConditionT,
     test_samples: int,
     config: NUTSConfig = NUTSConfig(),
-    seed_initial_latents=None,
-    seed_initial_params=None,
     tracker: Any = None,
 ) -> tuple[
     InferenceParametersT,
@@ -121,6 +119,9 @@ def run_bayesian_nuts[
             latents, observation_path, condition_path, model_params
         )
         return log_like + log_prior
+
+    seed_initial_latents = None
+    seed_initial_params = None
 
     def initial_state(key):
         param_key, latent_key = jrandom.split(key)

@@ -15,13 +15,11 @@ from seqjax.model.base import (
     BayesianSequentialModel,
 )
 import seqjax.model.typing as seqjtyping
-from seqjax.inference.particlefilter import SMCSampler, run_filter, log_marginal
-from seqjax.inference import particlefilter
+from seqjax.inference.particlefilter import run_filter
 from seqjax.inference.interface import inference_method
 from functools import partial
 from seqjax.inference.vi.base import sample_batch_and_mask
-from seqjax.inference.particlefilter import SMCSampler, run_filter
-from seqjax.inference.particlefilter.base import TransitionProposal, FilterData
+from seqjax.inference.particlefilter.base import FilterData
 from seqjax.inference.particlefilter import registry as particle_filter_registry
 
 class SGLDConfig[
@@ -37,6 +35,10 @@ class SGLDConfig[
     initial_parameter_guesses: int = 20
     time_limit_s: None | float = None
 
+    @classmethod
+    def from_dict(cls, config_dict):
+        return cls(**config_dict)
+    
 class BufferedSGLDConfig[
     ParametersT: seqjtyping.Parameters,
 ](
@@ -68,86 +70,6 @@ def _tree_randn_like[ParametersT: seqjtyping.Parameters](
     ]
     return jax.tree_util.tree_unflatten(treedef, new_leaves)
 
-
-def build_score_increment(target_posterior: BayesianSequentialModel):
-    def latent_prior_log_prob(particle, condition, parameters):
-        return target_posterior.target.prior.log_prob(
-            particle, condition, target_posterior.target_parameter(parameters)
-        )
-
-    latent_prior_score = jax.vmap(
-        jax.grad(latent_prior_log_prob, argnums=2), in_axes=[0, None, None]
-    )
-
-    def observation_log_prob(
-        particle, observation_history, observation, condition, parameters
-    ):
-        return target_posterior.target.emission.log_prob(
-            particle,
-            observation_history,
-            observation,
-            condition,
-            target_posterior.target_parameter(parameters),
-        )
-
-    observation_score = jax.vmap(
-        jax.grad(observation_log_prob, argnums=-1), in_axes=[0, None, None, None, None]
-    )
-
-    def transition_log_prob(particle_history, particle, condition, parameters):
-        return target_posterior.target.transition.log_prob(
-            particle_history,
-            particle,
-            condition,
-            target_posterior.target_parameter(parameters),
-        )
-
-    transition_score = jax.vmap(
-        jax.grad(transition_log_prob, argnums=-1), in_axes=[0, 0, None, None]
-    )
-
-    def score_increment(filter_data: particlefilter.base.FilterData):
-        no_ancestor = jnp.all(filter_data.ancestor_ix == -1)
-
-        ancestor_particles = jax.tree_util.tree_map(
-            lambda leaf: jax.vmap(jax.lax.dynamic_index_in_dim, in_axes=[None, 0])(
-                leaf, filter_data.ancestor_ix
-            ).squeeze(),
-            filter_data.last_particles,
-        )
-
-        def _latent_score(particles):
-            return latent_prior_score(
-                particles,
-                filter_data.condition,
-                filter_data.parameters,
-            )
-
-        def _transition_score(particles):
-            return transition_score(
-                ancestor_particles,
-                particles[-1],
-                filter_data.condition,
-                filter_data.parameters,
-            )
-
-        scores = jax.tree_util.tree_map(
-            lambda *xs: sum(xs),
-            jax.lax.cond(
-                no_ancestor, _latent_score, _transition_score, filter_data.particles
-            ),
-            observation_score(
-                filter_data.particles,
-                filter_data.obs_hist,
-                filter_data.observation,
-                filter_data.condition,
-                filter_data.parameters,
-            ),
-        )
-
-        return scores
-
-    return score_increment
 
 def estimate_initial_step_score(model, filter_data: FilterData):
     # grad wrt to parameters
@@ -308,106 +230,95 @@ def run_full_sgld_mcmc[
     config: SGLDConfig,
     tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
-    score_increment = build_score_increment(target_posterior)
+    particle_filter = particle_filter_registry._build_filter(
+        target_posterior, config.particle_filter_config
+    )
 
-    particle_filter = config.particle_filter
-    if hasattr(particle_filter, "proposal") and hasattr(
-        particle_filter.proposal, "target_parameters"
-    ):
-        particle_filter = eqx.tree_at(
-            lambda pf: pf.proposal.target_parameters,
-            particle_filter,
-            target_posterior.target_parameter,
-        )
-
-    @jax.jit
-    def grad_estimator(params, key):
-        model_params = target_posterior.target_parameter(params)
-        out = particlefilter.run_filter(
-            particle_filter,
+    def _estimate_score(particle_filter, model, params, key):
+        out = run_filter(
             key,
-            model_params,
+            particle_filter,
+            params,
             observation_path,
-            recorders=(score_increment, lambda x: x.ancestor_ix),
-            target_parameters=target_posterior.target_parameter,
+            condition_path=condition_path,
+            recorders=(
+                partial(estimate_score_increment, model), 
+                lambda fd: fd.ancestor_ix,
+            ),
+            target_parameters=model.target_parameter,
         )
 
         log_weights, _, (score_increments, ancestor_ix) = out
+        norm_weights = jnp.exp(log_weights - jsp.special.logsumexp(log_weights))
 
-        def accumulate_score(score, inputs):
+        def accumulate_scores(current_score, inputs):
             score_increment, ancestor_ix = inputs
-            last_score = jax.tree_util.tree_map(
-                lambda leaf: jax.vmap(jax.lax.dynamic_index_in_dim, in_axes=[None, 0])(
-                    leaf, ancestor_ix
-                ).squeeze(),
-                score,
-            )
-            return (
-                jax.tree_util.tree_map(
-                    lambda *xs: sum(xs), last_score, score_increment
-                ),
-                None,
-            )
+            new_score = current_score[ancestor_ix] + score_increment
+            return new_score, new_score
 
-        final_scores, _ = jax.lax.scan(
-            accumulate_score,
-            util.index_pytree(score_increments, 0),
-            (util.slice_pytree(score_increments, 1, len(ancestor_ix)), ancestor_ix[1:]),
+        def masked_score_for_leaf(ancestor_ix, norm_weights, leaf_score_increments):
+            # leaf_score_increments [sample_length, num_particles]
+            # mask [sample_length]
+            final_score = jax.lax.scan(
+                accumulate_scores,
+                leaf_score_increments[0],
+                (leaf_score_increments[1:], ancestor_ix[1:]),
+            )[0]
+            return jnp.sum(final_score * norm_weights)
+
+        final_score = jax.tree_util.tree_map(
+            partial(masked_score_for_leaf, ancestor_ix, norm_weights),
+            score_increments
+        )
+        log_prior_score = jax.grad(model.parameter_prior.log_prob, argnums=0)(params, hyperparameters)
+
+        return jax.tree_util.tree_map(
+            lambda *x: sum(x),  log_prior_score, final_score
         )
 
-        grad_in_target_space = jax.tree_util.tree_map(
-            lambda leaf: jnp.sum(leaf * jax.nn.softmax(log_weights)),
-            final_scores,
+    inference_time_start = time.time()
+    init_key, next_sample_key = jrandom.split(key)
+    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
+
+    # by default sample in chunks of 1000
+    num_samples = (
+        config.num_samples 
+        if config.num_samples is not None 
+        else 1000
+    )
+    sample_blocks = [
+        jax.tree_util.tree_map(partial(jnp.expand_dims, axis=0), initial_parameters)
+    ]
+    samples_taken = 0
+    block_times_s = []
+    while True:
+        sample_key, next_sample_key = jrandom.split(next_sample_key)
+        start_parameter = util.index_pytree(sample_blocks[-1], -1)
+        samples = run_sgld(
+            jax.jit(partial(_estimate_score, model=target_posterior)),
+            sample_key,
+            start_parameter,
+            config,
+            num_samples,
         )
+        samples_taken += num_samples
 
-        _, pullback = jax.vjp(lambda p: target_posterior.target_parameter(p), params)
-        (grad_inference_space,) = pullback(grad_in_target_space)
+        elapsed_time_s = time.time() - inference_time_start
+        block_times_s.append((elapsed_time_s, samples_taken))
+        sample_blocks.append(samples)
 
-        return grad_inference_space
+        if config.time_limit_s and elapsed_time_s > config.time_limit_s:
+            print("Stopping due to time limit")
+            break
 
-    def estimate_log_joint(params, key):
-        model_params = target_posterior.target_parameter(params)
-        _, _, (log_marginal_increments,) = run_filter(
-            particle_filter,
-            key,
-            model_params,
-            observation_path,
-            recorders=(log_marginal,),
-            target_parameters=target_posterior.target_parameter,
-        )
-        log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
-        return jnp.sum(log_marginal_increments) + log_prior
+        if config.num_samples and samples_taken >= config.num_samples:
+            print("Stopping due to sample limit")
+            break
+        
+        print(f"Elapsed time: {int(elapsed_time_s / 60)} minutes")
 
-    init_time_start = time.time()
-    init_key, sample_key = jrandom.split(key)
-    initial_parameter_samples = jax.vmap(
-        target_posterior.parameter_prior.sample, in_axes=[0, None]
-    )(jrandom.split(init_key, config.initial_parameter_guesses), hyperparameters)
-    parameter_init_marginals = jax.vmap(jax.jit(estimate_log_joint), in_axes=[0, None])(
-        initial_parameter_samples,
-        key,
-    )
-    init_time_end = time.time()
-    init_time_s = init_time_end - init_time_start
-
-    initial_parameters = util.index_pytree(
-        initial_parameter_samples, jnp.argmax(parameter_init_marginals).item()
-    )
-
-    sample_time_start = time.time()
-    samples = run_sgld(
-        grad_estimator,
-        sample_key,
-        initial_parameters,
-        config,
-    )
-    sample_time_end = time.time()
-    sample_time_s = sample_time_end - sample_time_start
-    time_array_s = init_time_s + (
-        jnp.arange(config.num_samples) * (sample_time_s / config.num_samples)
-    )
-
-    return samples, (time_array_s,)
+    all_samples = util.concat_pytree(*sample_blocks)
+    return all_samples, block_times_s
 
 
 """
@@ -493,7 +404,7 @@ def run_buffer_sgld_mcmc[
             partial(masked_score_for_leaf, ancestor_ix, norm_weights, mask=theta_mask),
             score_increments
         )
-        log_prior_score = jax.grad(model.parameter_prior.log_prob, argnums=0)(params, None)
+        log_prior_score = jax.grad(model.parameter_prior.log_prob, argnums=0)(params, hyperparameters)
         # use rescaling in Aicher code
         return jax.tree_util.tree_map(
             lambda *x: sum(x) / sequence_length,  log_prior_score, final_score
@@ -510,7 +421,7 @@ def run_buffer_sgld_mcmc[
 
     inference_time_start = time.time()
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameter_prior.sample(init_key, None)
+    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
 
     # by default sample in chunks of 1000
     num_samples = (
