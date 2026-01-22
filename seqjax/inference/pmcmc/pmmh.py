@@ -33,7 +33,7 @@ def log_marginal_increment(filter_data: FilterData):
     return jax.lax.select(
         filter_data.ancestor_ix[0] == -1,
         jsp.special.logsumexp(filter_data.log_w) - jnp.log(filter_data.log_w.shape[0]),
-        jsp.special.logsumexp(filter_data.resampled_log_w + filter_data.log_w)
+        jsp.special.logsumexp(filter_data.resampled_log_w + filter_data.log_w_inc)
         - jsp.special.logsumexp(filter_data.resampled_log_w),
     )
 
@@ -82,7 +82,7 @@ def _make_log_joint_estimator[
         _, _, (log_marginal_increments,) = run_filter(
             key,
             particle_filter,
-            params,
+            target_posterior.target_parameter(params),
             observation_path,
             condition_path=seqjtyping.NoCondition(),
             recorders=(log_marginal_increment,),

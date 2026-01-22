@@ -328,8 +328,7 @@ def gaussian_var_start_sample(
     # mu = 2 * jnp.log(0.16)
     # sigma = jnp.array(0.5)
     mu = jnp.array(0.0)
-    sigma = jnp.array(0.6)
-
+    sigma = jnp.sqrt(jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar)))
     start_lv = LatentVar(log_var=mu + sigma * jrandom.normal(key))
     return (start_lv,)
 
@@ -343,7 +342,7 @@ def gaussian_var_start_log_prob(
     # mu = 2 * jnp.log(0.16)
     # sigma = jnp.array(0.5)
     mu = jnp.array(0.0)
-    sigma = jnp.array(0.6)
+    sigma = jnp.sqrt(jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar)))
 
     base_log_p = jstats.norm.logpdf(
         start_lv.log_var,

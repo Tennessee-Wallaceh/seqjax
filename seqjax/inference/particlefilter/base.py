@@ -23,8 +23,7 @@ from seqjax.model.evaluate import (
 )
 
 
-@dataclass
-class FilterData:
+class FilterData(eqx.Module):
     """
     Encapsulates the data arising from a filter step
     """
@@ -36,7 +35,12 @@ class FilterData:
     particles: tuple[seqjtyping.Latent, ...]
     ancestor_ix: Array
     log_w_inc: Array
+    resampled_particles: tuple[seqjtyping.Latent, ...]
 
+    observation: seqjtyping.Observation
+    condition: seqjtyping.Condition
+
+    inference_parameters: seqjtyping.Parameters
 
 class Recorder(Protocol):
     """
@@ -234,7 +238,7 @@ class SMCSampler[
         )
 
         emission_history = (
-            particles[-(self.target.emission.order - 1) :]
+            resampled_particles[-(self.target.emission.order - 1) :]
             if self.target.emission.order > 1
             else ()
         )
@@ -276,6 +280,10 @@ class SMCSampler[
             particles=particles,
             ancestor_ix=ancestor_ix,
             log_w_inc=log_weight_inc,
+            resampled_particles=resampled_particles,
+            observation=observation,
+            condition=condition,
+            inference_parameters=params,
         )
 
 
@@ -339,8 +347,12 @@ def run_filter[
         resampled_log_w=log_weights,
         log_w=log_weights,
         particles=init_particles,
+        resampled_particles=init_particles,
         ancestor_ix=jnp.full((smc.num_particles,), -1, dtype=jnp.int32),
         log_w_inc=-jnp.ones_like(log_weights) * jnp.log(smc.num_particles),
+        observation=util.index_pytree(observation_path, 0),
+        condition=util.index_pytree(condition_path, 0),
+        inference_parameters=parameters,
     )
     intial_record = (
         tuple(r(filter_data) for r in recorders) if recorders is not None else ()

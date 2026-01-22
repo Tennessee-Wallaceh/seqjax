@@ -547,11 +547,18 @@ def sample_batch_and_mask(
 
     # where the buffer would like to start, may fall outside of data
     buffer_start = padded_start_ix - pad_length - buffer_length
-    # pshirt into possible starts for the latent approximation
+    # clip into possible starts for the latent approximation
     approx_start = jnp.clip(buffer_start, min=0, max=sequence_length - sample_length)
 
     # construct the mask for theta, this probably could be
     # written in a clearer way
+
+    # TODO: consider alternative
+    # batch_start = padded_start_ix - pad_length  # may be negative (left padding)
+    # sample_index = approx_start + jnp.arange(sample_length)  # data indices covered by `samples`
+    # theta_mask = (sample_index >= batch_start) & (sample_index < batch_start + batch_length)
+    # theta_mask = theta_mask & (sample_index >= 0) & (sample_index < sequence_length)
+
     batch_index = padded_start_ix + jnp.arange(batch_length)
     padded_mask = jax.nn.one_hot(
         batch_index, num_classes=sequence_length + 2 * pad_length
@@ -717,7 +724,7 @@ class BufferedSSMVI[
         # each index appears in max batch length batches
         # batches are sampled uniformly, so scale by
         latent_scaling = (
-            self.latent_approximation.batch_length + observations.batch_shape[0]
+            self.latent_approximation.batch_length + observations.batch_shape[0] - 1
         ) / self.latent_approximation.batch_length
 
         theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
