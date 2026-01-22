@@ -15,6 +15,7 @@ from seqjax.model.base import (
     Emission,
     ParameterPrior,
     Prior,
+    Transition,
     SequentialModel,
     BayesianSequentialModel,
     GaussianLocScaleTransition,
@@ -159,7 +160,12 @@ def ar_loc_scale(
     return loc_x, scale_x
 
 
-ar_random_walk = GaussianLocScaleTransition(
+ar_random_walk: Transition[
+    tuple[LatentValue],
+    LatentValue,
+    NoCondition,
+    ARParameters,
+] = GaussianLocScaleTransition(
     loc_scale=ar_loc_scale,
     latent_t=LatentValue,
 )

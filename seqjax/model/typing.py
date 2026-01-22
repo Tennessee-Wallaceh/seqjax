@@ -16,6 +16,12 @@ import equinox as eqx
 
 BatchAxes = TypeVarTuple("BatchAxes")
 
+class classproperty:
+    def __init__(self, fget):
+        self.fget = fget
+    def __get__(self, obj, cls):
+        return self.fget(cls)
+    
 
 class Packable[*BatchAxes](eqx.Module):
     """
@@ -62,56 +68,52 @@ class Packable[*BatchAxes](eqx.Module):
             int(math.prod(spec.shape or (1,))) for spec in template.values()
         )
 
-    @classmethod
-    @lru_cache(maxsize=None)
-    def _ravel_pair(
-        cls,
-    ) -> typing.Tuple[
-        typing.Callable[["Packable"], jnp.ndarray],
-        typing.Callable[[jnp.ndarray], "Packable"],
-    ]:
-        items = tuple(cls._shape_template.items())
-        flat_sizes = tuple(math.prod(spec.shape or (1,)) for _, spec in items)
-        split_idx = tuple(sum(flat_sizes[: i + 1]) for i in range(len(flat_sizes) - 1))
-
-        def ravel(obj: "Packable") -> jnp.ndarray:
-            parts = []
-            for name, spec in items:
-                leaf = getattr(obj, name).astype(spec.dtype, copy=False)
-                shape = spec.shape
-                if shape == ():
-                    leaf = leaf[..., None]
-                    shape = (1,)
-                batch = leaf.shape[: -len(shape)] if shape else leaf.shape
-                parts.append(jnp.reshape(leaf, batch + (-1,)))
-            if len(parts) == 0:
-                return jnp.zeros(obj.batch_shape + (0,), dtype=jnp.float32)
-            else:
-                return jnp.concatenate(parts, axis=-1)
-
-        def unravel(vec: jnp.ndarray) -> "Packable":
-            batch = vec.shape[:-1]
-            chunks = jnp.split(vec, split_idx, axis=-1) if split_idx else (vec,)
-            kwargs = {}
-            for (name, spec), chunk in zip(items, chunks):
-                target = spec.shape
-                if target == ():
-                    # from (...,1) back to scalar trailing shape
-                    leaf = jnp.reshape(chunk, batch + (1,))
-                    leaf = jnp.reshape(leaf, batch + ())
-                else:
-                    leaf = jnp.reshape(chunk, batch + target)
-                kwargs[name] = leaf.astype(spec.dtype, copy=False)
-            return cls(**kwargs)
-
-        return ravel, unravel
-
+    @classproperty
+    def flat_sizes(cls):
+        return tuple(
+            math.prod(spec.shape or (1,))
+            for spec in cls._shape_template.values()
+        )
+    
     def ravel(self) -> jnp.ndarray:
-        return self._ravel_pair()[0](self)
-
+        parts = []
+        for name, spec in self._shape_template.items():
+            leaf = getattr(self, name).astype(spec.dtype, copy=False)
+            shape = spec.shape
+            if shape == ():
+                leaf = leaf[..., None]
+                shape = (1,)
+            batch = leaf.shape[: -len(shape)] if shape else leaf.shape
+            parts.append(jnp.reshape(leaf, batch + (-1,)))
+        if len(parts) == 0:
+            return jnp.zeros(self.batch_shape + (0,), dtype=jnp.float32)
+        else:
+            return jnp.concatenate(parts, axis=-1)
+    
     @classmethod
-    def unravel(cls, vec: jnp.ndarray) -> "Packable":
-        return cls._ravel_pair()[1](vec)
+    def unravel(cls, vec: jnp.ndarray) -> typing.Self:
+        split_idx = tuple(
+            sum(cls.flat_sizes[: i + 1]) 
+            for i in range(len(cls.flat_sizes) - 1)
+        )
+
+        batch = vec.shape[:-1]
+        chunks = jnp.split(vec, split_idx, axis=-1) if split_idx else (vec,)
+        kwargs = {}
+        for (name, spec), chunk in zip(
+            cls._shape_template.items(), 
+            chunks
+        ):
+            target = spec.shape
+            if target == ():
+                # from (...,1) back to scalar trailing shape
+                leaf = jnp.reshape(chunk, batch + (1,))
+                leaf = jnp.reshape(leaf, batch + ())
+            else:
+                leaf = jnp.reshape(chunk, batch + target)
+            kwargs[name] = leaf.astype(spec.dtype, copy=False)
+
+        return cls(**kwargs)
 
     @property
     def batch_shape(self) -> tuple[int, ...]:

@@ -184,7 +184,7 @@ class ResultProcessor:
         if experiment_config.inference.method == "NUTS":
             _, latent_samples, full_param_samples = extra_data
 
-            param_sample_chains = [
+            param_sample_chains = [ #type: ignore
                 (
                     f"full_param_samples_c{chain}",
                     util.index_pytree_in_dim(full_param_samples, dim=1, index=chain),

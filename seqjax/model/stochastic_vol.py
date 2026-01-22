@@ -468,7 +468,12 @@ def loc_scale(
     return _random_walk_loc_scale(prev_latent, condition, parameters)
 
 
-random_walk = GaussianLocScaleTransition(
+random_walk: Transition[
+    tuple[LatentVol],
+    LatentVol,
+    TimeIncrement,
+    LogVolRW,
+] = GaussianLocScaleTransition(
     loc_scale=loc_scale,
     latent_t=LatentVol,
 )
