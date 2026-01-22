@@ -166,7 +166,7 @@ BUFFER_SGLD_DEFAULT_CODES = [
     "B-10",
     "M-10",
     "MAXT-NO",
-    "MAXS-50k",
+    "MAXS-50K",
 ]
 
 BUFFER_SGLD_FACTOR_NAMES = {
