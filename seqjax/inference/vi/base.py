@@ -520,14 +520,14 @@ class FullAutoregressiveVI[
         return jnp.mean(neg_elbo)
 
 
-def sample_batch(key, sample_length, max_start_ix, y_path, condition):
+def sample_batch(key, sample_length, max_start_ix, observation_path, condition):
     # each sample will come from the data replicated onto each device
     start_ix = jrandom.randint(key, (), 0, max_start_ix + 1)
     samples = jax.tree_util.tree_map(
         partial(
             jax.lax.dynamic_slice_in_dim, start_index=start_ix, slice_size=sample_length
         ),
-        y_path,
+        observation_path,
     )
     csamples = jax.tree_util.tree_map(
         partial(
@@ -540,7 +540,7 @@ def sample_batch(key, sample_length, max_start_ix, y_path, condition):
 
 
 def sample_batch_and_mask(
-    key, sequence_length, batch_length, buffer_length, y_path, condition
+    key, sequence_length, batch_length, buffer_length, observation_path, condition
 ):
     sample_length = batch_length + 2 * buffer_length
     pad_length = batch_length - 1
@@ -584,7 +584,7 @@ def sample_batch_and_mask(
             start_index=approx_start,
             slice_size=sample_length,
         ),
-        y_path,
+        observation_path,
     )
     csamples = jax.tree_util.tree_map(
         partial(
@@ -650,7 +650,7 @@ class BufferedSSMVI[
                 sequence_length=path_length,
                 batch_length=batch_length,
                 buffer_length=buffer_length,
-                y_path=observations,
+                observation_path=observations,
                 condition=conditions,
             )
         )(jrandom.split(start_key, context_samples))
@@ -800,7 +800,7 @@ class BufferedSSMVI[
                 sequence_length=path_length,
                 batch_length=batch_length,
                 buffer_length=buffer_length,
-                y_path=observations,
+                observation_path=observations,
                 condition=conditions,
             )
         )(jrandom.split(start_key, context_samples))

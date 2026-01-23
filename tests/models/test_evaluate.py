@@ -381,7 +381,7 @@ class Target_TO1_EO2(
 
 def test_TO2_EO2():
     x_path = TestLatent(jnp.arange(-1, 5))
-    y_path = TestObs(jnp.arange(0, 5))
+    observation_path = TestObs(jnp.arange(0, 5))
     target = Target_TO2_EO2()
     params = TestParam(theta=jnp.array(0.0))
 
@@ -430,27 +430,27 @@ def test_TO2_EO2():
     assert out == jnp.array(15)
 
     emission_observation_history = evaluate.slice_emission_observation_history(
-        y_path,
+        observation_path,
         target.emission,
     )
 
     assert emission_observation_history == ()
 
     out = evaluate.log_prob_y_given_x(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     # (-1 + 0 + 0) + (0 + 1 + 1) + ... + (3 + 4 + 4)
     assert out == jnp.array(25)
 
     log_p_joint = evaluate.log_prob_joint(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     assert log_p_joint == jnp.array(40)
 
 
 def test_TO1_EO1_ED1():
     x_path = TestLatent(jnp.arange(0, 5))
-    y_path = TestObs(jnp.arange(-1, 5))
+    observation_path = TestObs(jnp.arange(-1, 5))
     target = Target_TO1_EO1_ED1()
     params = TestParam(theta=jnp.array(0.0))
 
@@ -490,27 +490,27 @@ def test_TO1_EO1_ED1():
     assert out == jnp.array(16)
 
     emission_observation_history = evaluate.slice_emission_observation_history(
-        y_path,
+        observation_path,
         target.emission,
     )
 
     assert emission_observation_history == (TestObs(jnp.array([-1, 0, 1, 2, 3])),)
 
     out = evaluate.log_prob_y_given_x(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     # (-1 + 0 + 0) + (0 + 1 + 1) + ... + (3 + 4 + 4)
     assert out == jnp.array(25)
 
     log_p_joint = evaluate.log_prob_joint(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     assert log_p_joint == jnp.array(41)
 
 
 def test_TO2_EO1():
     x_path = TestLatent(jnp.arange(-1, 5))
-    y_path = TestObs(jnp.arange(0, 5))
+    observation_path = TestObs(jnp.arange(0, 5))
     target = Target_TO2_EO1()
     params = TestParam(theta=jnp.array(0.0))
 
@@ -556,27 +556,27 @@ def test_TO2_EO1():
     assert out == jnp.array(15)
 
     emission_observation_history = evaluate.slice_emission_observation_history(
-        y_path,
+        observation_path,
         target.emission,
     )
 
     assert emission_observation_history == ()
 
     out = evaluate.log_prob_y_given_x(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     # 2 * (1 + ... + 4)
     assert out == jnp.array(20)
 
     log_p_joint = evaluate.log_prob_joint(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     assert log_p_joint == jnp.array(35)
 
 
 def test_TO1_EO2():
     x_path = TestLatent(jnp.arange(-1, 5))
-    y_path = TestObs(jnp.arange(0, 5))
+    observation_path = TestObs(jnp.arange(0, 5))
     target = Target_TO1_EO2()
     params = TestParam(theta=jnp.array(0.0))
 
@@ -619,33 +619,33 @@ def test_TO1_EO2():
     assert out == jnp.array(15)
 
     emission_observation_history = evaluate.slice_emission_observation_history(
-        y_path,
+        observation_path,
         target.emission,
     )
 
     assert emission_observation_history == ()
 
     out = evaluate.log_prob_y_given_x(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     # (-1 + 0 + 0) + (0 + 1 + 1) + (1 + 2 + 2) + (2 +  3+ 3) + (3 + 4+ 4)
     assert out == jnp.array(25)
 
     log_p_joint = evaluate.log_prob_joint(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     assert log_p_joint == jnp.array(40)
 
 
 def test_auto_batching():
     x_path = TestLatent(jnp.arange(-1, 5))
-    y_path = TestObs(jnp.arange(0, 5))
+    observation_path = TestObs(jnp.arange(0, 5))
     target = Target_TO1_EO2()
 
     # non batched case
     params = TestParam(theta=jnp.array(1.0))
     # we provide a param for each [0, ..., T]
-    params_seq = TestParam(theta=1.0 * jnp.ones_like(y_path.y))
+    params_seq = TestParam(theta=1.0 * jnp.ones_like(observation_path.y))
 
     log_p_x = evaluate.log_prob_x(target, x_path, seqjtyping.NoCondition(), params)
     log_p_x_seq = evaluate.log_prob_x(
@@ -654,23 +654,23 @@ def test_auto_batching():
     assert log_p_x == log_p_x_seq
 
     log_p_y = evaluate.log_prob_y_given_x(
-        target, x_path, y_path, seqjtyping.NoCondition(), params
+        target, x_path, observation_path, seqjtyping.NoCondition(), params
     )
     log_p_y_seq = evaluate.log_prob_y_given_x(
-        target, x_path, y_path, seqjtyping.NoCondition(), params_seq
+        target, x_path, observation_path, seqjtyping.NoCondition(), params_seq
     )
     assert log_p_y == log_p_y_seq
 
     # try a new param seq
-    new_params_seq = TestParam(theta=jnp.arange(len(y_path.y)))
+    new_params_seq = TestParam(theta=jnp.arange(len(observation_path.y)))
     log_p_x_new_seq = evaluate.log_prob_x(
         target, x_path, seqjtyping.NoCondition(), new_params_seq
     )
     log_p_y_new_seq = evaluate.log_prob_y_given_x(
-        target, x_path, y_path, seqjtyping.NoCondition(), new_params_seq
+        target, x_path, observation_path, seqjtyping.NoCondition(), new_params_seq
     )
 
     # we should just accumulate the path
-    new_contribution = jnp.sum(jnp.arange(len(y_path.y))) - len(y_path.y)
+    new_contribution = jnp.sum(jnp.arange(len(observation_path.y))) - len(observation_path.y)
     assert log_p_y_new_seq == new_contribution + log_p_y
     assert log_p_x_new_seq == new_contribution + log_p_x

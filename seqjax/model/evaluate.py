@@ -110,7 +110,7 @@ def slice_emission_observation_history[
     ObservationT: seqjtyping.Observation,
     ObservationHistoryT,
 ](
-    y_path: ObservationT,
+    observation_path: ObservationT,
     emission: Emission[
         typing.Any,
         typing.Any,
@@ -124,12 +124,12 @@ def slice_emission_observation_history[
     The first observation corresponds to x_0.
     """
     sequence_start = emission.observation_dependency
-    sequence_length = y_path.batch_shape[0] - sequence_start
+    sequence_length = observation_path.batch_shape[0] - sequence_start
     return typing.cast(
         ObservationHistoryT,
         tuple(
             slice_pytree(
-                y_path, sequence_start + i, sequence_start + i + sequence_length
+                observation_path, sequence_start + i, sequence_start + i + sequence_length
             )
             for i in range(-emission.observation_dependency, 0)
         ),
@@ -243,13 +243,13 @@ def log_prob_y_given_x[
         ObservationHistoryT,
     ],
     x_path: LatentT,
-    y_path: ObservationT,
+    observation_path: ObservationT,
     condition: ConditionT,
     parameters: ParametersT,
 ) -> Scalar:
     """Return ``log p(y | x)`` for a sequence of observations.
 
-    ``x_path`` and ``y_path`` share the same leading ``Batch`` dimensions,
+    ``x_path`` and ``observation_path`` share the same leading ``Batch`` dimensions,
     matching the output of :func:`~seqjax.model.simulate.simulate`.
 
     The prior order defines x_0 and the transition observation dependency defines
@@ -275,12 +275,12 @@ def log_prob_y_given_x[
     )
 
     emission_history = slice_emission_observation_history(
-        y_path,
+        observation_path,
         target.emission,
     )
 
     observations = slice_pytree(
-        y_path, y_sequence_start, sequence_length + y_sequence_start
+        observation_path, y_sequence_start, sequence_length + y_sequence_start
     )
     observation_conditions = slice_pytree(
         condition, y_sequence_start, sequence_length + y_sequence_start
@@ -320,7 +320,7 @@ def log_prob_joint[
         ObservationHistoryT,
     ],
     x_path: LatentT,
-    y_path: ObservationT,
+    observation_path: ObservationT,
     condition: ConditionT,
     parameters: ParametersT,
 ) -> Scalar:
@@ -341,7 +341,7 @@ def log_prob_joint[
     ) + log_prob_y_given_x(
         target,
         x_path,
-        y_path,
+        observation_path,
         condition,
         parameters,
     )

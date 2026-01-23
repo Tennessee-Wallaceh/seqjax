@@ -155,7 +155,7 @@ class ResultProcessor:
         param_samples,
         extra_data,
         x_path,
-        y_path,
+        observation_path,
         condition,
     ) -> None:
         approx_start, x_q, run_tracker, fitted_approximation = extra_data

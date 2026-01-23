@@ -240,7 +240,7 @@ def get_remote_data(run: WandbRun, data_config: DataConfig):
                 data_config.sequence_length
             )
 
-        x_path, y_path = simulate.simulate(
+        x_path, observation_path = simulate.simulate(
             data_key,
             data_config.target,
             data_config.generative_parameters,  # needs params
@@ -251,19 +251,19 @@ def get_remote_data(run: WandbRun, data_config: DataConfig):
         print(f"saving {artifact_name} on remote...")
         to_save: typing.Any = [
             ("x_path", x_path, {}),
-            ("y_path", y_path, {}),
+            ("observation_path", observation_path, {}),
         ]
         if condition is not None:
             to_save.append(
                 ("condition", condition, {}),
             )
         save_packable_artifact(run, artifact_name, "dataset", to_save)
-        return x_path, y_path, condition
+        return x_path, observation_path, condition
 
     print(f"{artifact_name} present on remote, downloading...")
     to_load = [
         ("x_path", data_config.target.latent_cls),
-        ("y_path", data_config.target.observation_cls),
+        ("observation_path", data_config.target.observation_cls),
     ]
     if data_config.target_model_label in condition_generators:
         to_load.append(("condition", data_config.target.condition_cls))
@@ -271,8 +271,8 @@ def get_remote_data(run: WandbRun, data_config: DataConfig):
     loaded = load_packable_artifact(run, artifact_name, to_load)
 
     if data_config.target_model_label in condition_generators:
-        (x_path, _), (y_path, _), (condition, _) = loaded
+        (x_path, _), (observation_path, _), (condition, _) = loaded
     else:
-        (x_path, _), (y_path, _) = loaded
+        (x_path, _), (observation_path, _) = loaded
 
-    return x_path, y_path, condition
+    return x_path, observation_path, condition
