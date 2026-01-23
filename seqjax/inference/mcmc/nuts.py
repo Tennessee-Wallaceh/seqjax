@@ -114,7 +114,7 @@ def run_bayesian_nuts[
     def logdensity(state):
         latents, params = state
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
-        model_params = target_posterior.target_parameter(params)
+        model_params = target_posterior.convert_to_model_parameters(params)
         log_like = log_prob_joint(
             latents, observation_path, condition_path, model_params
         )
@@ -138,7 +138,7 @@ def run_bayesian_nuts[
             initial_latents, _ = simulate(
                 latent_key,
                 target_posterior.target,
-                target_posterior.target_parameter(initial_parameters),
+                target_posterior.convert_to_model_parameters(initial_parameters),
                 pytree_shape(observation_path)[0][0],
                 condition=condition_path,
             )

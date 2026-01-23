@@ -381,7 +381,7 @@ class BayesianSequentialModel[
         ObservationHistoryT,
     ]
     parameter_prior: ParameterPrior[InferenceParametersT, HyperParametersT]
-    target_parameter: Callable[[InferenceParametersT], ParametersT]
+    convert_to_model_parameters: Callable[[InferenceParametersT], ParametersT]
 
 
 class BayesianSequentialModel_TO2_EO2[

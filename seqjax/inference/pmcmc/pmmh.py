@@ -88,7 +88,7 @@ def _make_log_joint_estimator[
         _, _, (log_marginal_increments,) = run_filter(
             key,
             particle_filter,
-            target_posterior.target_parameter(params),
+            target_posterior.convert_to_model_parameters(params),
             observation_path,
             condition_path=seqjtyping.NoCondition(),
             recorders=(log_marginal_increment,),

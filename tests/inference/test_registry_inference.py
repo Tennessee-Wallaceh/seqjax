@@ -96,7 +96,7 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
             particle_filter=particlefilter.BootstrapParticleFilter(
                 target=ar.AR1Target(),
                 num_particles=8,
-                target_parameters=partial(
+                convert_to_model_parameters=partial(
                     ar.fill_parameter,
                     ref_params=model_registry.parameter_settings["ar"]["base"],
                 ),

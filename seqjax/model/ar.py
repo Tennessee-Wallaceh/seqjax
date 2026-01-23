@@ -249,7 +249,7 @@ class AR1Bayesian(
     ]
 ):
     def __init__(self, ref_params: ARParameters):
-        self.target_parameter = staticmethod(
+        self.convert_to_model_parameters = staticmethod(
             partial(fill_parameter, ref_params=ref_params)
         )
 
