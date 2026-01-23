@@ -148,7 +148,7 @@ def load_model_artifact(
 def load_python_object(
     target_run: WandbRun,
     artifact_name: str,
-    file_names: list[str],
+    file_name: str,
 ) -> eqx.Module:
     print(
         f"Loading {target_run.name}-{artifact_name}:latest from wandb {target_run.project}..."
@@ -159,7 +159,7 @@ def load_python_object(
     )
 
     artifact_dir = download_artifact(artifact)
-    file_path = os.path.join(artifact_dir, f"{target_run.name}-{artifact_name}.eqx")
+    file_path = os.path.join(artifact_dir, f"{file_name}.pkl")
 
     with open(file_path, "rb") as f:
         python_object = pickle.load(f)
