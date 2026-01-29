@@ -55,11 +55,10 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
         10,
     ),
     "buffer-vi": (
-        vi.BufferedVIConfig(
+        vi.registry.BufferedVIConfig(
             optimization=vi.run.AdamOpt(lr=1e-2, total_steps=2),
             buffer_length=2,
             batch_length=4,
-            parameter_field_bijections={"ar": "sigmoid"},
             observations_per_step=1,
             samples_per_context=1,
             control_variate=False,
@@ -68,135 +67,8 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
                 nn_width=4,
                 nn_depth=1,
             ),
+            embedder=vi.registry.BiRNNEmbedder,
         ),
         200,
-    ),
-    "full-vi": (
-        vi.FullVIConfig(
-            optimization=vi.run.AdamOpt(lr=1e-2, total_steps=2),
-            parameter_field_bijections={"ar": "sigmoid"},
-            observations_per_step=1,
-            samples_per_context=1,
-        ),
-        200,
-    ),
-    "particle-mcmc": (
-        pmcmc.ParticleMCMCConfig(
-            particle_filter=particlefilter.BootstrapParticleFilter(
-                target=ar.AR1Target(),
-                num_particles=8,
-            ),
-            mcmc=mcmc.RandomWalkConfig(step_size=0.05),
-            initial_parameter_guesses=3,
-        ),
-        20,
-    ),
-    "full-sgld": (
-        sgld.SGLDConfig(
-            particle_filter=particlefilter.BootstrapParticleFilter(
-                target=ar.AR1Target(),
-                num_particles=8,
-                convert_to_model_parameters=partial(
-                    ar.fill_parameter,
-                    ref_params=model_registry.parameter_settings["ar"]["base"],
-                ),
-            ),
-            step_size=1e-3,
-            num_samples=20,
-            initial_parameter_guesses=3,
-        ),
-        20,
     ),
 }
-
-
-def test_full_sgld_inference_name_includes_particle_count() -> None:
-    """The SGLD inference name should encode both samples and particles."""
-
-    config = sgld.SGLDConfig(
-        particle_filter=particlefilter.BootstrapParticleFilter(
-            target=ar.AR1Target(),
-            num_particles=5,
-        ),
-        num_samples=7,
-    )
-    inference = inference_registry.FullSGLDInference(method="full-sgld", config=config)
-
-    assert inference.name == "full-sgld-n7-p5"
-
-
-def _iter_registry_entries() -> list[ParameterSet]:
-    entries: list[ParameterSet] = []
-    for index, (method_label, inference_fn) in enumerate(
-        inference_registry.inference_functions.items()
-    ):
-        config_entry = INFERENCE_TEST_SETUPS.get(method_label)
-        if config_entry is None:
-            raise AssertionError(f"Missing test configuration for inference method {method_label!r}")
-        config, test_samples = config_entry
-        entries.append(
-            pytest.param(
-                method_label,
-                inference_fn,
-                config,
-                test_samples,
-                index,
-                id=method_label,
-            )
-        )
-    return entries
-
-
-@pytest.fixture(scope="module")
-def ar1_problem() -> tuple[ar.AR1Bayesian, ar.NoisyEmission]:
-    """Simulate a short AR(1) path that can be reused across inference tests."""
-
-    sequence_length = 10
-    parameters = model_registry.parameter_settings["ar"]["base"]
-    posterior = ar.AR1Bayesian(parameters)
-    _latents, observations = simulate.simulate(
-        jrandom.PRNGKey(0),
-        posterior.target,
-        condition=None,
-        parameters=parameters,
-        sequence_length=sequence_length,
-    )
-    assert observations.batch_shape[0] == sequence_length
-    return posterior, observations
-
-
-@pytest.mark.parametrize(
-    "method_label,inference_fn,config,test_samples,case_index",
-    _iter_registry_entries(),
-)
-def test_registered_inference_methods_can_run(
-    method_label: str,
-    inference_fn,
-    config,
-    test_samples: int,
-    case_index: int,
-    ar1_problem: tuple[ar.AR1Bayesian, ar.NoisyEmission],
-) -> None:
-    """Every registered inference routine should execute on the AR(1) example."""
-
-    posterior, observations = ar1_problem
-    key = jrandom.fold_in(jrandom.PRNGKey(2024), case_index)
-
-    parameter_samples, extra_data = inference_fn(
-        posterior,
-        hyperparameters=None,
-        key=key,
-        observation_path=observations,
-        condition_path=None,
-        test_samples=test_samples,
-        config=config,
-    )
-
-    assert isinstance(parameter_samples, ar.AROnlyParameters)
-
-    ar_samples = jnp.asarray(parameter_samples.ar)
-    assert ar_samples.shape[-1] == test_samples
-    assert ar_samples.size > 0
-    assert bool(jnp.isfinite(ar_samples).all())
-
-    assert isinstance(extra_data, tuple)

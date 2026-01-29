@@ -178,15 +178,6 @@ class DataConfig:
     def posterior_factory(self) -> PosteriorFactory:
         return posterior_factories[self.target_model_label]
 
-    @classmethod
-    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "DataConfig":
-        return cls(
-            target_model_label=config_dict["target_model_label"],
-            generative_parameter_label=config_dict["generative_parameter_label"],
-            sequence_length=config_dict["sequence_length"],
-            seed=config_dict["seed"],
-        )
-
 
 @dataclass(kw_only=True, frozen=True, slots=True)
 class ARDataConfig(DataConfig):

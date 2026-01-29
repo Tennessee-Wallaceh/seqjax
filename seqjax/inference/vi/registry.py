@@ -26,10 +26,6 @@ class ShortContextEmbedder:
     label: EmbedderName = field(init=False, default="short-window")
     prev_window: int = 2
     post_window: int = 2
-
-    @classmethod
-    def from_dict(cls, config_dict):
-        return cls(**config_dict)
     
 @dataclass
 class LongContextEmbedder:
@@ -37,18 +33,11 @@ class LongContextEmbedder:
     prev_window: int = 10
     post_window: int = 10
 
-    @classmethod
-    def from_dict(cls, config_dict):
-        return cls(**config_dict)
 
 @dataclass
 class BiRNNEmbedder:
     label: EmbedderName = field(init=False, default="bi-rnn")
     hidden_dim: int = 10
-
-    @classmethod
-    def from_dict(cls, config_dict):
-        return cls(**config_dict)
 
 
 EmbedderConfig = type[ShortContextEmbedder] | type[LongContextEmbedder] | type[BiRNNEmbedder]
@@ -153,13 +142,11 @@ def _build_parameter_approximation[
 ](
     target_struct_cls: type[ParametersT],
     approximation: ParameterApproximation,
-    bijection_configuration: BijectionConfiguration,
     *,
     key: jaxtyping.PRNGKeyArray,
 ) -> base.UnconditionalVariationalApproximation[ParametersT]:
-    
+    bijection_configuration = DefaultTransform
     # handle parameter constrainsts with specified constraint transforms
-    field_bijections = {}
     if isinstance(bijection_configuration, DefaultTransform):
         field_transforms = default_parameter_transforms[
             target_struct_cls
@@ -167,11 +154,10 @@ def _build_parameter_approximation[
     else:
         raise Exception("Unknown bijection configuration")
 
+    field_bijections: dict[str, transformations.Bijector] = {}
     for parameter_field, bijection in field_transforms.items():
-        if isinstance(bijection, str):
-            field_bijections[parameter_field] = configured_bijections[bijection]()
-        else:
-            field_bijections[parameter_field] = bijection
+        field_bijections[parameter_field] = configured_bijections[bijection]()
+
 
     constraint_factory = partial(
         transformations.FieldwiseBijector,
@@ -248,122 +234,23 @@ class FullVIConfig:
     samples_per_context: int
     parameter_approximation: ParameterApproximation
 
-    @classmethod
-    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "FullVIConfig":
-        if config_dict["embedder"]["label"] not in embedder_registry:
-            raise ValueError(
-                f"Unknown embedder type: {config_dict['embedder']}. "
-                f"Available embedders: {list(embedder_registry.keys())}"
-            )
-
-        if (
-            config_dict["parameter_approximation"]["label"]
-            not in parameter_approximation_registry
-        ):
-            raise ValueError(
-                f"Unknown parameter approximation type: {config_dict['parameter_approximation']}. "
-                f"Available parameter approximations: {list(parameter_approximation_registry.keys())}"
-            )
-
-        if config_dict["optimization"]["label"] not in optimization_registry.registry:
-            raise ValueError(
-                f"Unknown optimization type: {config_dict['optimization']}. "
-                f"Available optimizations: {list(optimization_registry.registry.keys())}"
-            )
-
-        optimization = optimization_registry.registry[
-            config_dict["optimization"]["label"]
-        ].from_dict(config_dict["optimization"])
-
-        return cls(
-            optimization=optimization,
-            parameter_field_bijections=config_dict["parameter_field_bijections"],
-            embedder=embedder_registry[config_dict["embedder"]["label"]],
-            observations_per_step=config_dict["observations_per_step"],
-            samples_per_context=config_dict["samples_per_context"],
-            parameter_approximation=parameter_approximation_registry[
-                config_dict["parameter_approximation"]["label"]
-            ],
-        )
-
 
 @dataclass
 class BufferedVIConfig:
-    optimization: optimization_registry.OptConfig = field(
-        default_factory=optimization_registry.AdamOpt
-    )
-    parameter_field_bijections: dict[str, str] = field(default_factory=dict)
-    buffer_length: int = 15
-    batch_length: int = 10
-    observations_per_step: int = 10
-    samples_per_context: int = 5
+    optimization: optimization_registry.OptConfig
+    buffer_length: int
+    batch_length: int
+    observations_per_step: int
+    samples_per_context: int
+    embedder: EmbedderConfig
     control_variate: bool = False
     pre_training_optimization: None | optimization_registry.OptConfig = None
-    embedder: EmbedderConfig = field(default_factory=ShortContextEmbedder)
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
     )
     latent_approximation: LatentApproximation = field(
         default_factory=AutoregressiveLatentApproximation
     )
-
-    @classmethod
-    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "BufferedVIConfig":
-        if config_dict["embedder"]["label"] not in embedder_registry:
-            raise ValueError(
-                f"Unknown embedder type: {config_dict['embedder']}. "
-                f"Available embedders: {list(embedder_registry.keys())}"
-            )
-
-        if (
-            config_dict["parameter_approximation"]["label"]
-            not in parameter_approximation_registry
-        ):
-            raise ValueError(
-                f"Unknown parameter approximation type: {config_dict['parameter_approximation']}. "
-                f"Available parameter approximations: {list(parameter_approximation_registry.keys())}"
-            )
-
-        if (
-            config_dict["latent_approximation"]["label"]
-            not in latent_approximation_registry
-        ):
-            raise ValueError(
-                f"Unknown latent approximation type: {config_dict['latent_approximation']}. "
-                f"Available latent approximations: {list(latent_approximation_registry.keys())}"
-            )
-
-        if config_dict["optimization"]["label"] not in optimization_registry.registry:
-            raise ValueError(
-                f"Unknown optimization type: {config_dict['optimization']}. "
-                f"Available optimizations: {list(optimization_registry.registry.keys())}"
-            )
-
-        optimization = optimization_registry.registry[
-            config_dict["optimization"]["label"]
-        ].from_dict(config_dict["optimization"])
-
-        pre_training_optimization = optimization_registry.registry[
-            config_dict["pre_training_optimization"]["label"]
-        ].from_dict(config_dict["pre_training_optimization"])
-
-        return cls(
-            optimization=optimization,
-            pre_training_optimization=pre_training_optimization,
-            parameter_field_bijections=config_dict["parameter_field_bijections"],
-            buffer_length=config_dict["buffer_length"],
-            batch_length=config_dict["batch_length"],
-            observations_per_step=config_dict["observations_per_step"],
-            samples_per_context=config_dict["samples_per_context"],
-            control_variate=config_dict["control_variate"],
-            embedder=embedder_registry[config_dict["embedder"]["label"]],
-            parameter_approximation=parameter_approximation_registry[
-                config_dict["parameter_approximation"]["label"]
-            ],
-            latent_approximation=latent_approximation_registry[
-                config_dict["latent_approximation"]["label"]
-            ],
-        )
 
 
 def build_approximation(
@@ -382,7 +269,6 @@ def build_approximation(
     parameter_approximation = _build_parameter_approximation(
         target_param_class,
         config.parameter_approximation,
-        bijection_configuration=config.parameter_field_bijections,
         key=parameter_key,
     )
 

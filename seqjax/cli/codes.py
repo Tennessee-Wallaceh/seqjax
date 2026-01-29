@@ -1,15 +1,15 @@
 """Utilities for parsing shorthand configuration codes used by the CLI."""
 
-from typing import Any, Callable
+from typing import Any, Callable, TypedDict
 
 from quantiphy import Quantity
-from pytimeparse2 import parse as parse_timespan_s
+from pytimeparse2 import parse as parse_timespan_s # type: ignore[import-untyped]
 
 from seqjax.inference import vi
-from seqjax.inference.mcmc import NUTSConfig
 from seqjax.inference.optimization import registry as optimization_registry
 from seqjax.inference.particlefilter import registry as particle_filter_registry
 from seqjax.inference.mcmc.metropolis import registry as mcmc_registry
+from seqjax.inference.registry import InferenceName
 
 Parser = Callable[[str], Any]
 
@@ -148,21 +148,14 @@ def format_code_options(
     return "\n".join(_format_node(method_codes, level=0))
 
 
-shared_optimizer = {
-    "LR": ("lr", parse_float, "1e-3"),
-    "MAXS": ("total_steps", parse_int_optional, "NO"),
-    "MAXT": ("time_limit_s", parse_time_optional, "5m"),
-}
 
-optimization_config = {
-    "field": "optimization",
-    "registry": optimization_registry.registry,
-    "options": {
-        "ADAM": ("adam-plain", shared_optimizer)
-    }
-}
+FlatCode = tuple[str, Callable[[str], Any], str]
+class NestedCode(TypedDict):
+    field: str
+    registry: Any
+    options: dict[str, tuple[str, dict[str, FlatCode]]]
 
-codes = {}
+codes: dict[InferenceName, dict[str, FlatCode | NestedCode]] = {}
 
 codes["NUTS"] = {
     "SS": ("step_size", parse_float, "1e-3"),
@@ -173,19 +166,38 @@ codes["NUTS"] = {
     "MAXT": ("max_time_s", parse_time_optional, "NO"),
 }
 
+"""
+VI configs
+"""
+shared_optimizer: dict[str, FlatCode] = {
+    "LR": ("lr", parse_float, "1e-3"),
+    "MAXS": ("total_steps", parse_int_optional, "NO"),
+    "MAXT": ("time_limit_s", parse_time_optional, "5m"),
+}
+
+optimization_config: NestedCode = {
+    "field": "optimization",
+    "registry": optimization_registry.registry,
+    "options": {
+        "ADAM": ("adam-plain", shared_optimizer)
+    }
+}
+
+embedder_config: NestedCode = {
+    "field": "embedder",
+    "registry": vi.registry.embedder_registry,
+    "options": {
+        "BiRNN": ("bi-rnn", {
+            "H": ("hidden_dim", parse_int_required, "10")
+        })
+    }
+}
+
 codes["full-vi"] = {
     "OPT": optimization_config,
     "MC": ("samples_per_context", parse_int_required, "10"),
     "BS": ("observations_per_step", parse_int_required, "10"),
-    "EMB": {
-        "field": "embedder",
-        "registry": vi.registry.embedder_registry,
-        "options": {
-            "BiRNN": ("bi-rnn", {
-                "H": ("hidden_dim", parse_int_required, "10")
-            })
-        }
-    },
+    "EMB": embedder_config,
     "PAX": {
         "field": "parameter_approximation",
         "registry": vi.registry.parameter_approximation_registry,

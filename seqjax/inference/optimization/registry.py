@@ -20,17 +20,6 @@ class CosineOpt:
     def __repr__(self) -> str:
         return f"{self.label}({self.peak_lr:.0e},{self.end_lr:.0e},{self.warmup_steps},{self.decay_steps})"
 
-    @classmethod
-    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "CosineOpt":
-        return cls(
-            warmup_steps=config_dict["warmup_steps"],
-            decay_steps=config_dict["decay_steps"],
-            peak_lr=config_dict["peak_lr"],
-            end_lr=config_dict["end_lr"],
-            total_steps=config_dict["total_steps"],
-            time_limit_s=config_dict["time_limit_s"],
-        )
-
 
 @dataclass
 class AdamOpt:
@@ -46,7 +35,7 @@ class AdamOpt:
 OptConfigLabels = typing.Literal["cosine-sched", "adam-plain"]
 OptConfig = CosineOpt | AdamOpt
 
-registry: dict[OptConfigLabels, OptConfig] = {
+registry: dict[OptConfigLabels, type[OptConfig]] = {
     "cosine-sched": CosineOpt,
     "adam-plain": AdamOpt,
 }

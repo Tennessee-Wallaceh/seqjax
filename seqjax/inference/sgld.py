@@ -35,10 +35,6 @@ class SGLDConfig[
     initial_parameter_guesses: int = 20
     time_limit_s: None | float = None
 
-    @classmethod
-    def from_dict(cls, config_dict):
-        return cls(**config_dict)
-    
 class BufferedSGLDConfig[
     ParametersT: seqjtyping.Parameters,
 ](
@@ -51,11 +47,7 @@ class BufferedSGLDConfig[
     buffer_length: int = 5
     batch_length: int = 10
 
-    @classmethod
-    def from_dict(cls, config_dict: dict[str, typing.Any]):
-        return cls(
-            **config_dict
-        )
+
 
 
 def _tree_randn_like[ParametersT: seqjtyping.Parameters](
