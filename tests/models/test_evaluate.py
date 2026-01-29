@@ -36,6 +36,17 @@ class TestParam(seqjtyping.Parameters):
     )
 
 
+def assert_pytree_equal(actual, expected) -> None:
+    assert jax.tree_util.tree_structure(actual) == jax.tree_util.tree_structure(
+        expected
+    )
+    actual_leaves = jax.tree_util.tree_leaves(actual)
+    expected_leaves = jax.tree_util.tree_leaves(expected)
+    assert len(actual_leaves) == len(expected_leaves)
+    for actual_leaf, expected_leaf in zip(actual_leaves, expected_leaves):
+        assert jnp.array_equal(actual_leaf, expected_leaf)
+
+
 """
 Priors
 """
@@ -389,13 +400,19 @@ def test_TO2_EO2():
         seqjtyping.NoCondition(), target.prior
     )
 
-    assert prior_conditions == (seqjtyping.NoCondition(), seqjtyping.NoCondition())
+    assert_pytree_equal(
+        prior_conditions,
+        (seqjtyping.NoCondition(), seqjtyping.NoCondition()),
+    )
 
     prior_latents = evaluate.slice_prior_latent(x_path, target.prior)
 
-    assert prior_latents == (
-        TestLatent(jnp.array(-1)),
-        TestLatent(jnp.array(0)),
+    assert_pytree_equal(
+        prior_latents,
+        (
+            TestLatent(jnp.array(-1)),
+            TestLatent(jnp.array(0)),
+        ),
     )
 
     transition_histories = evaluate.slice_transition_latent_history(
@@ -404,9 +421,12 @@ def test_TO2_EO2():
         target.prior,
     )
 
-    assert transition_histories == (
-        TestLatent(jnp.array([-1, 0, 1, 2])),
-        TestLatent(jnp.array([0, 1, 2, 3])),
+    assert_pytree_equal(
+        transition_histories,
+        (
+            TestLatent(jnp.array([-1, 0, 1, 2])),
+            TestLatent(jnp.array([0, 1, 2, 3])),
+        ),
     )
 
     emission_histories = evaluate.slice_emission_latent_history(
@@ -417,9 +437,12 @@ def test_TO2_EO2():
 
     # The transition histories includes the final latent ix 4 to
     # evaluate y[4] | x[4], x[3]
-    assert emission_histories == (
-        TestLatent(jnp.array([-1, 0, 1, 2, 3])),
-        TestLatent(jnp.array([0, 1, 2, 3, 4])),
+    assert_pytree_equal(
+        emission_histories,
+        (
+            TestLatent(jnp.array([-1, 0, 1, 2, 3])),
+            TestLatent(jnp.array([0, 1, 2, 3, 4])),
+        ),
     )
 
     out = evaluate.log_prob_x(target, x_path, seqjtyping.NoCondition(), params)
@@ -434,7 +457,7 @@ def test_TO2_EO2():
         target.emission,
     )
 
-    assert emission_observation_history == ()
+    assert_pytree_equal(emission_observation_history, ())
 
     out = evaluate.log_prob_y_given_x(
         target, x_path, observation_path, seqjtyping.NoCondition(), params
@@ -458,11 +481,11 @@ def test_TO1_EO1_ED1():
         seqjtyping.NoCondition(), target.prior
     )
 
-    assert prior_conditions == (seqjtyping.NoCondition(),)
+    assert_pytree_equal(prior_conditions, (seqjtyping.NoCondition(),))
 
     prior_latents = evaluate.slice_prior_latent(x_path, target.prior)
 
-    assert prior_latents == (TestLatent(jnp.array(0)),)
+    assert_pytree_equal(prior_latents, (TestLatent(jnp.array(0)),))
 
     transition_histories = evaluate.slice_transition_latent_history(
         x_path,
@@ -470,7 +493,10 @@ def test_TO1_EO1_ED1():
         target.prior,
     )
 
-    assert transition_histories == (TestLatent(jnp.array([0, 1, 2, 3])),)
+    assert_pytree_equal(
+        transition_histories,
+        (TestLatent(jnp.array([0, 1, 2, 3])),),
+    )
 
     emission_histories = evaluate.slice_emission_latent_history(
         x_path,
@@ -480,7 +506,10 @@ def test_TO1_EO1_ED1():
 
     # The transition histories includes the final latent ix 4 to
     # evaluate y[4] | x[4], x[3]
-    assert emission_histories == (TestLatent(jnp.array([0, 1, 2, 3, 4])),)
+    assert_pytree_equal(
+        emission_histories,
+        (TestLatent(jnp.array([0, 1, 2, 3, 4])),),
+    )
 
     out = evaluate.log_prob_x(target, x_path, seqjtyping.NoCondition(), params)
     # test log probs just sum latent values
@@ -494,7 +523,10 @@ def test_TO1_EO1_ED1():
         target.emission,
     )
 
-    assert emission_observation_history == (TestObs(jnp.array([-1, 0, 1, 2, 3])),)
+    assert_pytree_equal(
+        emission_observation_history,
+        (TestObs(jnp.array([-1, 0, 1, 2, 3])),),
+    )
 
     out = evaluate.log_prob_y_given_x(
         target, x_path, observation_path, seqjtyping.NoCondition(), params
@@ -518,13 +550,19 @@ def test_TO2_EO1():
         seqjtyping.NoCondition(), target.prior
     )
 
-    assert prior_conditions == (seqjtyping.NoCondition(), seqjtyping.NoCondition())
+    assert_pytree_equal(
+        prior_conditions,
+        (seqjtyping.NoCondition(), seqjtyping.NoCondition()),
+    )
 
     prior_latents = evaluate.slice_prior_latent(x_path, target.prior)
 
-    assert prior_latents == (
-        TestLatent(jnp.array(-1)),
-        TestLatent(jnp.array(0)),
+    assert_pytree_equal(
+        prior_latents,
+        (
+            TestLatent(jnp.array(-1)),
+            TestLatent(jnp.array(0)),
+        ),
     )
 
     transition_histories = evaluate.slice_transition_latent_history(
@@ -533,9 +571,12 @@ def test_TO2_EO1():
         target.prior,
     )
 
-    assert transition_histories == (
-        TestLatent(jnp.array([-1, 0, 1, 2])),
-        TestLatent(jnp.array([0, 1, 2, 3])),
+    assert_pytree_equal(
+        transition_histories,
+        (
+            TestLatent(jnp.array([-1, 0, 1, 2])),
+            TestLatent(jnp.array([0, 1, 2, 3])),
+        ),
     )
 
     emission_histories = evaluate.slice_emission_latent_history(
@@ -546,7 +587,10 @@ def test_TO2_EO1():
 
     # The transition histories includes the final latent ix 4 to
     # evaluate y[4] | x[4]
-    assert emission_histories == (TestLatent(jnp.array([0, 1, 2, 3, 4])),)
+    assert_pytree_equal(
+        emission_histories,
+        (TestLatent(jnp.array([0, 1, 2, 3, 4])),),
+    )
 
     out = evaluate.log_prob_x(target, x_path, seqjtyping.NoCondition(), params)
     # test log probs just sum latent values
@@ -560,7 +604,7 @@ def test_TO2_EO1():
         target.emission,
     )
 
-    assert emission_observation_history == ()
+    assert_pytree_equal(emission_observation_history, ())
 
     out = evaluate.log_prob_y_given_x(
         target, x_path, observation_path, seqjtyping.NoCondition(), params
@@ -584,13 +628,19 @@ def test_TO1_EO2():
         seqjtyping.NoCondition(), target.prior
     )
 
-    assert prior_conditions == (seqjtyping.NoCondition(), seqjtyping.NoCondition())
+    assert_pytree_equal(
+        prior_conditions,
+        (seqjtyping.NoCondition(), seqjtyping.NoCondition()),
+    )
 
     prior_latents = evaluate.slice_prior_latent(x_path, target.prior)
 
-    assert prior_latents == (
-        TestLatent(jnp.array(-1)),
-        TestLatent(jnp.array(0)),
+    assert_pytree_equal(
+        prior_latents,
+        (
+            TestLatent(jnp.array(-1)),
+            TestLatent(jnp.array(0)),
+        ),
     )
 
     transition_histories = evaluate.slice_transition_latent_history(
@@ -599,7 +649,10 @@ def test_TO1_EO2():
         target.prior,
     )
 
-    assert transition_histories == (TestLatent(jnp.array([0, 1, 2, 3])),)
+    assert_pytree_equal(
+        transition_histories,
+        (TestLatent(jnp.array([0, 1, 2, 3])),),
+    )
 
     emission_histories = evaluate.slice_emission_latent_history(
         x_path,
@@ -609,9 +662,12 @@ def test_TO1_EO2():
 
     # The transition histories includes the final latent ix 4 to
     # evaluate y[4] | x[4],  x[3]
-    assert emission_histories == (
-        TestLatent(jnp.array([-1, 0, 1, 2, 3])),
-        TestLatent(jnp.array([0, 1, 2, 3, 4])),
+    assert_pytree_equal(
+        emission_histories,
+        (
+            TestLatent(jnp.array([-1, 0, 1, 2, 3])),
+            TestLatent(jnp.array([0, 1, 2, 3, 4])),
+        ),
     )
 
     out = evaluate.log_prob_x(target, x_path, seqjtyping.NoCondition(), params)
@@ -623,7 +679,7 @@ def test_TO1_EO2():
         target.emission,
     )
 
-    assert emission_observation_history == ()
+    assert_pytree_equal(emission_observation_history, ())
 
     out = evaluate.log_prob_y_given_x(
         target, x_path, observation_path, seqjtyping.NoCondition(), params
