@@ -127,6 +127,12 @@ def run_particle_mcmc[
     init_key, next_sample_key = jrandom.split(key)
     initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
 
+    # by default sample in chunks of 1000
+    num_samples = (
+        config.num_steps 
+        if config.num_steps is not None 
+        else 1000
+    )
 
     print("="*20)
     compiled_run = jax.jit(
@@ -134,7 +140,7 @@ def run_particle_mcmc[
             run_random_walk_metropolis,
             logdensity=functools.partial(estimate_log_joint, particle_filter),
             config=config.mcmc_config,
-            num_samples=test_samples,
+            num_samples=num_samples,
         )
     ).lower(
         key, initial_parameters 
@@ -154,12 +160,7 @@ def run_particle_mcmc[
     samples_taken = 0
     block_times_s = []
 
-    # by default sample in chunks of 1000
-    num_samples = (
-        config.num_steps 
-        if config.num_steps is not None 
-        else 1000
-    )
+
 
     inference_time_start = time.time()
     while True:
