@@ -23,10 +23,6 @@ from seqjax.inference.mcmc.metropolis import (
 )
 from seqjax.inference.interface import inference_method
 from seqjax import util
-from .tuning import (
-    ParticleFilterTuningConfig,
-    tune_particle_filter_variance,
-)
 import jax.scipy as jsp
 
 
@@ -38,21 +34,14 @@ def log_marginal_increment(filter_data: FilterData):
         - jsp.special.logsumexp(filter_data.resampled_log_w),
     )
 
-
 class ParticleMCMCConfig(
     eqx.Module,
 ):
     """Configuration for :func:`run_particle_mcmc`."""
-
     particle_filter_config: particle_filter_registry.BootstrapFilterConfig
-    mcmc: RandomWalkConfig = RandomWalkConfig()
-    initial_parameter_guesses: int = 10
-    tuning: ParticleFilterTuningConfig | None = None
-
-    @classmethod
-    def from_dict(cls, config_dict):
-        return cls(**config_dict)
-    
+    mcmc_config: RandomWalkConfig
+    time_limit_s: None | float = None
+    num_steps: None | int = 5000
 
 def _make_log_joint_estimator[
     ParticleT: seqjtyping.Latent,
@@ -123,7 +112,7 @@ def run_particle_mcmc[
     test_samples: int,
     config: ParticleMCMCConfig,
     tracker: typing.Any = None,
-) -> tuple[InferenceParametersT, tuple[jaxtyping.Array]]:
+) -> tuple[InferenceParametersT, typing.Any]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
     estimate_log_joint = _make_log_joint_estimator(
@@ -135,59 +124,63 @@ def run_particle_mcmc[
         config=config.particle_filter_config
     )
     
-    tuning_diagnostics = None
-    if config.tuning is not None:
-        key, tuning_key = jrandom.split(key)
-        tuned_filter, tuning_diagnostics = tune_particle_filter_variance(
-            estimate_log_joint,
-            particle_filter,
-            target_posterior,
-            hyperparameters,
-            config.tuning,
-            tuning_key,
-        )
+    init_key, next_sample_key = jrandom.split(key)
+    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
 
-    log_joint_fn = functools.partial(estimate_log_joint, tuned_filter)
-    jit_log_joint_fn = jax.jit(log_joint_fn)
 
-    init_time_start = time.time()
-    init_key, sample_key = jrandom.split(key)
-    initial_parameter_samples = jax.vmap(
-        target_posterior.parameter_prior.sample, in_axes=[0, None]
-    )(jrandom.split(init_key, config.initial_parameter_guesses), hyperparameters)
-    parameter_init_marginals = jax.vmap(jit_log_joint_fn, in_axes=[0, None])(
-        initial_parameter_samples,
-        key,
-    )
-    init_time_end = time.time()
-    init_time_s = init_time_end - init_time_start
-
-    initial_parameters = typing.cast(
-        InferenceParametersT,
-        util.index_pytree(
-            initial_parameter_samples, jnp.argmax(parameter_init_marginals).item()
-        ),
-    )
-
-    sample_time_start = time.time()
-    samples = typing.cast(
-        InferenceParametersT,
-        run_random_walk_metropolis(
-            jit_log_joint_fn,
-            sample_key,
-            initial_parameters,
-            config=config.mcmc,
+    print("="*20)
+    compiled_run = jax.jit(
+        functools.partial(
+            run_random_walk_metropolis,
+            logdensity=functools.partial(estimate_log_joint, particle_filter),
+            config=config.mcmc_config,
             num_samples=test_samples,
-        ),
-    )
-    sample_time_end = time.time()
-    sample_time_s = sample_time_end - sample_time_start
-    time_array_s = init_time_s + (
-        jnp.arange(test_samples) * (sample_time_s / test_samples)
+        )
+    ).lower(
+        key, initial_parameters 
+    ).compile()
+    print("compiled")  
+    print("steps:", config.num_steps)
+    print("seconds:", config.time_limit_s)
+    print("="*20)
+
+    sample_blocks = [
+        # add a leading batch axis
+        jax.tree_util.tree_map(
+            functools.partial(jnp.expand_dims, axis=0), 
+            initial_parameters
+        )
+    ]
+    samples_taken = 0
+    block_times_s = []
+
+    # by default sample in chunks of 1000
+    num_samples = (
+        config.num_steps 
+        if config.num_steps is not None 
+        else 1000
     )
 
-    diagnostics: list[typing.Any] = [time_array_s]
-    if tuning_diagnostics is not None:
-        diagnostics.append(tuning_diagnostics)
+    inference_time_start = time.time()
+    while True:
+        sample_key, next_sample_key = jrandom.split(next_sample_key)
+        start_parameter = util.index_pytree(sample_blocks[-1], -1)
+        samples = compiled_run(sample_key, start_parameter)
+        samples_taken += num_samples
 
-    return samples, tuple(diagnostics)
+        elapsed_time_s = time.time() - inference_time_start
+        block_times_s.append((elapsed_time_s, samples_taken))
+        sample_blocks.append(samples)
+
+        if config.time_limit_s and elapsed_time_s > config.time_limit_s:
+            print("Stopping due to time limit")
+            break
+
+        if config.num_steps and samples_taken >= config.num_steps:
+            print("Stopping due to sample limit")
+            break
+        
+        print(f"Elapsed time: {int(elapsed_time_s / 60)} minutes")
+
+    all_samples = util.concat_pytree(*sample_blocks)
+    return all_samples, block_times_s 

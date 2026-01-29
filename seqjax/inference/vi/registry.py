@@ -13,6 +13,7 @@ from seqjax.inference.vi import base
 from seqjax.inference import embedder
 from seqjax.inference.vi import autoregressive
 from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.registry import default_parameter_transforms
 
 """
 Embedding configurations
@@ -26,26 +27,36 @@ class ShortContextEmbedder:
     prev_window: int = 2
     post_window: int = 2
 
-
+    @classmethod
+    def from_dict(cls, config_dict):
+        return cls(**config_dict)
+    
 @dataclass
 class LongContextEmbedder:
     label: EmbedderName = field(init=False, default="long-window")
     prev_window: int = 10
     post_window: int = 10
 
+    @classmethod
+    def from_dict(cls, config_dict):
+        return cls(**config_dict)
 
 @dataclass
 class BiRNNEmbedder:
     label: EmbedderName = field(init=False, default="bi-rnn")
     hidden_dim: int = 10
 
+    @classmethod
+    def from_dict(cls, config_dict):
+        return cls(**config_dict)
 
-EmbedderConfig = ShortContextEmbedder | LongContextEmbedder | BiRNNEmbedder
+
+EmbedderConfig = type[ShortContextEmbedder] | type[LongContextEmbedder] | type[BiRNNEmbedder]
 
 embedder_registry: dict[EmbedderName, EmbedderConfig] = {
-    "short-window": ShortContextEmbedder(),
-    "long-window": LongContextEmbedder(),
-    "bi-rnn": BiRNNEmbedder(),
+    "short-window": ShortContextEmbedder,
+    "long-window": LongContextEmbedder,
+    "bi-rnn": BiRNNEmbedder,
 }
 
 
@@ -105,10 +116,10 @@ ParameterApproximation = (
 )
 
 parameter_approximation_registry: dict[
-    ParameterApproximationLabels, ParameterApproximation
+    ParameterApproximationLabels, type[ParameterApproximation]
 ] = {
-    "mean-field": MeanFieldParameterApproximation(),
-    "maf": MaskedAutoregressiveParameterApproximation(),
+    "mean-field": MeanFieldParameterApproximation,
+    "maf": MaskedAutoregressiveParameterApproximation,
 }
 
 
@@ -127,16 +138,41 @@ configured_bijections: dict[str, typing.Callable[[], transformations.Bijector]] 
     "softplus": transformations.Softplus,
 }
 
+@dataclass
+class DefaultTransform:
+    pass
+
+parameter_transform_registry = {
+    "default": DefaultTransform,
+}
+
+BijectionConfiguration = DefaultTransform
 
 def _build_parameter_approximation[
     ParametersT: seqjtyping.Parameters,
 ](
     target_struct_cls: type[ParametersT],
     approximation: ParameterApproximation,
-    field_bijections: dict[str, transformations.Bijector],
+    bijection_configuration: BijectionConfiguration,
     *,
     key: jaxtyping.PRNGKeyArray,
 ) -> base.UnconditionalVariationalApproximation[ParametersT]:
+    
+    # handle parameter constrainsts with specified constraint transforms
+    field_bijections = {}
+    if isinstance(bijection_configuration, DefaultTransform):
+        field_transforms = default_parameter_transforms[
+            target_struct_cls
+        ]
+    else:
+        raise Exception("Unknown bijection configuration")
+
+    for parameter_field, bijection in field_transforms.items():
+        if isinstance(bijection, str):
+            field_bijections[parameter_field] = configured_bijections[bijection]()
+        else:
+            field_bijections[parameter_field] = bijection
+
     constraint_factory = partial(
         transformations.FieldwiseBijector,
         field_bijections=field_bijections,
@@ -205,18 +241,12 @@ Approximations
 
 @dataclass
 class FullVIConfig:
-    optimization: optimization_registry.OptConfig = field(
-        default_factory=optimization_registry.AdamOpt
-    )
-    parameter_field_bijections: dict[str, str | transformations.Bijector] = field(
-        default_factory=dict
-    )
-    embedder: EmbedderConfig = field(default_factory=ShortContextEmbedder)
-    observations_per_step: int = 10
-    samples_per_context: int = 5
-    parameter_approximation: ParameterApproximation = field(
-        default_factory=MeanFieldParameterApproximation
-    )
+    optimization: optimization_registry.OptConfig
+    parameter_field_bijections: dict[str, str | transformations.Bijector]
+    embedder: EmbedderConfig
+    observations_per_step: int
+    samples_per_context: int
+    parameter_approximation: ParameterApproximation
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, typing.Any]) -> "FullVIConfig":
@@ -348,18 +378,11 @@ def build_approximation(
     target_param_class = target_posterior.inference_parameter_cls
     target_latent_class = target_posterior.target.latent_cls
 
-    # handle parameter constrainsts with specified constraint transforms
-    field_bijections = {}
-    for parameter_field, bijection in config.parameter_field_bijections.items():
-        if isinstance(bijection, str):
-            field_bijections[parameter_field] = configured_bijections[bijection]()
-        else:
-            field_bijections[parameter_field] = bijection
 
     parameter_approximation = _build_parameter_approximation(
         target_param_class,
         config.parameter_approximation,
-        field_bijections,
+        bijection_configuration=config.parameter_field_bijections,
         key=parameter_key,
     )
 

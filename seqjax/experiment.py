@@ -96,8 +96,8 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run):
     run_tracker = None
 
     if (
-        experiment_config.inference.method == "buffer-vi"
-        or experiment_config.inference.method == "full-vi"
+        experiment_config.inference.label == "buffer-vi"
+        or experiment_config.inference.label == "full-vi"
     ):
 
         def wandb_update(update, static, trainable, opt_step, loss, key):
@@ -150,8 +150,7 @@ def run_experiment(
 
     data_wandb_run.finish()
 
-    inference = inference_registry.build_inference(experiment_config.inference)
-
+    inference = experiment_config.inference.run
     wandb_run = cast(
         io.WandbRun,
         wandb.init(

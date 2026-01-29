@@ -1,6 +1,7 @@
 from __future__ import annotations
 from functools import partial
-
+from dataclasses import dataclass, field
+import typing
 from typing import Any
 import time
 import equinox as eqx
@@ -55,26 +56,26 @@ def subsample_posterior(samples, n_sub, key):
     idx = jrandom.choice(key, n_total, shape=(n_sub,), replace=False)
     return flat[idx, :]  # (n_sub, dim)
 
-
-class NUTSConfig(eqx.Module):
+@dataclass
+class NUTSConfig:
     step_size: float = 1e-3
     num_adaptation: int = 10000
     num_warmup: int = 1000
     num_steps: int = 5000  # length of the chain
     inverse_mass_matrix: Any | None = None
     num_chains: int = 1
+    max_time_s: float | None = None
 
-    @classmethod
-    def from_dict(cls, config_dict: dict[str, Any]) -> "NUTSConfig":
-        return cls(
-            step_size=config_dict.get("step_size", 1e-3),
-            num_adaptation=config_dict.get("num_adaptation", 1000),
-            num_warmup=config_dict.get("num_warmup", 1000),
-            num_steps=config_dict.get("num_steps", 1000),
-            inverse_mass_matrix=config_dict.get("inverse_mass_matrix", None),
-            num_chains=config_dict.get("num_chains", 1),
-        )
-
+    def __post_init__(self):
+        positive_fields = [
+            "step_size", 
+            "num_adaptation", 
+            "num_warmup",
+            "num_steps",
+            "num_chains",
+        ]
+        for field in positive_fields:
+            assert getattr(self, field) > 0, f"{field} must be > 0."
 
 @inference_method
 def run_bayesian_nuts[

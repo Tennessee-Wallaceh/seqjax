@@ -1,137 +1,113 @@
 """Command line interface for running ``seqjax`` experiments."""
-
-from __future__ import annotations
-
 import json
-from dataclasses import asdict, is_dataclass, replace
-from typing import Any, Callable, List, cast
+from typing import List, cast
+import typing
 
 import typer
 
 from seqjax.cli import codes as shorthand_codes
 from seqjax.experiment import ExperimentConfig, run_experiment
-from seqjax.inference import registry as inference_registry, vi, particlefilter, sgld
-from seqjax.inference.mcmc import NUTSConfig
+from seqjax.inference import registry as inference_registry
 from seqjax.model import registry as model_registry
-from seqjax import io, util
+from .results import ResultProcessor
 
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
 
-
-def _show_codes_callback(ctx: typer.Context, value: bool) -> bool:
-    if value:
-        typer.echo("Buffer VI shorthand codes:")
-        typer.echo(shorthand_codes.format_buffer_vi_codes())
-        typer.echo()
-        typer.echo("Full VI shorthand codes:")
-        typer.echo(shorthand_codes.format_full_vi_codes())
-        typer.echo()
-        typer.echo("NUTS shorthand codes:")
-        typer.echo(shorthand_codes.format_nuts_codes())
-        typer.echo()
-        typer.echo("Buffer SGLD shorthand codes:")
-        typer.echo(shorthand_codes.format_buffer_sgld_codes())
-        raise typer.Exit(code=0)
-    return value
-
-
-def _structure_to_dict(value: Any) -> Any:
-    """Recursively convert dataclasses and eqx modules into plain Python types."""
-
-    if is_dataclass(value):
-        if isinstance(value, type):
-            return value.__name__
-        return {k: _structure_to_dict(v) for k, v in asdict(value).items()}
-    if isinstance(value, dict):
-        return {k: _structure_to_dict(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_structure_to_dict(v) for v in value]
-    if hasattr(value, "__dict__"):
-        return {k: _structure_to_dict(v) for k, v in vars(value).items()}
-    return value
-
-
-def _normalise_choice(value: str, choices: list[str], what: str) -> str:
-    matches = [choice for choice in choices if choice.lower() == value.lower()]
-    if not matches:
-        raise typer.BadParameter(
-            f"Unknown {what} '{value}'. Available choices: {', '.join(sorted(choices))}."
-        )
-    return matches[0]
-
-
 def _resolve_model_label(label: str) -> model_registry.SequentialModelLabel:
-    canonical = _normalise_choice(
-        label,
-        sorted(model_registry.sequential_models.keys()),
-        "model",
-    )
-    return cast(model_registry.SequentialModelLabel, canonical)
+    if label not in model_registry.posterior_factories:
+        typer.echo(f"Model {label} not found.")
+        raise Exception(f"Model {label} not found.")
+
+    return cast(model_registry.SequentialModelLabel, label)
 
 
-def _resolve_parameter_label(
-    model_label: model_registry.SequentialModelLabel, parameter_label: str
-) -> str:
-    choices = sorted(model_registry.parameter_settings[model_label].keys())
-    return _normalise_choice(parameter_label, choices, "parameter preset")
+def _resolve_inference_label(label: str) -> inference_registry.InferenceName:
+    if label not in inference_registry.inference_registry:
+        typer.echo(f"Inference {label} not found.")
+        raise Exception(f"Inference {label} not found.")
+
+    return cast(inference_registry.InferenceName, label)
 
 
-def _resolve_inference_label(label: str) -> str:
-    return _normalise_choice(
-        label,
-        sorted(inference_registry.inference_functions.keys()),
-        "inference method",
-    )
+def _resolve_parameter_label(label: str) -> model_registry.SequentialModelLabel:
+    if label not in model_registry.posterior_factories:
+        typer.echo(f"Model {label} not found.")
+        raise Exception(f"Model {label} not found.")
 
+    return cast(model_registry.SequentialModelLabel, label)
 
-InferenceBuilder = Callable[[], inference_registry.InferenceConfig]
+def parse_straight_codes(code_tokens, available_codes):
+    dict_config = {}
+    parsed_codes = set()
+    for code_token in code_tokens:
+        code, option = code_token.split("-", 1)
+        field, parser, _ = available_codes[code]
+        dict_config[field] = parser(option)
+        parsed_codes.add(code)
 
+    for code, options in available_codes.items():
+        if code not in parsed_codes and not isinstance(options, dict):
+            (field, parser, default) = options
+            dict_config[field] = parser(default)
 
-def _default_buffer_vi() -> inference_registry.InferenceConfig:
-    return inference_registry.BufferVI(
-        method="buffer-vi",
-        config=vi.registry.BufferedVIConfig(),
-    )
+    return dict_config
 
+def build_inference_config(
+    method: inference_registry.InferenceName, 
+    code_tokens: list[str]
+) ->  inference_registry.InferenceConfig:
+    try:
+        available_codes = shorthand_codes.codes[method]
+    except KeyError:
+        raise typer.BadParameter(
+            f"Inference method {method} has no configured codes."
+        )
+    
+    # read off the straight forward config
+    straight_code_tokens = [token for token in code_tokens if "." not in token]
+    dict_config = parse_straight_codes(straight_code_tokens, available_codes)
 
-def _default_full_vi() -> inference_registry.InferenceConfig:
-    return inference_registry.FullVI(
-        method="full-vi",
-        config=vi.registry.FullVIConfig(),
-    )
+    # firstly need to unflatten the nested codes
+    nested_code_tokens = [token for token in code_tokens if "." in token]
+    nested_code_groups = {}
+    nested_code_value = {}
+    for code_token in nested_code_tokens:
+        code, group_value, sub_code = code_token.split(".")
+        if code not in nested_code_value:
+            nested_code_value[code] = group_value
+        
+        assert nested_code_value[code] == group_value, f"Mismatched options for {code}!"
 
+        if code not in nested_code_groups:
+            nested_code_groups[code] = []
+        
+        nested_code_groups[code].append(sub_code)
 
-def _default_nuts() -> inference_registry.InferenceConfig:
-    return inference_registry.NUTSInference(
-        method="NUTS",
-        config=NUTSConfig(
-            num_adaptation=5000,
-            num_warmup=5000,
-        ),
-    )
+    # then can process them 
+    parsed_nested_codes = set()
+    for code, sub_codes in nested_code_groups.items():
+        subconfig = available_codes[code]
+        selected_option, selected_option_codes = subconfig["options"][nested_code_value[code]]
+        subconfig_dict = parse_straight_codes(sub_codes, selected_option_codes)
+        dict_config[subconfig["field"]] = subconfig["registry"][selected_option](
+            **subconfig_dict
+        )
+        parsed_nested_codes.add(code)
 
+    # then build defaults for any nested code not provided
+    available_nested_codes = [
+        token for token in available_codes 
+        if isinstance(available_codes[token], dict) and token not in parsed_nested_codes
+    ]
+    for code in available_nested_codes:
+        subconfig = available_codes[code]
+        selected_code = next(iter(subconfig["options"]))
+        selected_option, selected_option_codes = subconfig["options"][selected_code]
+        dict_config[subconfig["field"]] = subconfig["registry"][selected_option](
+            **parse_straight_codes([], selected_option_codes)
+        )
 
-def _default_buffer_sgld() -> inference_registry.InferenceConfig:
-    filter_config = particlefilter.registry.BootstrapFilterConfig("multinomial", num_particles=1000)
-    return inference_registry.BufferSGLDInference(
-        method="buffer-sgld",
-        config=sgld.BufferedSGLDConfig(
-            particle_filter_config=filter_config,
-            num_samples=None,
-            time_limit_s=60,
-            buffer_length=10,
-            batch_length=40,
-        ),
-    )
-
-
-DEFAULT_INFERENCE_BUILDERS: dict[str, InferenceBuilder] = {
-    "buffer-vi": _default_buffer_vi,
-    "full-vi": _default_full_vi,
-    "NUTS": _default_nuts,
-    "buffer-sgld": _default_buffer_sgld,
-}
-
+    return inference_registry.inference_registry[method].build_config(dict_config)
 
 @app.command("list-models")
 def list_models() -> None:
@@ -141,128 +117,20 @@ def list_models() -> None:
         presets = ", ".join(sorted(model_registry.parameter_settings[label].keys()))
         typer.echo(f"{label}: {model.__class__.__name__} (presets: {presets})")
 
-
 @app.command("list-inference")
 def list_inference() -> None:
     """Display registered inference methods."""
 
     typer.echo("Available inference methods:")
-    for name in sorted(inference_registry.inference_functions.keys()):
+    for name in sorted(inference_registry.inference_registry):
         typer.echo(f"  - {name}")
-    typer.echo(
-        "Defaults available for: "
-        + ", ".join(sorted(DEFAULT_INFERENCE_BUILDERS.keys()))
-    )
 
-
-@app.command("show-config")
-def show_config(method: str) -> None:
-    """Show the default configuration for an inference method."""
-
-    canonical = _resolve_inference_label(method)
-    builder = DEFAULT_INFERENCE_BUILDERS.get(canonical)
-    if builder is None:
-        available = ", ".join(sorted(DEFAULT_INFERENCE_BUILDERS))
-        suffix = f" Defaults exist for: {available}." if available else ""
-        raise typer.BadParameter(f"No default configuration for '{canonical}'.{suffix}")
-
-    config = builder()
-    typer.echo(json.dumps(_structure_to_dict(config), indent=2))
-
-
-class ResultProcessor:
-    def process(
-        self,
-        wandb_run,
-        experiment_config,
-        param_samples,
-        extra_data,
-        x_path,
-        observation_path,
-        condition,
-    ) -> None:
-        if experiment_config.inference.method == "NUTS":
-            _, latent_samples, full_param_samples = extra_data
-
-            param_sample_chains = [ #type: ignore
-                (
-                    f"full_param_samples_c{chain}",
-                    util.index_pytree_in_dim(full_param_samples, dim=1, index=chain),
-                    {},
-                )
-                for chain in range(full_param_samples.batch_shape[1])
-            ]
-
-            io.save_packable_artifact(
-                wandb_run,
-                f"{wandb_run.name}-samples",
-                "run_output",
-                [
-                    ("final_samples", param_samples, {}),
-                ]
-                + param_sample_chains,
-            )
-
-            return
-        elif experiment_config.inference.method == "buffer-vi":
-            approx_start, x_q, run_tracker, fitted_approximation, opt_state = extra_data
-        elif experiment_config.inference.method == "full-vi":
-            run_tracker, x_q, fitted_approximation, opt_state = extra_data
-
-        elif experiment_config.inference.method == "buffer-sgld":
-            block_times_s = extra_data
-
-            io.save_packable_artifact(
-                wandb_run,
-                f"{wandb_run.name}-samples",
-                "run_output",
-                [
-                    ("all_samples", param_samples, {}),
-                ]
-            )
-
-            io.save_python_artifact(
-                wandb_run,
-                f"{wandb_run.name}-timings",
-                "run_output",
-                [
-                    ("block_times_s", block_times_s),
-                ]
-            )
-
-            return
-        else:
-            raise ValueError(f"Unknown inference method. {experiment_config}")
-
-        # save final model
-        io.save_model_artifact(
-            wandb_run,
-            f"{wandb_run.name}-fitted-approximation",
-            fitted_approximation,
-        )
-
-        io.save_model_artifact(
-            wandb_run,
-            f"{wandb_run.name}-optimization-state",
-            opt_state,
-        )
-
-        checkpoint_samples = getattr(run_tracker, "checkpoint_samples", [])
-        if checkpoint_samples:
-            io.save_packable_artifact(
-                wandb_run,
-                f"{wandb_run.name}_checkpoint_samples",
-                "checkpoint_samples",
-                [
-                    (
-                        f"samples_{i}",
-                        samples,
-                        {"elapsed_time_s": float(elapsed_time_s)},
-                    )
-                    for i, (elapsed_time_s, samples) in enumerate(checkpoint_samples)
-                ],
-            )
-
+@app.command("list-codes")
+def list_codes(method: inference_registry.InferenceName) -> None:
+    try:
+        typer.echo(shorthand_codes.format_code_options(shorthand_codes.codes[method]))
+    except KeyError:
+        typer.echo(f"Inference method {method} not found.")
 
 @app.command()
 def run(
@@ -289,14 +157,6 @@ def run(
             "Repeat the option or use comma-separated values."
         ),
     ),
-    show_codes: bool = typer.Option(
-        False,
-        "--show-codes",
-        callback=_show_codes_callback,
-        is_flag=True,
-        is_eager=True,
-        help="Display the available shorthand codes and exit.",
-    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -306,115 +166,22 @@ def run(
     """Run an experiment using the configured inference method."""
 
     canonical_model = _resolve_model_label(model)
-    canonical_params = _resolve_parameter_label(canonical_model, generative_parameters)
-    canonical_inference = _resolve_inference_label(inference_method)
+    canonical_method = _resolve_inference_label(inference_method)
 
     data_config = model_registry.DataConfig(
         target_model_label=canonical_model,
-        generative_parameter_label=canonical_params,
+        generative_parameter_label=generative_parameters,
         sequence_length=sequence_length,
         seed=data_seed,
     )
 
-    builder = DEFAULT_INFERENCE_BUILDERS.get(canonical_inference)
-    if builder is None:
-        available = ", ".join(sorted(DEFAULT_INFERENCE_BUILDERS))
-        suffix = f" Defaults exist for: {available}." if available else ""
-        raise typer.BadParameter(
-            "No default configuration is available for "
-            f"'{canonical_inference}'.{suffix}"
-        )
-
-    inference_config_obj = builder()
-    resolved_test_samples = test_samples
-
-    if inference_config_obj.method == "buffer-vi":
-        if code_tokens:
-            try:
-                configured_buffer = shorthand_codes.apply_buffer_vi_codes(
-                    inference_config_obj.config,
-                    code_tokens,
-                )
-            except shorthand_codes.CodeParseError as exc:
-                raise typer.BadParameter(str(exc)) from exc
-
-            inference_config_obj = replace(
-                inference_config_obj, config=configured_buffer
-            )
-
-        configured_buffer = replace(
-            inference_config_obj.config,
-            parameter_field_bijections=model_registry.default_parameter_transforms[
-                data_config.target_model_label
-            ],
-        )
-        inference_config_obj = replace(inference_config_obj, config=configured_buffer)
-
-    if inference_config_obj.method == "full-vi":
-        if code_tokens:
-            try:
-                configured_full = shorthand_codes.apply_full_vi_codes(
-                    inference_config_obj.config,
-                    code_tokens,
-                )
-            except shorthand_codes.CodeParseError as exc:
-                raise typer.BadParameter(str(exc)) from exc
-
-            inference_config_obj = replace(inference_config_obj, config=configured_full)
-
-        configured_full = replace(
-            inference_config_obj.config,
-            parameter_field_bijections=model_registry.default_parameter_transforms[
-                data_config.target_model_label
-            ],
-        )
-        inference_config_obj = replace(inference_config_obj, config=configured_full)
-
-    if inference_config_obj.method == "NUTS":
-        configured_nuts = inference_config_obj.config
-        if code_tokens:
-            try:
-                configured_nuts = shorthand_codes.apply_nuts_codes(
-                    configured_nuts,
-                    code_tokens,
-                )
-            except shorthand_codes.CodeParseError as exc:
-                raise typer.BadParameter(str(exc)) from exc
-
-        inference_config_obj = replace(inference_config_obj, config=configured_nuts)
-        if configured_nuts.num_steps is not None:
-            resolved_test_samples = configured_nuts.num_steps
-
-    if inference_config_obj.method == "buffer-sgld":
-        configured_inference = inference_config_obj.config
-        if code_tokens:
-            try:
-                configured_inference = shorthand_codes.apply_buffer_sgld_codes(
-                    configured_inference,
-                    code_tokens,
-                )
-            except shorthand_codes.CodeParseError as exc:
-                raise typer.BadParameter(str(exc)) from exc
-
-        inference_config_obj = replace(inference_config_obj, config=configured_inference)
-
-
-    if code_tokens and inference_config_obj.method not in {
-        "full-vi",
-        "buffer-vi",
-        "NUTS",
-        "buffer-sgld",
-    }:
-        raise typer.BadParameter(
-            "Shorthand codes are currently only supported for the buffer-vi, "
-            "full-vi, and NUTS methods."
-        )
+    inference_config = build_inference_config(canonical_method, code_tokens)
 
     experiment_config = ExperimentConfig(
         data_config=data_config,
-        test_samples=resolved_test_samples,
+        test_samples=test_samples,
         fit_seed=fit_seed,
-        inference=inference_config_obj,
+        inference=inference_config,
     )
 
     if dry_run:
@@ -427,7 +194,7 @@ def run(
 
     typer.echo(
         f"Running experiment '{experiment_name}' with model '{canonical_model}' "
-        f"and inference '{canonical_inference}'."
+        f"and inference '{inference_method}'."
     )
     run_experiment(experiment_name, experiment_config, ResultProcessor())
 

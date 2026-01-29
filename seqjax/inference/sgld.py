@@ -31,7 +31,7 @@ class SGLDConfig[
 
     particle_filter_config: particle_filter_registry.BootstrapFilterConfig
     step_size: float | ParametersT = 1e-3
-    num_samples: int = 100
+    num_steps: int = 100
     initial_parameter_guesses: int = 20
     time_limit_s: None | float = None
 
@@ -44,11 +44,9 @@ class BufferedSGLDConfig[
 ](
     eqx.Module,
 ):
-    """Configuration for :func:`run_sgld`."""
-
     particle_filter_config: particle_filter_registry.BootstrapFilterConfig
     step_size: float | ParametersT = 1e-3
-    num_samples: None | int = 5000
+    num_steps: None | int = 5000
     time_limit_s: None | float = None
     buffer_length: int = 5
     batch_length: int = 10
@@ -131,8 +129,8 @@ def estimate_step_score(model, filter_data: FilterData):
     )(proposed_particles, emission_particles, transition_history, filter_data.inference_parameters)
 
 def estimate_score_increment(model, filter_data: FilterData):
-    # associated with the ancestor index, we must
-    # respect the histories whilst accumulating
+    # accumulate increment associated with appropriate ancestor index, 
+    # we must respect the histories
     return jax.lax.cond(
         filter_data.ancestor_ix[0] == -1,
         lambda fd: estimate_initial_step_score(model, fd),
@@ -170,7 +168,7 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
         inp: tuple[jaxtyping.PRNGKeyArray, jaxtyping.PRNGKeyArray],
     ):
         ix, params = carry
-        _, (g_key, n_key) = inp
+        g_key, n_key = inp
         grad = grad_estimator(params, g_key)
         noise = _tree_randn_like(n_key, params)
         updates = jax.tree_util.tree_map(
@@ -282,8 +280,8 @@ def run_full_sgld_mcmc[
 
     # by default sample in chunks of 1000
     num_samples = (
-        config.num_samples 
-        if config.num_samples is not None 
+        config.num_steps 
+        if config.num_steps is not None 
         else 1000
     )
     sample_blocks = [
@@ -311,7 +309,7 @@ def run_full_sgld_mcmc[
             print("Stopping due to time limit")
             break
 
-        if config.num_samples and samples_taken >= config.num_samples:
+        if config.num_steps and samples_taken >= config.num_steps:
             print("Stopping due to sample limit")
             break
         
@@ -425,8 +423,8 @@ def run_buffer_sgld_mcmc[
 
     # by default sample in chunks of 1000
     num_samples = (
-        config.num_samples 
-        if config.num_samples is not None 
+        config.num_steps 
+        if config.num_steps is not None 
         else 1000
     )
     sample_blocks = [
@@ -455,7 +453,7 @@ def run_buffer_sgld_mcmc[
             print("Stopping due to time limit")
             break
 
-        if config.num_samples and samples_taken >= config.num_samples:
+        if config.num_steps and samples_taken >= config.num_steps:
             print("Stopping due to sample limit")
             break
         

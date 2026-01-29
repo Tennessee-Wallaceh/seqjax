@@ -35,28 +35,20 @@ class CosineOpt:
 @dataclass
 class AdamOpt:
     label: str = field(init=False, default="adam-plain")
-    lr: float = 1e-3
-    total_steps: int | None = 500_000
-    time_limit_s: int | None = 60 * 60 * 2  # default to 2 hour limit
+    lr: float
+    total_steps: int | None
+    time_limit_s: int | None = None
 
     def __repr__(self) -> str:
         return f"{self.label}({self.lr:.0e})"
-
-    @classmethod
-    def from_dict(cls, config_dict: dict[str, typing.Any]) -> "AdamOpt":
-        return cls(
-            lr=config_dict["lr"],
-            total_steps=config_dict["total_steps"],
-            time_limit_s=config_dict["time_limit_s"],
-        )
 
 
 OptConfigLabels = typing.Literal["cosine-sched", "adam-plain"]
 OptConfig = CosineOpt | AdamOpt
 
 registry: dict[OptConfigLabels, OptConfig] = {
-    "cosine-sched": CosineOpt(),
-    "adam-plain": AdamOpt(),
+    "cosine-sched": CosineOpt,
+    "adam-plain": AdamOpt,
 }
 
 

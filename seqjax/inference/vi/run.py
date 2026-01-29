@@ -42,8 +42,8 @@ def run_full_path_vi[
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
     condition_path: ConditionT,
-    test_samples: int = 1000,
-    config: registry.FullVIConfig = registry.FullVIConfig(),
+    test_samples: int,
+    config: registry.FullVIConfig,
     tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided
@@ -112,9 +112,9 @@ def run_buffered_vi[
     hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
-    condition_path: ConditionT | None = None,
-    test_samples: int = 1000,
-    config: registry.BufferedVIConfig = registry.BufferedVIConfig(),
+    condition_path: ConditionT | None,
+    test_samples: int,
+    config: registry.BufferedVIConfig,
     tracker: typing.Any = None,
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided

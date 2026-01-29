@@ -16,23 +16,27 @@ class RandomWalkConfig(eqx.Module):
     step_size: float = 0.1
 
 
+registry = {
+    "mh": RandomWalkConfig
+}
+
 LogDensity = typing.Callable[
     [seqjtyping.Parameters, jaxtyping.PRNGKeyArray], jnp.ndarray
 ]
 
 
 def run_random_walk_metropolis(
-    logdensity: LogDensity,
     key: jaxtyping.PRNGKeyArray,
     initial_parameters: seqjtyping.Parameters,
-    config: RandomWalkConfig = RandomWalkConfig(),
-    num_samples: int = 1000,
+    logdensity: LogDensity,
+    config: RandomWalkConfig,
+    num_samples: int,
 ) -> jax.Array | seqjtyping.Parameters:
     """Run Random Walk Metropolis sampling using ``blackjax`` utilities."""
 
     init_key, *step_keys = jrandom.split(key, num_samples + 1)
     init_logp = logdensity(initial_parameters, init_key)
-
+    
     random_step = blackjax.random_walk.normal(jnp.array(config.step_size))
 
     @scan_tqdm(num_samples)

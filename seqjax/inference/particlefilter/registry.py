@@ -31,6 +31,9 @@ Resampling methods
 """
 ResampleKind = typing.Literal["multinomial"]
 
+resample_registry = {
+    "multinomial": multinomial_resample_from_log_weights
+}
 """
 Filter
 """
@@ -43,16 +46,14 @@ class BootstrapFilterConfig:
     resample: ResampleKind
     num_particles: int
 
-    def from_dict(cls, config_dict):
-        return cls(
-            **config_dict
-        )
-
+registry = {
+    "bootstrap": BootstrapFilterConfig
+}
 
 def _build_filter(target_posterior, config: BootstrapFilterConfig):
     return SMCSampler(
         target=target_posterior.target,
         proposal=TransitionProposal(target_posterior),
-        resampler=multinomial_resample_from_log_weights,
+        resampler=resample_registry[config.resample],
         num_particles=config.num_particles,
     )

@@ -135,15 +135,15 @@ condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
     ),
 }
 
-default_parameter_transforms: dict[SequentialModelLabel, dict[str, typing.Any]] = {
-    "ar": {"ar": "sigmoid"},
-    "double_well": {"energy_barrier": "softplus"},
-    "simple_stochastic_vol": {
+default_parameter_transforms: dict[type[Parameters], dict[str, typing.Any]] = {
+    ar.AROnlyParameters: {"ar": "sigmoid"},
+    double_well.DoubleWellParams: {"energy_barrier": "softplus"},
+    stochastic_vol.LogVolRW: {
         "std_log_vol": "softplus",
         "mean_reversion": "softplus",
         "long_term_vol": "softplus",
     },
-    "aicher_stochastic_vol": {
+    stochastic_vol.LogVarStd: {
         "std_log_var": "softplus",
     },
 }

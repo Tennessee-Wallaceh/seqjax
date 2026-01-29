@@ -1,477 +1,259 @@
 """Utilities for parsing shorthand configuration codes used by the CLI."""
 
-from __future__ import annotations
+from typing import Any, Callable
 
-from dataclasses import replace
-from typing import Any, Callable, Dict, Iterable, List, Tuple
+from quantiphy import Quantity
+from pytimeparse2 import parse as parse_timespan_s
 
 from seqjax.inference import vi
 from seqjax.inference.mcmc import NUTSConfig
 from seqjax.inference.optimization import registry as optimization_registry
+from seqjax.inference.particlefilter import registry as particle_filter_registry
+from seqjax.inference.mcmc.metropolis import registry as mcmc_registry
 
-__all__ = [
-    "CodeParseError",
-    "BUFFER_VI_CODES",
-    "BUFFER_VI_DEFAULT_CODES",
-    "FULL_VI_CODES",
-    "FULL_VI_DEFAULT_CODES",
-    "NUTS_CODES",
-    "NUTS_DEFAULT_CODES",
-    "format_buffer_vi_codes",
-    "format_full_vi_codes",
-    "format_nuts_codes",
-    "format_buffer_sgld_codes",
-    "apply_buffer_vi_codes",
-    "apply_full_vi_codes",
-    "apply_nuts_codes",
-    "apply_buffer_sgld_codes",
-]
+Parser = Callable[[str], Any]
 
+def parse_float(x: str) -> float:
+    return float(Quantity(x))
 
-class CodeParseError(ValueError):
-    """Raised when shorthand configuration codes cannot be parsed."""
+def parse_int_required(x: str) -> int:
+    v = float(Quantity(x))
+    if int(v) != v:
+        raise ValueError(f"Expected integer, got {x!r} -> {v}")
+    return int(v)
 
+def parse_int_optional(x: str) -> int | None:
+    if x.strip().upper() == "NO":
+        return None
+    return parse_int_required(x)
 
-_CodeValue = Any | Callable[[], Any]
+def parse_time_optional(x: str) -> int | None:
+    if x.strip().upper() == "NO":
+        return None
+    secs = parse_timespan_s(x)
+    if secs is None:
+        raise ValueError(f"Bad time string: {x!r}")
+    if int(secs) != secs:
+        raise ValueError(f"Expected whole seconds, got {x!r} -> {secs}")
+    return int(secs)
 
-
-def _evaluate(value: _CodeValue) -> Any:
-    if callable(value):
-        return value()
-    return value
-
-
-def _merge_code_definitions(
-    *code_sets: Dict[str, Dict[str, _CodeValue]],
-) -> Dict[str, Dict[str, _CodeValue]]:
-    merged: Dict[str, Dict[str, _CodeValue]] = {}
-    for code_set in code_sets:
-        for key, entries in code_set.items():
-            merged[key] = dict(entries)
-    return merged
-
-
-COMMON_CODE_DEFINITIONS: Dict[str, Dict[str, _CodeValue]] = {
-    "LR": {
-        "1e-2": 1e-2,
-        "5e-3": 5e-3,
-        "1e-3": 1e-3,
-        "5e-4": 5e-4,
-        "1e-4": 1e-4,
-        "5e-5": 5e-5,
-        "1e-5": 1e-5,
-    },
-    "MC": {"1": 1, "10": 10, "20": 20, "50": 50, "100": 100},
-    "BS": {"1": 1, "10": 10, "20": 20, "50": 50, "100": 100},
-    "EMB": {
-        "LC": lambda: vi.registry.LongContextEmbedder(prev_window=5, post_window=5),
-        "SC": lambda: vi.registry.ShortContextEmbedder(prev_window=2, post_window=2),
-        "BiRNN": lambda: vi.registry.BiRNNEmbedder(hidden_dim=5),
-    },
-    "MAXS": {
-        "NO": None,
-        "1K": 1_000,
-        "50K": 50_000,
-        "100K": 100_000,
-        "150K": 150_000,
-        "1M": 1_000_000,
-        "10M": 10_000_000,
-        "100M": 100_000_000,
-    },
-    "MAXT": {
-        "20H": 20 * 60 * 60,
-        "10H": 10 * 60 * 60,
-        "5H": 5 * 60 * 60,
-        "2H": 2 * 60 * 60,
-        "2H_m10M": 2 * 60 * 60 - 10 * 60,
-        "30M": 30 * 60,
-        "5M": 5 * 60,
-        "NO": None,
-    },
+PARSER_TYPE_LABEL: dict[Parser, str] = {
+    parse_float: "float",
+    parse_int_required: "integer",
+    parse_int_optional: "integer | NO",
+    parse_time_optional: "duration | NO",
 }
 
-BUFFER_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
-    "PT_MAXT": {
-        "NO": None,
-        "5M": 5 * 60,
-        "10M": 10 * 60,
-        "30M": 30 * 60,
-        "1H": 60 * 60,
-    },
-    "PT_MAXS": {
-        "NO": None,
-        "0": 0,
-        "10K": 10_000,
-        "50K": 50_000,
-        "100K": 100_000,
-        "10M": 10_000_000,
-    },
-    "PT_LR": {"1e-2": 1e-2, "5e-3": 5e-3, "1e-3": 1e-3, "1e-4": 1e-4},
-    "B": {"0": 0, "5": 5, "10": 10, "20": 20, "50": 50},
-    "M": {"5": 5, "10": 10, "20": 20},
+PARSER_EXAMPLES: dict[Parser, list[str]] = {
+    parse_float: ["1e-3", "5e-2"],
+    parse_int_required: ["500", "1k", "1_000_000"],
+    parse_int_optional: ["1k", "NO", "1_000_000"],
+    parse_time_optional: ["30m", "2h", "1h30m", "NO"],
 }
 
-FULL_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {}
-
-NUTS_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
-    "SS": {"1e-3": 1e-3, "5e-3": 5e-3, "1e-2": 1e-2, "5e-2": 5e-2},
-    "ADAPT": {"500": 500, "1K": 1_000, "5K": 5_000, "10K": 10_000, "50K": 50_000},
-    "NW": {
-        "200": 200,
-        "500": 500,
-        "1K": 1_000,
-        "5K": 5_000,
-        "10K": 10_000,
-        "50K": 50_000,
-    },
-    "NS": {
-        "100": 100,
-        "500": 500,
-        "1K": 1_000,
-        "5K": 5_000,
-        "10K": 10_000,
-        "50K": 50_000,
-    },
-    "NC": {"1": 1, "2": 2, "4": 4, "8": 8},
-}
-
-
-BUFFER_SGLD_SPECIFIC_CODES: Dict[str, Dict[str, _CodeValue]] = {
-    "SS": {"1e-0": 1, "1e-1": 0.1, "1e-2": 0.01, "1e-3": 0.001},
-    "B": {"0": 0, "5": 5, "10": 10, "20": 20, "40": 40, "50": 50},
-    "M": {"5": 5, "10": 10, "20": 20, "40": 40},
-    "MAXS": {
-        "NO": None,
-        "1K": 1_000,
-        "50K": 50_000,
-        "100K": 100_000,
-        "150K": 150_000,
-        "1M": 1_000_000,
-        "10M": 10_000_000,
-        "100M": 100_000_000,
-    },
-    "MAXT": {
-        "20H": 20 * 60 * 60,
-        "10H": 10 * 60 * 60,
-        "5H": 5 * 60 * 60,
-        "2H": 2 * 60 * 60,
-        "2H_m10M": 2 * 60 * 60 - 10 * 60,
-        "30M": 30 * 60,
-        "5M": 5 * 60,
-        "NO": None,
-    },
-}
-BUFFER_SGLD_DEFAULT_CODES = [
-    "SS-1e-2",
-    "B-10",
-    "M-10",
-    "MAXT-NO",
-    "MAXS-50K",
-]
-
-BUFFER_SGLD_FACTOR_NAMES = {
-    "SS": "step_size",
-    "B": "buffer_length",
-    "M": "batch_length",
-    "MAXS": "num_samples",
-    "MAXT": "time_limit_s",
-}
-
-BUFFER_VI_CODES: Dict[str, Dict[str, _CodeValue]] = _merge_code_definitions(
-    COMMON_CODE_DEFINITIONS,
-    BUFFER_SPECIFIC_CODES,
-)
-
-
-FULL_VI_CODES: Dict[str, Dict[str, _CodeValue]] = _merge_code_definitions(
-    COMMON_CODE_DEFINITIONS,
-    FULL_SPECIFIC_CODES,
-)
-
-
-NUTS_CODES: Dict[str, Dict[str, _CodeValue]] = dict(NUTS_SPECIFIC_CODES)
-
-
-COMMON_FACTOR_NAMES: Dict[str, str] = {
-    "LR": "learning_rate",
-    "MC": "mc_samples",
-    "BS": "minibatch_size",
-    "EMB": "embedding",
-    "MAXT": "optimization_time_limit_s",
-    "MAXS": "optimization_total_steps",
-}
-
-BUFFER_SPECIFIC_FACTOR_NAMES: Dict[str, str] = {
-    "PT_MAXT": "pretrain_time_limit_s",
-    "PT_MAXS": "pretrain_total_steps",
-    "PT_LR": "pretrain_learning_rate",
-    "B": "buffer_len",
-    "M": "batch_len",
-}
-
-FULL_SPECIFIC_FACTOR_NAMES: Dict[str, str] = {}
-
-BUFFER_VI_FACTOR_NAMES: Dict[str, str] = {
-    **COMMON_FACTOR_NAMES,
-    **BUFFER_SPECIFIC_FACTOR_NAMES,
-}
-
-
-FULL_VI_FACTOR_NAMES: Dict[str, str] = {
-    **COMMON_FACTOR_NAMES,
-    **FULL_SPECIFIC_FACTOR_NAMES,
-}
-
-
-NUTS_FACTOR_NAMES: Dict[str, str] = {
-    "SS": "step_size",
-    "ADAPT": "num_adaptation",
-    "NW": "num_warmup",
-    "NS": "num_steps",
-    "NC": "num_chains",
-}
-
-
-COMMON_DEFAULT_CODES: List[str] = [
-    "LR-1e-3",
-    "MC-1",
-    "BS-1",
-    "EMB-SC",
-    "MAXT-30M",
-    "MAXS-100K",
-]
-
-
-BUFFER_VI_DEFAULT_CODES: List[str] = [
-    *COMMON_DEFAULT_CODES,
-    "PT_LR-1e-3",
-    "PT_MAXT-5M",
-    "PT_MAXS-0",
-    "B-5",
-    "M-5",
-]
-
-
-FULL_VI_DEFAULT_CODES: List[str] = [
-    *COMMON_DEFAULT_CODES,
-]
-
-# Backwards compatibility for older imports
-DEFAULT_CODES = BUFFER_VI_DEFAULT_CODES
-
-
-NUTS_DEFAULT_CODES: List[str] = [
-    "SS-1e-3",
-    "ADAPT-5K",
-    "NW-5K",
-    "NS-1K",
-    "NC-1",
-]
-
-
-def _parse_token(
-    token: str, code_definitions: Dict[str, Dict[str, _CodeValue]]
-) -> Tuple[str, Any]:
-    if "-" not in token:
-        raise CodeParseError(
-            f"Bad code '{token}'. Expected PREFIX-SUFFIX like 'LR-1e-3'."
-        )
-    prefix, suffix = token.split("-", 1)
-    if prefix not in code_definitions:
-        valid = ", ".join(sorted(code_definitions))
-        raise CodeParseError(f"Unknown factor '{prefix}'. Valid factors: {valid}")
-    sub = code_definitions[prefix]
-    if suffix not in sub:
-        raise CodeParseError(
-            f"Invalid value '{suffix}' for factor '{prefix}'. Choices: {', '.join(sub.keys())}"
-        )
-    return prefix, _evaluate(sub[suffix])
-
-
-def _normalise_tokens(raw_tokens: Iterable[str]) -> List[str]:
-    tokens: List[str] = []
-    for raw in raw_tokens:
-        if not raw:
-            continue
-        tokens.extend([token.strip() for token in raw.split(",") if token.strip()])
-    return tokens
-
-
-def _resolve_config(
-    tokens: Iterable[str],
+def format_code_options(
+    method_codes: dict[str, Any],
     *,
-    defaults: Iterable[str],
-    code_definitions: Dict[str, Dict[str, _CodeValue]],
-    factor_names: Dict[str, str],
-) -> Dict[str, Any]:
-    resolved: Dict[str, Any] = {}
-    for default in defaults:
-        key, value = _parse_token(default, code_definitions)
-        resolved[factor_names.get(key, key)] = value
+    examples_by_code: dict[str, list[str]] | None = None,
+    max_examples: int = 3,
+    path_sep: str = ".",
+    kv_sep: str = "-",
+    indent: str = "  ",
+) -> str:
+    """
+    Supports leaf specs:
+      - (field, parser)
+      - (field, parser, example)
 
-    for token in tokens:
-        key, value = _parse_token(token, code_definitions)
-        resolved[factor_names.get(key, key)] = value
+    Supports nested specs:
+      - {"field": "...", "registry": <ignored>, "options": { "ADAM": ("adam-plain", {...subcodes...}), ...}}
+    """
 
-    return resolved
+    def _type_label(parser: Any) -> str:
+        return PARSER_TYPE_LABEL.get(parser, "value")
 
+    def _raw_examples(codepath: str, parser: Any, example: str | None) -> list[str]:
+        # examples_by_code can key on either top-level ("NS") or fully-qualified ("OPT.ADAM.LR")
+        if examples_by_code and codepath in examples_by_code:
+            return examples_by_code[codepath]
+        if example is not None:
+            return [example]
+        return PARSER_EXAMPLES.get(parser, [])
 
-def format_buffer_vi_codes() -> str:
-    lines: List[str] = []
-    for factor, entries in sorted(BUFFER_VI_CODES.items()):
-        values = ", ".join(f"{factor}-{suffix}" for suffix in entries)
-        lines.append(f"{factor}: {values}")
-    return "\n".join(lines)
+    def _format_leaf(codepath: str, field: str, parser: Any, example: str | None, level: int) -> list[str]:
+        tlabel = _type_label(parser)
+        raw = _raw_examples(codepath, parser, example)[:max_examples]
+        ex = " | ".join(f"{codepath}{kv_sep}{e}" for e in raw) if raw else ""
+        pad = indent * level
+        if ex:
+            return [f"{pad}{codepath}: {field} ({tlabel}) e.g. {ex}"]
+        return [f"{pad}{codepath}: {field} ({tlabel})"]
 
+    def _format_node(node_codes: dict[str, Any], level: int, prefix: str = "") -> list[str]:
+        lines: list[str] = []
+        for code in sorted(node_codes):
+            spec = node_codes[code]
+            codepath = f"{prefix}{path_sep}{code}" if prefix else code
 
-def format_full_vi_codes() -> str:
-    lines: List[str] = []
-    for factor, entries in sorted(FULL_VI_CODES.items()):
-        values = ", ".join(f"{factor}-{suffix}" for suffix in entries)
-        lines.append(f"{factor}: {values}")
-    return "\n".join(lines)
+            # ---- leaf: (field, parser) or (field, parser, example) ----
+            if isinstance(spec, tuple) and len(spec) in (2, 3) and callable(spec[1]):
+                field = spec[0]
+                parser = spec[1]
+                example = spec[2] if len(spec) == 3 else None
+                lines.extend(_format_leaf(codepath, field, parser, example, level))
+                continue
 
+            # ---- nested: {"field": ..., "options": {...}} ----
+            if isinstance(spec, dict) and "field" in spec and "options" in spec:
+                field = spec["field"]
+                options = spec["options"]
+                pad = indent * level
 
-def format_nuts_codes() -> str:
-    lines: List[str] = []
-    for factor, entries in sorted(NUTS_CODES.items()):
-        values = ", ".join(f"{factor}-{suffix}" for suffix in entries)
-        lines.append(f"{factor}: {values}")
-    return "\n".join(lines)
+                option_names = sorted(options.keys())
+                # Show selector examples (both "OPT-ADAM" and "OPT.ADAM" forms)
+                sel_examples = " | ".join(
+                    [
+                        f"{code}{kv_sep}{opt}"  # OPT-ADAM
+                        for opt in option_names[:max_examples]
+                    ]
+                )
+                sel_examples2 = " | ".join(
+                    [
+                        f"{codepath}{path_sep}{opt}"  # OPT.ADAM
+                        for opt in option_names[:max_examples]
+                    ]
+                )
 
-def format_buffer_sgld_codes() -> str:
-    lines: List[str] = []
-    for factor, entries in sorted(BUFFER_SGLD_SPECIFIC_CODES.items()):
-        values = ", ".join(f"{factor}-{suffix}" for suffix in entries)
-        lines.append(f"{factor}: {values}")
-    return "\n".join(lines)
+                lines.append(
+                    f"{pad}{codepath}: {field} (choice) options: {', '.join(option_names)}"
+                    + (f" e.g. {sel_examples} (or {sel_examples2})" if option_names else "")
+                )
 
+                # Expand each option’s subcodes
+                for opt in option_names:
+                    opt_registry_key, subcodes = options[opt]
+                    opt_pad = indent * (level + 1)
+                    lines.append(f"{opt_pad}{opt}: {opt_registry_key}")
 
-def apply_buffer_vi_codes(
-    config: vi.registry.BufferedVIConfig, raw_tokens: Iterable[str]
-) -> vi.registry.BufferedVIConfig:
-    tokens = _normalise_tokens(raw_tokens)
-    try:
-        resolved = _resolve_config(
-            tokens,
-            defaults=BUFFER_VI_DEFAULT_CODES,
-            code_definitions=BUFFER_VI_CODES,
-            factor_names=BUFFER_VI_FACTOR_NAMES,
-        )
-    except CodeParseError as exc:  # pragma: no cover - exercised via CLI
-        raise exc
+                    if subcodes:
+                        # subcodes are leaf specs keyed by subcode, so recurse with prefix "OPT.ADAM"
+                        lines.extend(_format_node(subcodes, level + 2, prefix=f"{codepath}{path_sep}{opt}"))
+                continue
 
-    optimization = config.optimization
-    if isinstance(optimization, optimization_registry.AdamOpt):
-        time_limit_s = resolved["optimization_time_limit_s"]
-        total_steps = resolved["optimization_total_steps"]
-        learning_rate = resolved["learning_rate"]
+            # If you accidentally put something else in the spec, fail loudly.
+            raise TypeError(f"Unrecognized spec for code {codepath!r}: {spec!r}")
 
-        optimization = replace(
-            optimization,
-            lr=learning_rate,
-            time_limit_s=time_limit_s,
-            total_steps=total_steps,
-        )
-    embedder = resolved["embedding"]
+        return lines
 
-    if not isinstance(embedder, vi.registry.EmbedderConfig):
-        raise CodeParseError("Invalid embedder resolved from shorthand codes.")
-
-    if resolved["pretrain_total_steps"] > 0:
-        pre_training_optimization = optimization_registry.AdamOpt(
-            lr=resolved["pretrain_learning_rate"],
-            total_steps=resolved["pretrain_total_steps"],
-            time_limit_s=resolved["pretrain_time_limit_s"],
-        )
-    else:
-        pre_training_optimization = None
-
-    return replace(
-        config,
-        optimization=optimization,
-        buffer_length=resolved["buffer_len"],
-        batch_length=resolved["batch_len"],
-        observations_per_step=resolved["minibatch_size"],
-        samples_per_context=resolved["mc_samples"],
-        pre_training_optimization=pre_training_optimization,
-        embedder=embedder,
-    )
+    return "\n".join(_format_node(method_codes, level=0))
 
 
-def apply_full_vi_codes(
-    config: vi.registry.FullVIConfig, raw_tokens: Iterable[str]
-) -> vi.registry.FullVIConfig:
-    tokens = _normalise_tokens(raw_tokens)
-    try:
-        resolved = _resolve_config(
-            tokens,
-            defaults=FULL_VI_DEFAULT_CODES,
-            code_definitions=FULL_VI_CODES,
-            factor_names=FULL_VI_FACTOR_NAMES,
-        )
-    except CodeParseError as exc:  # pragma: no cover - exercised via CLI
-        raise exc
+shared_optimizer = {
+    "LR": ("lr", parse_float, "1e-3"),
+    "MAXS": ("total_steps", parse_int_optional, "NO"),
+    "MAXT": ("time_limit_s", parse_time_optional, "5m"),
+}
 
-    optimization = config.optimization
-    if isinstance(optimization, optimization_registry.AdamOpt):
-        time_limit_s = resolved["optimization_time_limit_s"]
-        total_steps = resolved["optimization_total_steps"]
-        learning_rate = resolved["learning_rate"]
+optimization_config = {
+    "field": "optimization",
+    "registry": optimization_registry.registry,
+    "options": {
+        "ADAM": ("adam-plain", shared_optimizer)
+    }
+}
 
-        optimization = replace(
-            optimization,
-            lr=learning_rate,
-            time_limit_s=time_limit_s,
-            total_steps=total_steps,
-        )
-    else:  # pragma: no cover - future-proofing
-        raise CodeParseError("Shorthand learning rate codes require Adam optimization.")
+codes = {}
 
-    embedder = resolved["embedding"]
-    if not isinstance(embedder, vi.registry.EmbedderConfig):
-        raise CodeParseError("Invalid embedder resolved from shorthand codes.")
+codes["NUTS"] = {
+    "SS": ("step_size", parse_float, "1e-3"),
+    "NA": ("num_adaptation", parse_int_required, "5k"),
+    "NW": ("num_warmup", parse_int_required, "5k"),
+    "NS": ("num_steps", parse_int_optional, "10k"), 
+    "NC": ("num_chains", parse_int_required, "1"),
+    "MAXT": ("max_time_s", parse_time_optional, "NO"),
+}
 
-    return replace(
-        config,
-        optimization=optimization,
-        observations_per_step=resolved["minibatch_size"],
-        samples_per_context=resolved["mc_samples"],
-        embedder=embedder,
-    )
+codes["full-vi"] = {
+    "OPT": optimization_config,
+    "MC": ("samples_per_context", parse_int_required, "10"),
+    "BS": ("observations_per_step", parse_int_required, "10"),
+    "EMB": {
+        "field": "embedder",
+        "registry": vi.registry.embedder_registry,
+        "options": {
+            "BiRNN": ("bi-rnn", {
+                "H": ("hidden_dim", parse_int_required, "10")
+            })
+        }
+    },
+    "PAX": {
+        "field": "parameter_approximation",
+        "registry": vi.registry.parameter_approximation_registry,
+        "options": {
+            "MF": ("mean-field", {})
+        }
+    },
+    "PBIJ": ("parameter_field_bijections", lambda x: x, "default")
+}
 
+codes["buffer-vi"] = codes["full-vi"].copy()
+codes["buffer-vi"]["PT"] = optimization_config
+codes["buffer-vi"]["B"] = ("buffer_length", parse_int_required, "10")
+codes["buffer-vi"]["M"] = ("batch_length", parse_int_required, "5")
 
-def apply_nuts_codes(config: NUTSConfig, raw_tokens: Iterable[str]) -> NUTSConfig:
-    tokens = _normalise_tokens(raw_tokens)
-    try:
-        resolved = _resolve_config(
-            tokens,
-            defaults=NUTS_DEFAULT_CODES,
-            code_definitions=NUTS_CODES,
-            factor_names=NUTS_FACTOR_NAMES,
-        )
-    except CodeParseError as exc:  # pragma: no cover - exercised via CLI
-        raise exc
+codes["buffer-sgld"] = {
+    "SS": ("step_size", parse_float, "1e-3"),
+    "NS": ("num_steps", parse_int_optional, "10k"), 
+    "MAXT": ("time_limit_s", parse_time_optional, "NO"),
+    "B": ("buffer_length", parse_int_required, "10"),
+    "M": ("batch_length", parse_int_required, "5"),
+    "PF": {
+        "field": "particle_filter_config",
+        "registry": particle_filter_registry.registry,
+        "options": {
+            "BTS": ("bootstrap", {
+                "N": ("num_particles", parse_int_required, "1k"),
+                "R": ("resample", lambda x: x, "multinomial"),
+            })
+        }
+    }
+}
 
-    return replace(
-        config,
-        step_size=resolved["step_size"],
-        num_adaptation=resolved["num_adaptation"],
-        num_warmup=resolved["num_warmup"],
-        num_steps=resolved["num_steps"],
-        num_chains=resolved["num_chains"],
-    )
+codes["full-sgld"] = {
+    "SS": ("step_size", parse_float, "1e-3"),
+    "NS": ("num_steps", parse_int_optional, "10k"), 
+    "MAXT": ("time_limit_s", parse_time_optional, "NO"),
+    "PF": {
+        "field": "particle_filter_config",
+        "registry": particle_filter_registry.registry,
+        "options": {
+            "BTS": ("bootstrap", {
+                "N": ("num_particles", parse_int_required, "1k"),
+                "R": ("resample", lambda x: x, "multinomial"),
+            })
+        }
+    }
+}
 
-def apply_buffer_sgld_codes(config, raw_tokens):
-    tokens = _normalise_tokens(raw_tokens)
-    try:
-        resolved = _resolve_config(
-            tokens,
-            defaults=BUFFER_SGLD_DEFAULT_CODES,
-            code_definitions=BUFFER_SGLD_SPECIFIC_CODES,
-            factor_names=BUFFER_SGLD_FACTOR_NAMES,
-        )
-    except CodeParseError as exc:  # pragma: no cover - exercised via CLI
-        raise exc
-    
-    return replace(config, **resolved)
+codes["particle-mcmc"] = {
+    "MCMC": {
+        "field": "mcmc_config",
+        "registry": mcmc_registry,
+        "options": {
+            "MH": ("mh", {
+                "SS": ("step_size", parse_float, "1e-3")
+            })
+        }
+    },
+    "PF": {
+        "field": "particle_filter_config",
+        "registry": particle_filter_registry.registry,
+        "options": {
+            "BTS": ("bootstrap", {
+                "N": ("num_particles", parse_int_required, "1k"),
+                "R": ("resample", lambda x: x, "multinomial"),
+            })
+        }
+    },
+    "MAXT": ("time_limit_s", parse_time_optional, "NO"),
+}
