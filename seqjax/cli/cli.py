@@ -1,15 +1,15 @@
 """Command line interface for running ``seqjax`` experiments."""
 import json
-from typing import List, cast
 import typing
-
+from dataclasses import asdict, is_dataclass
 import typer
 
-from seqjax.cli import codes as shorthand_codes
+from seqjax.cli import codes
 from seqjax.experiment import ExperimentConfig, run_experiment
 from seqjax.inference import registry as inference_registry
 from seqjax.model import registry as model_registry
 from .results import ResultProcessor
+
 
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
 
@@ -18,7 +18,7 @@ def _resolve_model_label(label: str) -> model_registry.SequentialModelLabel:
         typer.echo(f"Model {label} not found.")
         raise Exception(f"Model {label} not found.")
 
-    return cast(model_registry.SequentialModelLabel, label)
+    return typing.cast(model_registry.SequentialModelLabel, label)
 
 
 def _resolve_inference_label(label: str) -> inference_registry.InferenceName:
@@ -26,15 +26,26 @@ def _resolve_inference_label(label: str) -> inference_registry.InferenceName:
         typer.echo(f"Inference {label} not found.")
         raise Exception(f"Inference {label} not found.")
 
-    return cast(inference_registry.InferenceName, label)
+    return typing.cast(inference_registry.InferenceName, label)
 
+def _structure_to_dict(value: typing.Any) -> typing.Any:
+    """Recursively convert dataclasses and eqx modules into plain Python types."""
 
-def _resolve_parameter_label(label: str) -> model_registry.SequentialModelLabel:
-    if label not in model_registry.posterior_factories:
-        typer.echo(f"Model {label} not found.")
-        raise Exception(f"Model {label} not found.")
+    if is_dataclass(value):
+        if isinstance(value, type):
+            return value.__name__
+        return {k: _structure_to_dict(v) for k, v in asdict(value).items()}
 
-    return cast(model_registry.SequentialModelLabel, label)
+    if isinstance(value, dict):
+        return {k: _structure_to_dict(v) for k, v in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [_structure_to_dict(v) for v in value]
+
+    if hasattr(value, "__dict__"):
+        return {k: _structure_to_dict(v) for k, v in vars(value).items()}
+
+    return value
 
 def parse_straight_codes(code_tokens, available_codes):
     dict_config = {}
@@ -57,7 +68,7 @@ def build_inference_config(
     code_tokens: list[str]
 ) ->  inference_registry.InferenceConfig:
     try:
-        available_codes = shorthand_codes.codes[method]
+        available_codes = codes.codes[method]
     except KeyError:
         raise typer.BadParameter(
             f"Inference method {method} has no configured codes."
@@ -69,7 +80,7 @@ def build_inference_config(
 
     # firstly need to unflatten the nested codes
     nested_code_tokens = [token for token in code_tokens if "." in token]
-    nested_code_groups = {}
+    nested_code_groups: dict[str, list[str]] = {}
     nested_code_value = {}
     for code_token in nested_code_tokens:
         code, group_value, sub_code = code_token.split(".")
@@ -86,7 +97,7 @@ def build_inference_config(
     # then can process them 
     parsed_nested_codes = set()
     for code, sub_codes in nested_code_groups.items():
-        subconfig = available_codes[code]
+        subconfig = typing.cast(codes.NestedCode, available_codes[code])
         selected_option, selected_option_codes = subconfig["options"][nested_code_value[code]]
         subconfig_dict = parse_straight_codes(sub_codes, selected_option_codes)
         dict_config[subconfig["field"]] = subconfig["registry"][selected_option](
@@ -100,7 +111,7 @@ def build_inference_config(
         if isinstance(available_codes[token], dict) and token not in parsed_nested_codes
     ]
     for code in available_nested_codes:
-        subconfig = available_codes[code]
+        subconfig = typing.cast(codes.NestedCode, available_codes[code])
         selected_code = next(iter(subconfig["options"]))
         selected_option, selected_option_codes = subconfig["options"][selected_code]
         dict_config[subconfig["field"]] = subconfig["registry"][selected_option](
@@ -128,7 +139,7 @@ def list_inference() -> None:
 @app.command("list-codes")
 def list_codes(method: inference_registry.InferenceName) -> None:
     try:
-        typer.echo(shorthand_codes.format_code_options(shorthand_codes.codes[method]))
+        typer.echo(codes.format_code_options(codes.codes[method]))
     except KeyError:
         typer.echo(f"Inference method {method} not found.")
 
@@ -148,7 +159,7 @@ def run(
     test_samples: int = typer.Option(
         1000, "--test-samples", min=1, help="Number of posterior samples to draw."
     ),
-    code_tokens: List[str] = typer.Option(
+    code_tokens: typing.List[str] = typer.Option(
         [],
         "--code",
         "-c",
