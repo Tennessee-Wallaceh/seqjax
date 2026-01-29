@@ -256,5 +256,5 @@ codes["particle-mcmc"] = {
         }
     },
     "MAXT": ("time_limit_s", parse_time_optional, "NO"),
-    "NS": ("num_steps", parse_time_optional, "5k"),
+    "NS": ("num_steps", parse_int_optional, "5k"),
 }
