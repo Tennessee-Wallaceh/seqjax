@@ -199,7 +199,8 @@ embedder_config: NestedCode = {
         "BiRNN": ("bi-rnn", {
             "H": ("hidden_dim", parse_int_required, "10")
         }),
-        "LC": ("long-window", {})
+        "LC": ("long-window", {}),
+        "SC": ("short-window", {}),
     }
 }
 
