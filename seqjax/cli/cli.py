@@ -94,11 +94,8 @@ def build_inference_config(
             nested_code_value[code] = group_value
             nested_code_groups[code] = []
         else:
-            assert (
-                nested_code_value[code] == group_value, 
-                f"Mismatched options for {code}!"
-            )
-            
+            assert nested_code_value[code] == group_value, f"Mismatched options for {code}!"
+
         if sub_code is not None:
             nested_code_groups[code].append(sub_code)
 

@@ -30,18 +30,24 @@ class AdamOpt:
 
     def __repr__(self) -> str:
         return f"{self.label}({self.lr:.0e})"
+    
+@dataclass
+class NoOpt:
+    label: str = field(init=False, default="none")
+    def __new__(cls):
+        return None
 
-
-OptConfigLabels = typing.Literal["cosine-sched", "adam-plain"]
-OptConfig = CosineOpt | AdamOpt
+OptConfigLabels = typing.Literal["cosine-sched", "adam-plain", "none"]
+OptConfig = CosineOpt | AdamOpt | NoOpt
 
 registry: dict[OptConfigLabels, type[OptConfig]] = {
     "cosine-sched": CosineOpt,
     "adam-plain": AdamOpt,
+    "none": NoOpt, # for e.g. pre-training
 }
 
 
-def build_optimizer(optimization_config) -> optax.GradientTransformation:
+def build_optimizer(optimization_config: OptConfig) -> optax.GradientTransformation:
     if isinstance(optimization_config, AdamOpt):
         optim = optax.apply_if_finite(
             optax.adam(optimization_config.lr), max_consecutive_errors=100
@@ -59,6 +65,6 @@ def build_optimizer(optimization_config) -> optax.GradientTransformation:
             optax.adam(learning_rate=schedule), max_consecutive_errors=100
         )
     else:
-        raise Exception(f"Unknown Optimizer: {optimization_config.optimization}")
+        raise Exception(f"Unknown Optimizer: {optimization_config}")
 
     return optim
