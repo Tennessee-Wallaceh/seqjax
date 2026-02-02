@@ -16,6 +16,7 @@ from flowjax.distributions import (
     Normal as FlowjaxNormal,
     Transformed as FlowjaxTransformed,
 )
+from flowjax.flows import masked_autoregressive_flow
 
 
 import seqjax.model.typing as seqjtyping
@@ -199,7 +200,6 @@ class AmortizedMaskedAutoregressiveFlow[
 
     target_struct_cls: type[TargetStructT]
     base_distribution: FlowjaxNormal
-    flow: FlowjaxMAF
     distribution: FlowjaxTransformed
     conditioner: eqx.nn.MLP
     _flat_sample_dim: int = eqx.field(static=True)
@@ -263,19 +263,16 @@ class AmortizedMaskedAutoregressiveFlow[
         self._condition_input_dim = cond_input_dim
         self._condition_dim = conditioner_out_dim
 
-        self.flow = FlowjaxMAF(
+        self.distribution = masked_autoregressive_flow(
             flow_key,
+            base_dist=self.base_distribution,
             transformer=transformer,
-            dim=flat_sample_dim,
             cond_dim=conditioner_out_dim,
             nn_width=nn_width,
             nn_depth=nn_depth,
+            invert=False
         )
-        distribution = typing.cast(
-            FlowjaxTransformed,
-            FlowjaxTransformed(self.base_distribution, self.flow),  # type: ignore[arg-type, call-arg]
-        )
-        self.distribution = distribution
+        
 
     def _build_condition(
         self,
@@ -309,8 +306,7 @@ class AmortizedMaskedAutoregressiveFlow[
         theta_context, observation_context, _ = condition
         cond = self._build_condition(theta_context, observation_context)
         flow_key = _ensure_prng_key(key)
-        flat_sample = self.distribution.sample(flow_key, condition=cond)
-        log_q = self.distribution.log_prob(flat_sample, condition=cond)
+        flat_sample, log_q = self.distribution.sample_and_log_prob(flow_key, condition=cond)
         reshaped_sample = jnp.reshape(flat_sample, self.shape)
         latent_sample = typing.cast(
             TargetStructT, self.target_struct_cls.unravel(reshaped_sample)
@@ -675,7 +671,7 @@ class BufferedSSMVI[
 
         # vmap down the outer samples
         # then just latent_keys and the parameter samples
-        x_path, log_q_x_path = jax.vmap(
+        x_path, log_q_x= jax.vmap(
             jax.vmap(
                 self.latent_approximation.sample_and_log_prob,
                 in_axes=[0, (0, None, None)],
@@ -693,7 +689,7 @@ class BufferedSSMVI[
             parameters,
             log_q_theta,
             x_path,
-            log_q_x_path,
+            log_q_x,
             (approx_start, theta_mask, y_batch, c_batch),
         )
 
@@ -730,7 +726,7 @@ class BufferedSSMVI[
             self.latent_approximation.batch_length + observations.batch_shape[0] - 1
         ) / self.latent_approximation.batch_length
 
-        theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
+        theta_q, log_q_theta, x_path, log_q_x, extra_info = (
             self.joint_sample_and_log_prob(
                 observations, conditions, key, context_samples, samples_per_context
             )
@@ -759,8 +755,6 @@ class BufferedSSMVI[
             c_batch,
             target_posterior.convert_to_model_parameters(buffered_theta),
         )
-
-        log_q_x = jnp.sum(log_q_x_path, axis=-1)
 
         latent_terms = log_q_x - log_p_y_x
         neg_elbo = (log_q_theta - log_p_theta) + latent_scaling * latent_terms

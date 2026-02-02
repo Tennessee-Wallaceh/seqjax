@@ -66,6 +66,9 @@ class NUTSConfig:
     num_chains: int = 1
     max_time_s: float | None = None
 
+    initial_params: seqjtyping.Parameters | None = None
+    initial_latents: seqjtyping.Latent | None = None
+
     def __post_init__(self):
         positive_fields = [
             "step_size", 
@@ -121,20 +124,17 @@ def run_bayesian_nuts[
         )
         return log_like + log_prior
 
-    seed_initial_latents = None
-    seed_initial_params = None
-
     def initial_state(key):
         param_key, latent_key = jrandom.split(key)
-        if seed_initial_params is not None:
-            initial_parameters = seed_initial_params
+        if config.initial_params is not None:
+            initial_parameters = typing.cast(InferenceParametersT, config.initial_params)
         else:
             initial_parameters = target_posterior.parameter_prior.sample(
                 param_key, hyperparameters
             )
 
-        if seed_initial_latents:
-            initial_latents = seed_initial_latents
+        if config.initial_latents is not None:
+            initial_latents = config.initial_latents
         else:
             initial_latents, _ = simulate(
                 latent_key,
@@ -149,7 +149,9 @@ def run_bayesian_nuts[
 
     start_warmup_time = time.time()
     warmup = blackjax.window_adaptation(
-        blackjax.nuts, logdensity, initial_step_size=config.step_size
+        blackjax.nuts, 
+        logdensity, 
+        initial_step_size=config.step_size
     )
 
     (_, parameters), _ = warmup.run(

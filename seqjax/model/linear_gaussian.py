@@ -14,13 +14,13 @@ from seqjax.model.base import Emission, Prior, SequentialModel, Transition
 from seqjax.model.typing import Observation, Parameters, Latent, NoCondition
 
 
-class VectorState(Latent):
+class VectorState50D(Latent):
     """Multivariate latent state."""
 
     x: Array
 
     _shape_template: ClassVar = OrderedDict(
-        x=jax.ShapeDtypeStruct(shape=(2,), dtype=jnp.float32),
+        x=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
     )
 
 

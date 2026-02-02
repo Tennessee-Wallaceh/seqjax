@@ -83,16 +83,24 @@ def build_inference_config(
     nested_code_groups: dict[str, list[str]] = {}
     nested_code_value = {}
     for code_token in nested_code_tokens:
-        code, group_value, sub_code = code_token.split(".")
+        nested_code_config = code_token.split(".")
+        if len(nested_code_config) == 2:
+            code, group_value = nested_code_config
+            sub_code = None
+        else:
+            code, group_value, sub_code = nested_code_config
+        
         if code not in nested_code_value:
             nested_code_value[code] = group_value
-        
-        assert nested_code_value[code] == group_value, f"Mismatched options for {code}!"
-
-        if code not in nested_code_groups:
             nested_code_groups[code] = []
-        
-        nested_code_groups[code].append(sub_code)
+        else:
+            assert (
+                nested_code_value[code] == group_value, 
+                f"Mismatched options for {code}!"
+            )
+            
+        if sub_code is not None:
+            nested_code_groups[code].append(sub_code)
 
     # then can process them 
     parsed_nested_codes = set()

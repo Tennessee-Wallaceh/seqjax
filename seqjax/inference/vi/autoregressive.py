@@ -227,7 +227,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
                 initial_prev_x_key, parameter_context, condition_context
             ),
         )
-        return x_path, log_q_x_path
+        return x_path, jnp.sum(log_q_x_path)
 
     def initial_x_context(
         self,

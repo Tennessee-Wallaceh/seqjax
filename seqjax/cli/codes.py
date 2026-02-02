@@ -183,13 +183,22 @@ optimization_config: NestedCode = {
     }
 }
 
+pre_train_config: NestedCode = {
+    "field": "pre_training_optimization",
+    "registry": optimization_registry.registry,
+    "options": {
+        "ADAM": ("adam-plain", shared_optimizer)
+    }
+}
+
 embedder_config: NestedCode = {
     "field": "embedder",
     "registry": vi.registry.embedder_registry,
     "options": {
         "BiRNN": ("bi-rnn", {
             "H": ("hidden_dim", parse_int_required, "10")
-        })
+        }),
+        "LC": ("long-window", {})
     }
 }
 
@@ -205,11 +214,18 @@ codes["full-vi"] = {
             "MF": ("mean-field", {})
         }
     },
-    "PBIJ": ("parameter_field_bijections", lambda x: x, "default")
+    "LAX": {
+        "field": "latent_approximation",
+        "registry": vi.registry.latent_approximation_registry,
+        "options": {
+            "SEQ": ("autoregressive", {}),
+            "MAF": ("masked-autoregressive-flow", {})
+        }
+    },
 }
 
 codes["buffer-vi"] = codes["full-vi"].copy()
-codes["buffer-vi"]["PT"] = optimization_config
+codes["buffer-vi"]["PT"] = pre_train_config
 codes["buffer-vi"]["B"] = ("buffer_length", parse_int_required, "10")
 codes["buffer-vi"]["M"] = ("batch_length", parse_int_required, "5")
 

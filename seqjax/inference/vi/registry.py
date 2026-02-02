@@ -40,9 +40,9 @@ class BiRNNEmbedder:
     hidden_dim: int = 10
 
 
-EmbedderConfig = type[ShortContextEmbedder] | type[LongContextEmbedder] | type[BiRNNEmbedder]
+EmbedderConfig = ShortContextEmbedder | LongContextEmbedder | BiRNNEmbedder
 
-embedder_registry: dict[EmbedderName, EmbedderConfig] = {
+embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
     "short-window": ShortContextEmbedder,
     "long-window": LongContextEmbedder,
     "bi-rnn": BiRNNEmbedder,
@@ -145,7 +145,11 @@ def _build_parameter_approximation[
     *,
     key: jaxtyping.PRNGKeyArray,
 ) -> base.UnconditionalVariationalApproximation[ParametersT]:
-    bijection_configuration = DefaultTransform
+    # TODO: allow other bijection configurations- I now think this should
+    # work via a map of options on seqjtyping.Parameter classes.
+    # Ie have a "default"/"spline" string switch
+    # this is part of inference, so could be in an inference.reparametrization submodule
+    bijection_configuration = DefaultTransform()
     # handle parameter constrainsts with specified constraint transforms
     if isinstance(bijection_configuration, DefaultTransform):
         field_transforms = default_parameter_transforms[
@@ -210,14 +214,15 @@ class MaskedAutoregressiveFlowLatentApproximation:
 
 
 LatentApproximation = (
-    AutoregressiveLatentApproximation | MaskedAutoregressiveFlowLatentApproximation
+    AutoregressiveLatentApproximation 
+    | MaskedAutoregressiveFlowLatentApproximation
 )
 LatentApproximationLabels = typing.Literal[
     "autoregressive", "masked-autoregressive-flow"
 ]
-latent_approximation_registry: dict[LatentApproximationLabels, LatentApproximation] = {
-    "autoregressive": AutoregressiveLatentApproximation(),
-    "masked-autoregressive-flow": MaskedAutoregressiveFlowLatentApproximation(),
+latent_approximation_registry: dict[LatentApproximationLabels, type[LatentApproximation]] = {
+    "autoregressive": AutoregressiveLatentApproximation,
+    "masked-autoregressive-flow": MaskedAutoregressiveFlowLatentApproximation,
 }
 
 """
@@ -328,21 +333,6 @@ def build_approximation(
                 nn_depth=latent_config.nn_depth,
                 key=approximation_key,
             )
-
-            # latent_approximation = (
-            #     autoregressive.AmortizedInnovationUnivariateAutoregressor(
-            #         target_posterior,
-            #         buffer_length=config.buffer_length,
-            #         batch_length=config.batch_length,
-            #         context_dim=embed.context_dimension,
-            #         parameter_dim=target_param_class.flat_dim,
-            #         condition_dim=target_posterior.target.condition_cls.flat_dim,
-            #         lag_order=latent_config.lag_order,
-            #         nn_width=latent_config.nn_width,
-            #         nn_depth=latent_config.nn_depth,
-            #         key=approximation_key,
-            #     )
-            # )
 
         elif isinstance(latent_config, MaskedAutoregressiveFlowLatentApproximation):
             latent_approximation = base.AmortizedMaskedAutoregressiveFlow(

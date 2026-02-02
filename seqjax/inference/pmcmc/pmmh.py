@@ -42,6 +42,7 @@ class ParticleMCMCConfig(
     mcmc_config: RandomWalkConfig
     time_limit_s: None | float = None
     num_steps: None | int = 5000
+    sample_block_size: int = 1000
 
 def _make_log_joint_estimator[
     ParticleT: seqjtyping.Latent,
@@ -128,13 +129,9 @@ def run_particle_mcmc[
     initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
 
     # by default sample in chunks of 1000
-    num_samples = (
-        config.num_steps 
-        if config.num_steps is not None 
-        else 1000
-    )
+    num_samples = config.sample_block_size
 
-    print("="*20)
+    print("="*10, " compiling... ", "="*10)
     compiled_run = jax.jit(
         functools.partial(
             run_random_walk_metropolis,
