@@ -187,6 +187,7 @@ pre_train_config: NestedCode = {
     "field": "pre_training_optimization",
     "registry": optimization_registry.registry,
     "options": {
+        "NO": ("none", {}),
         "ADAM": ("adam-plain", shared_optimizer)
     }
 }
