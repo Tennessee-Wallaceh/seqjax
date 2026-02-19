@@ -76,7 +76,7 @@ StaticModuleT = TypeVar("StaticModuleT", bound=SSMVariationalApproximation)
 OptStateT = TypeVar("OptStateT")
 
 LoggedArray = jaxtyping.Float[jaxtyping.Array, "..."]
-LoggedValue = float | int | LoggedArray
+LoggedValue = float | int | LoggedArray | str
 TrackerLogRow = MutableMapping[str, LoggedValue]
 
 ArrayTree: TypeAlias = PyTree[LoggedArray]
@@ -231,6 +231,7 @@ class Tracker:
         loss: jaxtyping.Scalar,
         key: jaxtyping.PRNGKeyArray,
         loop: _ProgressIterator,
+        loss_kind: bool,
         force_record: bool = False,
     ) -> dict[typing.Any, typing.Any]:
         if force_record or self.record_trigger(opt_step, elapsed_time_s):
@@ -238,6 +239,7 @@ class Tracker:
                 "step": int(opt_step + 1),
                 "loss": float(loss),
                 "elapsed_time_s": elapsed_time_s,
+                "loss_kind": "pre-train" if loss_kind else "elbo",
             }
 
             qs, means, theta = sample_theta_qs(
@@ -318,8 +320,8 @@ def train(
         partial(
             base_loss_fn,
             target_posterior=target,
-            num_context=samples_per_context,
-            samples_per_context=observations_per_step,
+            num_context=observations_per_step,
+            samples_per_context=samples_per_context,
         ),
     )
 
@@ -367,7 +369,7 @@ def train(
     )
 
     tracker_postfix = run_tracker.track_step(
-        -1, -1, static, _trainable, loss, key, loop
+        -1, -1, static, _trainable, loss, key, loop, pre_train,
     )
 
     elapsed_time_s = 0.0
@@ -398,6 +400,7 @@ def train(
                 loss,
                 subkey,
                 loop,
+                pre_train,
             )
 
             if time_limit_s and elapsed_time_s > time_limit_s:
@@ -435,6 +438,7 @@ def train(
         loss,
         subkey,
         loop,
+        pre_train,
         force_record=True,
     )
 

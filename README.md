@@ -43,6 +43,6 @@ SeqJAX will check at runtime that `AR1Target` and its components implement the r
 
 ## Design
 
-- `registry` converts static config to objects
-- `run` defines an interface between static config and models, building appropriate objects and using them to produce posterior samples
-- `cli` is a command line interface for targeting data with inference configured by command line options. It relies on a remmote backend for storing+loading run outputs.
+- A `registry` converts static config (a dataclass) to objects
+- A `run` submodule defines an interface between static config and models, building appropriate objects and using them to produce posterior samples
+- The `cli` submodule is a command line interface for targeting data with inference configured by command line options. It relies on a remmote backend for storing+loading run outputs. The idea is to convert flat strings into config understood by a `registry`.

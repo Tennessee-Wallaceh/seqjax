@@ -156,7 +156,29 @@ class StochVarPrior(ParameterPrior[LogVarStd, HyperParameters]):
     @staticmethod
     def log_prob(parameters: LogVarStd, hyperparameters: HyperParameters) -> Scalar:
         _ = hyperparameters  # unused
-        return jstats.gamma.logpdf(1 / parameters.std_log_var, 10, scale=1 / 10)
+        return (
+            jstats.gamma.logpdf(1 / parameters.std_log_var, 10, scale=1 / 10)
+            - 2 * jnp.log(parameters.std_log_var)
+        )
+    
+class StochVarARPrior(ParameterPrior[LogVarAR, HyperParameters]):
+    @staticmethod
+    def sample(key: PRNGKeyArray, hyperparameters: HyperParameters) -> LogVarAR:
+        _ = hyperparameters  # unused
+        # from aicher https://arxiv.org/pdf/1901.10568
+        return LogVarAR(
+            std_log_var=10 / jrandom.gamma(key, 10),
+            ar=jrandom.uniform(key, minval=-1, maxval=1),
+        )
+
+    @staticmethod
+    def log_prob(parameters: LogVarAR, hyperparameters: HyperParameters) -> Scalar:
+        _ = hyperparameters  # unused
+        return (
+            jstats.gamma.logpdf(1 / parameters.std_log_var, 10, scale=1 / 10)
+            - 2 * jnp.log(parameters.std_log_var)
+            - jstats.uniform.logpdf(parameters.ar, loc=-1.0, scale=2.0)
+        )
 
 
 class StochVolParamPrior(ParameterPrior[LogVolRW, HyperParameters]):
@@ -328,7 +350,9 @@ def gaussian_var_start_sample(
     # mu = 2 * jnp.log(0.16)
     # sigma = jnp.array(0.5)
     mu = jnp.array(0.0)
-    sigma = jnp.sqrt(jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar)))
+    sigma = jnp.sqrt(
+        jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar))
+    )
     start_lv = LatentVar(log_var=mu + sigma * jrandom.normal(key))
     return (start_lv,)
 
@@ -339,10 +363,10 @@ def gaussian_var_start_log_prob(
     parameters: LogVarAR,
 ) -> Scalar:
     (start_lv,) = latent
-    # mu = 2 * jnp.log(0.16)
-    # sigma = jnp.array(0.5)
     mu = jnp.array(0.0)
-    sigma = jnp.sqrt(jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar)))
+    sigma = jnp.sqrt(
+        jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar))
+    )
 
     base_log_p = jstats.norm.logpdf(
         start_lv.log_var,
@@ -771,6 +795,21 @@ class SimpleStochasticVarBayesian(
     target = SimpleStochasticVar()
     parameter_prior = StochVarPrior()
 
+
+class StochasticVarBayesian(
+    BayesianSequentialModel[
+        LatentVar,
+        LogReturnObs,
+        NoCondition,
+        LogVarAR,
+        LogVarAR,
+        HyperParameters,
+    ]
+):
+    inference_parameter_cls = LogVarAR
+    target = SimpleStochasticVar()
+    parameter_prior = StochVarARPrior()
+    convert_to_model_parameters = staticmethod(lambda parameters: parameters)
 
 class SimpleStochasticVolBayesian(
     BayesianSequentialModel[

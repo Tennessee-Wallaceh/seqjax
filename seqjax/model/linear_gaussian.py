@@ -1,4 +1,7 @@
-"""Multidimensional linear Gaussian state space model."""
+"""
+Multidimensional linear Gaussian state space model.
+We use the LKJ Cholesky Cov parameterisation.
+"""
 
 from collections import OrderedDict
 from dataclasses import field
@@ -10,9 +13,9 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
-from seqjax.model.base import Emission, Prior, SequentialModel, Transition
-from seqjax.model.typing import Observation, Parameters, Latent, NoCondition
-
+from seqjax.model.base import BayesianSequentialModel, ParameterPrior, Emission, Prior, SequentialModel, Transition
+from seqjax.model.typing import Observation, Parameters, Latent, NoCondition, HyperParameters
+import jax.scipy.special as jspecial
 
 class VectorState50D(Latent):
     """Multivariate latent state."""
@@ -24,30 +27,100 @@ class VectorState50D(Latent):
     )
 
 
-class VectorObservation(Observation):
+class VectorObservation50D(Observation):
     """Vector-valued observation."""
 
     y: Array
 
     _shape_template: ClassVar = OrderedDict(
-        y=jax.ShapeDtypeStruct(shape=(2,), dtype=jnp.float32),
+        y=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
+    )
+
+def wishart_logpdf(precision_matrix, df, wishart_rate):
+    L = jnp.linalg.cholesky(precision_matrix)
+    dim = precision_matrix.shape[0]
+    log_det_x = 2 * jnp.sum(jnp.log(L.diagonal()))
+    log_det_scale = -dim * jnp.log(wishart_rate)
+    trace_term = wishart_rate * jnp.trace(precision_matrix)
+
+    return (
+        0.5 * (df - dim - 1) * log_det_x 
+        - 0.5 * trace_term
+        - 0.5 * dim * df * jnp.log(2)
+        - 0.5 * df * log_det_scale
+        - jspecial.multigammaln(df / 2, dim)
     )
 
 
-class LGSSMParameters(Parameters):
-    """Parameters of a linear Gaussian state space model."""
+class LGSSMParameters50D(Parameters):
+    """Parameters of a linear Gaussian state space model (50D).
 
-    transition_matrix: Array = field(default_factory=lambda: jnp.eye(2))
-    transition_noise_scale: Array = field(default_factory=lambda: jnp.ones(2))
-    emission_matrix: Array = field(default_factory=lambda: jnp.eye(2))
-    emission_noise_scale: Array = field(default_factory=lambda: jnp.ones(2))
+    Transition noise covariance: Q = D R D, with
+      - D = diag(transition_noise_scale), transition_noise_scale > 0 elementwise
+      - R = transition_noise_corr_cholesky @ transition_noise_corr_cholesky.T
+        is a correlation matrix (SPD, diag == 1)
+
+    Emission noise covariance: same structure.
+    """
+
+    transition_matrix: Array = field(default_factory=lambda: jnp.eye(50))
+
+    # Target-space (constrained) noise parameterisation
+    transition_noise_scale: Array = field(default_factory=lambda: jnp.ones(50))
+    transition_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(50))
+
+    emission_matrix: Array = field(default_factory=lambda: jnp.eye(50))
+    emission_noise_scale: Array = field(default_factory=lambda: jnp.ones(50))
+    emission_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(50))
 
     _shape_template: ClassVar = OrderedDict(
-        transition_matrix=jax.ShapeDtypeStruct(shape=(2, 2), dtype=jnp.float32),
-        transition_noise_scale=jax.ShapeDtypeStruct(shape=(2,), dtype=jnp.float32),
-        emission_matrix=jax.ShapeDtypeStruct(shape=(2, 2), dtype=jnp.float32),
-        emission_noise_scale=jax.ShapeDtypeStruct(shape=(2,), dtype=jnp.float32),
+        transition_matrix=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
+        transition_noise_scale=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
+        transition_noise_corr_cholesky=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
+        emission_matrix=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
+        emission_noise_scale=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
+        emission_noise_corr_cholesky=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
     )
+
+    @property
+    def transition_noise_cholesky(self) -> Array:
+        # L_Q = D L_R  => Q = L_Q L_Q^T
+        return jnp.diag(self.transition_noise_scale) @ self.transition_noise_corr_cholesky
+
+    @property
+    def transition_noise_covariance(self) -> Array:
+        L_Q = self.transition_noise_cholesky
+        return L_Q @ L_Q.T
+
+    @property
+    def emission_noise_cholesky(self) -> Array:
+        return jnp.diag(self.emission_noise_scale) @ self.emission_noise_corr_cholesky
+
+    @property
+    def emission_noise_covariance(self) -> Array:
+        L = self.emission_noise_cholesky
+        return L @ L.T
+
+
+LGSSMParameters = LGSSMParameters50D
+VectorState = VectorState50D
+VectorObservation = VectorObservation50D
+
+
+class LGSSMParameterPrior(ParameterPrior[LGSSMParameters, HyperParameters]):
+    """Prior over the parameters of the linear Gaussian SSM."""
+    @staticmethod
+    def sample(
+        key: PRNGKeyArray,
+        condition: NoCondition,
+    ) -> LGSSMParameters:
+
+
+    def log_prob(
+        self,
+        parameters: LGSSMParameters,
+        condition: NoCondition,
+    ) -> Scalar:
 
 
 class GaussianPrior:
@@ -184,3 +257,18 @@ class LinearGaussianSSM(
     prior = guassian_prior
     transition = gaussian_transition
     emission = guassian_emission
+
+class BayesianLinearGaussianSSM(
+    BayesianSequentialModel[
+        VectorState,
+        VectorObservation,
+        NoCondition,
+        LGSSMParameters,
+        LGSSMParameters,
+        HyperParameters,
+    ]
+):
+    inference_parameter_cls = LGSSMParameters
+    target = LinearGaussianSSM()
+    parameter_prior = 
+    convert_to_model_parameters = staticmethod(lambda parameters: parameters)

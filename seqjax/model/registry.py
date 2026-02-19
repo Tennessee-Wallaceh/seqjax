@@ -146,6 +146,10 @@ default_parameter_transforms: dict[type[Parameters], dict[str, typing.Any]] = {
     stochastic_vol.LogVarStd: {
         "std_log_var": "softplus",
     },
+    stochastic_vol.LogVarAR: {
+        "std_log_var": "softplus",
+        "ar": "sigmoid",
+    },
 }
 
 

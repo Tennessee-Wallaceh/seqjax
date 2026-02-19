@@ -381,7 +381,7 @@ class BayesianSequentialModel[
         ObservationHistoryT,
     ]
     parameter_prior: ParameterPrior[InferenceParametersT, HyperParametersT]
-    convert_to_model_parameters: Callable[[InferenceParametersT], ParametersT]
+    convert_to_model_parameters: Callable[[InferenceParametersT], ParametersT] = staticmethod(lambda x: typing.cast(ParametersT, x))
 
 
 class BayesianSequentialModel_TO2_EO2[

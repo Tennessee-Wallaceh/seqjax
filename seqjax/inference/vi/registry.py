@@ -10,7 +10,8 @@ from seqjax.inference.optimization import registry as optimization_registry
 from seqjax.inference.vi import transformations
 from seqjax.inference.vi import transformed
 from seqjax.inference.vi import base
-from seqjax.inference import embedder
+from seqjax.inference.vi import embedder
+from seqjax.inference.vi import maf
 from seqjax.inference.vi import autoregressive
 from seqjax.model.base import BayesianSequentialModel
 from seqjax.model.registry import default_parameter_transforms
@@ -18,14 +19,20 @@ from seqjax.model.registry import default_parameter_transforms
 """
 Embedding configurations
 """
-EmbedderName = typing.Literal["short-window", "long-window", "bi-rnn"]
+EmbedderName = typing.Literal["short-window", "long-window", "bi-rnn", "passthrough", "conv1d"]
 
+
+@dataclass
+class PassthroughEmbedder:
+    label: EmbedderName = field(init=False, default="passthrough")
+    prev_window: int = field(init=False, default=0)
+    post_window: int = field(init=False, default=0)
 
 @dataclass
 class ShortContextEmbedder:
     label: EmbedderName = field(init=False, default="short-window")
-    prev_window: int = 2
-    post_window: int = 2
+    prev_window: int = field(init=False, default=2)
+    post_window: int = field(init=False, default=2)
     
 @dataclass
 class LongContextEmbedder:
@@ -33,6 +40,12 @@ class LongContextEmbedder:
     prev_window: int = 10
     post_window: int = 10
 
+@dataclass
+class Conv1DEmbedderConfig:
+    label: EmbedderName = field(init=False, default="conv1d")
+    hidden_dim: int = 2
+    kernel_size: int = 3
+    depth: int = 2
 
 @dataclass
 class BiRNNEmbedder:
@@ -40,14 +53,21 @@ class BiRNNEmbedder:
     hidden_dim: int = 10
 
 
-EmbedderConfig = ShortContextEmbedder | LongContextEmbedder | BiRNNEmbedder
+EmbedderConfig = (
+    ShortContextEmbedder 
+    | LongContextEmbedder 
+    | BiRNNEmbedder 
+    | PassthroughEmbedder
+    | Conv1DEmbedderConfig
+)
 
 embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
     "short-window": ShortContextEmbedder,
     "long-window": LongContextEmbedder,
     "bi-rnn": BiRNNEmbedder,
+    "passthrough": PassthroughEmbedder,
+    "conv1d": Conv1DEmbedderConfig,
 }
-
 
 def _build_embedder(
     embedder_config: EmbedderConfig,
@@ -63,12 +83,27 @@ def _build_embedder(
             post_window=embedder_config.post_window,
             y_dimension=target_dim,
         )
+    elif isinstance(embedder_config, PassthroughEmbedder):
+        embed = embedder.WindowEmbedder(
+            sample_length=sample_length,
+            prev_window=embedder_config.prev_window,
+            post_window=embedder_config.post_window,
+            y_dimension=target_dim,
+        )
     elif isinstance(embedder_config, LongContextEmbedder):
         embed = embedder.WindowEmbedder(
             sample_length=sample_length,
             prev_window=embedder_config.prev_window,
             post_window=embedder_config.post_window,
             y_dimension=target_dim,
+        )
+    elif isinstance(embedder_config, Conv1DEmbedderConfig):
+        embed = embedder.Conv1DEmbedder(
+            hidden=embedder_config.hidden_dim,
+            y_dim=target_dim,
+            kernel_size=embedder_config.kernel_size,
+            depth=embedder_config.depth,
+            key=embedding_key,
         )
     elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
@@ -123,7 +158,7 @@ def get_interval_spline():
 
 configured_bijections: dict[str, typing.Callable[[], transformations.Bijector]] = {
     "interval_spline": get_interval_spline,
-    "sigmoid": partial(transformations.Sigmoid, lower=-1.0, upper=1.0),
+    "sigmoid": partial(transformations.Sigmoid, lower=-1.2, upper=1.2),
     "softplus": transformations.Softplus,
 }
 
@@ -206,23 +241,40 @@ class MaskedAutoregressiveFlowLatentApproximation:
     label: str = field(init=False, default="masked-autoregressive-flow")
     nn_width: int = 20
     nn_depth: int = 2
-    conditioner_width: int = 32
-    conditioner_depth: int = 2
-    conditioner_out_dim: int = 32
     base_loc: float = 0.0
     base_scale: float = 1.0
+    flow_layers: int = 1
 
+@dataclass
+class MAFPriorLatentApproximation:
+    label: str = field(init=False, default="masked-autoregressive-flow")
+    nn_width: int = 20
+    nn_depth: int = 2
+    flow_layers: int = 1
+
+@dataclass
+class MAFARLatentApproximation:
+    label: str = field(init=False, default="ar-maf")
+    nn_width: int = 20
+    nn_depth: int = 2
+    base_loc: float = 0.0
+    base_scale: float = 1.0
+    flow_layers: int = 1
 
 LatentApproximation = (
     AutoregressiveLatentApproximation 
     | MaskedAutoregressiveFlowLatentApproximation
+    | MAFARLatentApproximation
+    | MAFPriorLatentApproximation
 )
 LatentApproximationLabels = typing.Literal[
-    "autoregressive", "masked-autoregressive-flow"
+    "autoregressive", "masked-autoregressive-flow", "ar-maf", "prior-maf"
 ]
 latent_approximation_registry: dict[LatentApproximationLabels, type[LatentApproximation]] = {
     "autoregressive": AutoregressiveLatentApproximation,
     "masked-autoregressive-flow": MaskedAutoregressiveFlowLatentApproximation,
+    "ar-maf": MAFARLatentApproximation,
+    "prior-maf": MAFARLatentApproximation,
 }
 
 """
@@ -296,6 +348,7 @@ def build_approximation(
     latent_approximation: (
         autoregressive.AmortizedUnivariateAutoregressor
         | base.AmortizedMaskedAutoregressiveFlow
+        | base.AmortizedARMaskedAutoregressiveFlow
     )
     if isinstance(config, FullVIConfig):
         latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
@@ -341,15 +394,44 @@ def build_approximation(
                 batch_length=config.batch_length,
                 context_dim=embed.context_dimension,
                 parameter_dim=target_param_class.flat_dim,
+                condition_dim=target_posterior.target.condition_cls.flat_dim,
                 key=approximation_key,
                 nn_width=latent_config.nn_width,
                 nn_depth=latent_config.nn_depth,
-                conditioner_width=latent_config.conditioner_width,
-                conditioner_depth=latent_config.conditioner_depth,
-                conditioner_out_dim=latent_config.conditioner_out_dim,
+                flow_layers=latent_config.flow_layers,
                 base_loc=latent_config.base_loc,
                 base_scale=latent_config.base_scale,
             )
+        elif isinstance(latent_config, MAFARLatentApproximation):
+            latent_approximation = base.AmortizedARMaskedAutoregressiveFlow(
+                target_latent_class,
+                buffer_length=config.buffer_length,
+                batch_length=config.batch_length,
+                context_dim=embed.context_dimension,
+                parameter_dim=target_param_class.flat_dim,
+                condition_dim=target_posterior.target.condition_cls.flat_dim,
+                key=approximation_key,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                flow_layers=latent_config.flow_layers,
+                base_loc=latent_config.base_loc,
+                base_scale=latent_config.base_scale,
+            )
+        elif isinstance(latent_config, MAFPriorLatentApproximation):
+            sample_dim = (2 * config.buffer_length + config.batch_length) * target_observation_class.flat_dim
+            latent_approximation = maf.AmortizedLatentPriorMAF(
+                target_posterior.target,
+                buffer_length=config.buffer_length,
+                batch_length=config.batch_length,
+                context_dim=sample_dim,
+                parameter_dim=target_param_class.flat_dim,
+                condition_dim=target_posterior.target.condition_cls.flat_dim,
+                key=approximation_key,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                flow_layers=latent_config.flow_layers,
+            )
+
         else:
             raise ValueError(
                 f"Unknown latent approximation configuration: {latent_config!r}"

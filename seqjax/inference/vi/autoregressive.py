@@ -1,6 +1,5 @@
 from typing import Tuple, Type
 
-from seqjax.inference.vi.base import AmortizedVariationalApproximation
 from seqjax.model.base import BayesianSequentialModel
 import seqjax.model.typing
 import equinox as eqx
@@ -9,6 +8,9 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
+
+from .api import LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
+
 
 
 def xavier_init(key: PRNGKeyArray, shape: tuple[int, ...]) -> Array:
@@ -166,21 +168,22 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     def sample_sub_path(
         self,
         key: PRNGKeyArray,
-        theta_context: Float[Array, "sample_length param_dim"],
+        theta_context: Float[Array, "param_dim"],
         context: Float[Array, "sample_length context_dim"],
         condition_context: Float[Array, "sample_length condition_dim"],
         num_steps: int,
         offset: int,
         init: tuple[Array, ...],
     ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
+        
         def update(carry, key_context):
-            key, ctx, step_theta_context, condition = key_context
+            key, ctx, condition = key_context
             ix, prev_x = carry
             previous_available_flag = (
                 jnp.arange(self.lag_order) + ix - self.lag_order >= 0
             )
             next_x, log_q_x_ix = self.conditional(
-                key, prev_x, previous_available_flag, step_theta_context, ctx, condition
+                key, prev_x, previous_available_flag, theta_context, ctx, condition
             )
             next_x_context = (*prev_x[1:], next_x)
             return (ix + 1, next_x_context), (next_x, log_q_x_ix)
@@ -189,7 +192,6 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
 
         keys = jrandom.split(key, num_steps)
         subpath_context = context[offset : offset + num_steps]
-        subpath_theta_context = theta_context[offset : offset + num_steps]
         subpath_condition_context = condition_context[offset : offset + num_steps]
         target_condition_shape = (
             subpath_context.shape[:-1] + subpath_condition_context.shape[-1:]
@@ -201,20 +203,18 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         _, (x_path, log_q_x_path) = jax.lax.scan(
             update,
             init_state,
-            (keys, subpath_context, subpath_theta_context, subpath_condition_context),
+            (keys, subpath_context, subpath_condition_context),
         )
         return self.target_struct_cls.unravel(x_path), jnp.sum(log_q_x_path, axis=-1)
 
     def sample_and_log_prob(
         self,
         key: PRNGKeyArray,
-        condition: tuple[
-            Float[Array, " sample_length param_dim"],
-            Float[Array, " sample_length context_dim"],
-            Float[Array, " sample_length condition_dim"],
-        ],
+        condition: LatentContext
     ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
-        parameter_context, observation_context, condition_context = condition
+        parameter_context = condition.parameter_context.ravel().flatten()
+        observation_context = condition.sequence_embedded_context
+        condition_context = condition.condition_context.ravel()
         initial_prev_x_key, sample_key = jrandom.split(key, 2)
         x_path, log_q_x_path = self.sample_sub_path(
             sample_key,
@@ -224,7 +224,9 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
             self.shape[0],
             0,
             self.initial_x_context(
-                initial_prev_x_key, parameter_context, condition_context
+                initial_prev_x_key, 
+                parameter_context, 
+                condition_context
             ),
         )
         return x_path, jnp.sum(log_q_x_path)

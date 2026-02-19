@@ -34,6 +34,7 @@ class SGLDConfig[
     num_steps: int = 100
     initial_parameter_guesses: int = 20
     time_limit_s: None | float = None
+    sample_block_size: int = 1000
 
 class BufferedSGLDConfig[
     ParametersT: seqjtyping.Parameters,
@@ -46,8 +47,7 @@ class BufferedSGLDConfig[
     time_limit_s: None | float = None
     buffer_length: int = 5
     batch_length: int = 10
-
-
+    sample_block_size: int = 1000
 
 
 def _tree_randn_like[ParametersT: seqjtyping.Parameters](
@@ -145,6 +145,10 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
     grad_keys = split_keys[:num_samples]
     noise_keys = split_keys[num_samples:]
 
+    jax.debug.print("start={a}", a=initial_parameters)
+    jax.debug.print("grad_keys={a}", a=grad_keys)
+    jax.debug.print("noise_keys={a}", a=noise_keys)
+
     if jax.tree_util.tree_structure(config.step_size) == jax.tree_util.tree_structure(
         initial_parameters
     ):  # type: ignore[operator]
@@ -160,6 +164,7 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
         inp: tuple[jaxtyping.PRNGKeyArray, jaxtyping.PRNGKeyArray],
     ):
         ix, params = carry
+        jax.debug.print("inp={a}", a=inp)
         g_key, n_key = inp
         grad = grad_estimator(params, g_key)
         noise = _tree_randn_like(n_key, params)
@@ -190,7 +195,10 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
     )
 
     samples: ParametersT = jax.lax.scan(
-        step, (0, initial_parameters), (jnp.arange(num_samples), (grad_keys, noise_keys))
+        step, 
+        (0, initial_parameters), 
+        # scan_tqdm consumes the first tuple entry
+        (jnp.arange(num_samples), (grad_keys, noise_keys))
     )[1]
     return samples
 
@@ -271,11 +279,7 @@ def run_full_sgld_mcmc[
     initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
 
     # by default sample in chunks of 1000
-    num_samples = (
-        config.num_steps 
-        if config.num_steps is not None 
-        else 1000
-    )
+    num_samples = config.sample_block_size
     sample_blocks = [
         jax.tree_util.tree_map(partial(jnp.expand_dims, axis=0), initial_parameters)
     ]
@@ -345,7 +349,15 @@ def run_buffer_sgld_mcmc[
     particle_filter = particle_filter_registry._build_filter(
         target_posterior, config.particle_filter_config
     )
-    def _buffered_estimate_score(particle_filter, observation_path, model, batch_length, buffer_length, params, key):
+    def _buffered_estimate_score(
+        particle_filter, 
+        observation_path, 
+        model, 
+        batch_length, 
+        buffer_length, 
+        params, 
+        key
+    ):
         latent_scaling = (batch_length + observation_path.batch_shape[0] - 1) / batch_length
 
         batch_key, pf_key = jrandom.split(key)
@@ -413,12 +425,7 @@ def run_buffer_sgld_mcmc[
     init_key, next_sample_key = jrandom.split(key)
     initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
 
-    # by default sample in chunks of 1000
-    num_samples = (
-        config.num_steps 
-        if config.num_steps is not None 
-        else 1000
-    )
+    num_samples = config.sample_block_size
     sample_blocks = [
         jax.tree_util.tree_map(partial(jnp.expand_dims, axis=0), initial_parameters)
     ]
