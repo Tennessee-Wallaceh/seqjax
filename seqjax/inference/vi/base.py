@@ -354,16 +354,8 @@ class BufferedSSMVI[
             )
         )(jrandom.split(start_key, context_samples))
 
-        buffered_parameters = jax.vmap(
-            jax.vmap(self.buffer_params, in_axes=[0, None])
-        )(parameters, theta_mask)
-
-        buffered_parameters = jax.lax.stop_gradient(buffered_parameters)
-
         latent_context = jax.vmap(self.embedding.embed)(
-            y_batch,
-            c_batch,
-            parameters,
+            y_batch, c_batch, jax.lax.stop_gradient(parameters)
         )
 
         # vmap down the outer samples
@@ -395,7 +387,6 @@ class BufferedSSMVI[
     def buffer_params(self, parameters, mask):
         theta_grad = parameters
         theta_no_grad = jax.lax.stop_gradient(parameters)
-
         return jax.tree.map(
             lambda a, b: jnp.where(mask, a, b),
             theta_grad,
