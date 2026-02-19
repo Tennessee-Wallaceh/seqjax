@@ -5,6 +5,7 @@ from . import transformed
 from . import transformations
 from . import registry
 from . import run
+from . import structured
 
 __all__ = [
     "train",
@@ -14,4 +15,5 @@ __all__ = [
     "transformations",
     "registry",
     "run",
+    "structured",
 ]

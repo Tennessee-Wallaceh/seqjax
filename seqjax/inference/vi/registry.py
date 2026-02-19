@@ -13,6 +13,7 @@ from seqjax.inference.vi import base
 from seqjax.inference.vi import embedder
 from seqjax.inference.vi import maf
 from seqjax.inference.vi import autoregressive
+from seqjax.inference.vi import structured
 from seqjax.model.base import BayesianSequentialModel
 from seqjax.model.registry import default_parameter_transforms
 
@@ -261,20 +262,28 @@ class MAFARLatentApproximation:
     base_scale: float = 1.0
     flow_layers: int = 1
 
+@dataclass
+class StructuredPrecisionLatentApproximation:
+    label: str = field(init=False, default="structured")
+    nn_width: int = 32
+    nn_depth: int = 2
+
 LatentApproximation = (
     AutoregressiveLatentApproximation 
     | MaskedAutoregressiveFlowLatentApproximation
     | MAFARLatentApproximation
     | MAFPriorLatentApproximation
+    | StructuredPrecisionLatentApproximation
 )
 LatentApproximationLabels = typing.Literal[
-    "autoregressive", "masked-autoregressive-flow", "ar-maf", "prior-maf"
+    "autoregressive", "masked-autoregressive-flow", "ar-maf", "prior-maf", "structured"
 ]
 latent_approximation_registry: dict[LatentApproximationLabels, type[LatentApproximation]] = {
     "autoregressive": AutoregressiveLatentApproximation,
     "masked-autoregressive-flow": MaskedAutoregressiveFlowLatentApproximation,
     "ar-maf": MAFARLatentApproximation,
     "prior-maf": MAFARLatentApproximation,
+    "structured": StructuredPrecisionLatentApproximation,
 }
 
 """
@@ -349,6 +358,7 @@ def build_approximation(
         autoregressive.AmortizedUnivariateAutoregressor
         | base.AmortizedMaskedAutoregressiveFlow
         | base.AmortizedARMaskedAutoregressiveFlow
+        | structured.StructuredPrecisionGaussian
     )
     if isinstance(config, FullVIConfig):
         latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
@@ -430,6 +440,19 @@ def build_approximation(
                 nn_width=latent_config.nn_width,
                 nn_depth=latent_config.nn_depth,
                 flow_layers=latent_config.flow_layers,
+            )
+
+        elif isinstance(latent_config, StructuredPrecisionLatentApproximation):
+            latent_approximation = structured.StructuredPrecisionGaussian(
+                target_latent_class,
+                buffer_length=config.buffer_length,
+                batch_length=config.batch_length,
+                context_dim=embed.context_dimension,
+                parameter_dim=target_param_class.flat_dim,
+                condition_dim=target_posterior.target.condition_cls.flat_dim,
+                hidden_dim=latent_config.nn_width,
+                depth=latent_config.nn_depth,
+                key=approximation_key,
             )
 
         else:

@@ -114,13 +114,14 @@ class LGSSMParameterPrior(ParameterPrior[LGSSMParameters, HyperParameters]):
         key: PRNGKeyArray,
         condition: NoCondition,
     ) -> LGSSMParameters:
-
+        raise NotImplementedError
 
     def log_prob(
         self,
         parameters: LGSSMParameters,
         condition: NoCondition,
     ) -> Scalar:
+        raise NotImplementedError
 
 
 class GaussianPrior:
@@ -270,5 +271,5 @@ class BayesianLinearGaussianSSM(
 ):
     inference_parameter_cls = LGSSMParameters
     target = LinearGaussianSSM()
-    parameter_prior = 
+    parameter_prior = LGSSMParameterPrior()
     convert_to_model_parameters = staticmethod(lambda parameters: parameters)
