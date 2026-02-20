@@ -20,7 +20,9 @@ from seqjax.model.registry import default_parameter_transforms
 """
 Embedding configurations
 """
-EmbedderName = typing.Literal["short-window", "long-window", "bi-rnn", "passthrough", "conv1d"]
+EmbedderName = typing.Literal[
+    "short-window", "long-window", "bi-rnn", "passthrough", "conv1d", "transformer"
+]
 
 
 @dataclass
@@ -55,12 +57,23 @@ class BiRNNEmbedder:
     hidden_dim: int = 10
 
 
+@dataclass
+class TransformerEmbedderConfig:
+    label: EmbedderName = field(init=False, default="transformer")
+    hidden_dim: int = 32
+    depth: int = 2
+    num_heads: int = 2
+    mlp_multiplier: int = 4
+    pool_dim: None | int = None
+
+
 EmbedderConfig = (
     ShortContextEmbedder 
     | LongContextEmbedder 
     | BiRNNEmbedder 
     | PassthroughEmbedder
     | Conv1DEmbedderConfig
+    | TransformerEmbedderConfig
 )
 
 embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
@@ -69,6 +82,7 @@ embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
     "bi-rnn": BiRNNEmbedder,
     "passthrough": PassthroughEmbedder,
     "conv1d": Conv1DEmbedderConfig,
+    "transformer": TransformerEmbedderConfig,
 }
 
 def _build_embedder(
@@ -120,6 +134,18 @@ def _build_embedder(
             sample_length=sample_length,
             sequence_length=sequence_length,
             hidden=embedder_config.hidden_dim,
+            key=embedding_key,
+        )
+    elif isinstance(embedder_config, TransformerEmbedderConfig):
+        embed = embedder.TransformerEmbedder(
+            target_posterior=target_posterior,
+            sample_length=sample_length,
+            sequence_length=sequence_length,
+            hidden=embedder_config.hidden_dim,
+            depth=embedder_config.depth,
+            num_heads=embedder_config.num_heads,
+            mlp_multiplier=embedder_config.mlp_multiplier,
+            pool_dim=embedder_config.pool_dim,
             key=embedding_key,
         )
     else:

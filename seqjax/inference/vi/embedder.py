@@ -243,3 +243,110 @@ class Conv1DEmbedder(Embedder):
             conditions,
             parameters,
         )
+
+
+class TransformerBlock(eqx.Module):
+    attention: eqx.nn.MultiheadAttention
+    norm_1: eqx.nn.LayerNorm
+    norm_2: eqx.nn.LayerNorm
+    ff_in: eqx.nn.Linear
+    ff_out: eqx.nn.Linear
+
+    def __init__(self, hidden_dim: int, num_heads: int, mlp_dim: int, *, key):
+        k_attn, k_in, k_out = jax.random.split(key, 3)
+        self.attention = eqx.nn.MultiheadAttention(
+            num_heads=num_heads,
+            query_size=hidden_dim,
+            key_size=hidden_dim,
+            value_size=hidden_dim,
+            output_size=hidden_dim,
+            use_query_bias=True,
+            use_key_bias=True,
+            use_value_bias=True,
+            use_output_bias=True,
+            key=k_attn,
+        )
+        self.norm_1 = eqx.nn.LayerNorm(hidden_dim)
+        self.norm_2 = eqx.nn.LayerNorm(hidden_dim)
+        self.ff_in = eqx.nn.Linear(hidden_dim, mlp_dim, key=k_in)
+        self.ff_out = eqx.nn.Linear(mlp_dim, hidden_dim, key=k_out)
+
+    def __call__(self, x):
+        x_norm = jax.vmap(self.norm_1)(x)
+        x = x + self.attention(x_norm, x_norm, x_norm)
+
+        ff_in = jax.vmap(self.norm_2)(x)
+        ff_hidden = jax.vmap(self.ff_in)(ff_in)
+        ff_out = jax.vmap(self.ff_out)(jax.nn.gelu(ff_hidden))
+        return x + ff_out
+
+
+class TransformerEmbedder(Embedder):
+    in_proj: eqx.nn.Linear
+    blocks: tuple[TransformerBlock, ...]
+    hidden: int
+    pooling: eqx.nn.AdaptiveAvgPool1d
+
+    def __init__(
+        self,
+        target_posterior: BayesianSequentialModel,
+        sample_length: int,
+        sequence_length: int,
+        hidden: int,
+        *,
+        depth: int = 2,
+        num_heads: int = 2,
+        mlp_multiplier: int = 4,
+        pool_dim: None | int = None,
+        key,
+    ):
+        y_dim = target_posterior.target.observation_cls.flat_dim
+        k_proj, *k_blocks = jax.random.split(key, depth + 1)
+
+        self.in_proj = eqx.nn.Linear(y_dim, hidden, key=k_proj)
+        self.blocks = tuple(
+            TransformerBlock(
+                hidden_dim=hidden,
+                num_heads=num_heads,
+                mlp_dim=hidden * mlp_multiplier,
+                key=k,
+            )
+            for k in k_blocks
+        )
+        self.hidden = hidden
+
+        if pool_dim is None:
+            pool_dim = max(1, int(0.1 * sample_length))
+        self.pooling = eqx.nn.AdaptiveAvgPool1d(pool_dim)
+
+        self.sequence_embedded_context_dim = hidden
+        self.embedded_context_dim = self.pooling.target_shape[0] * hidden
+        (
+            self.observation_context_dim,
+            self.condition_context_dim,
+            self.parameter_context_dim,
+        ) = LatentContext.from_sequence_and_embedded_dims(
+            target_posterior, sample_length
+        )
+
+        super().__init__(target_posterior, sample_length, sequence_length)
+
+    def encode(self, observations):
+        seq = observations.ravel()
+        hidden_sequence = jax.vmap(self.in_proj)(seq)
+        for block in self.blocks:
+            hidden_sequence = block(hidden_sequence)
+        return hidden_sequence
+
+    def embed(self, observations, conditions, parameters):
+        sequence_embedded_context = self.encode(observations)
+        downsampled_embedding = self.pooling(
+            jnp.swapaxes(sequence_embedded_context, 0, 1)
+        ).flatten()
+        return LatentContext.build_from_sequence_and_embedded(
+            sequence_embedded_context,
+            downsampled_embedding,
+            observations,
+            conditions,
+            parameters,
+        )

@@ -201,6 +201,12 @@ embedder_config: NestedCode = {
         }),
         "LC": ("long-window", {}),
         "SC": ("short-window", {}),
+        "TX": ("transformer", {
+            "H": ("hidden_dim", parse_int_required, "32"),
+            "D": ("depth", parse_int_required, "2"),
+            "NH": ("num_heads", parse_int_required, "2"),
+            "MLP": ("mlp_multiplier", parse_int_required, "4"),
+        }),
     }
 }
 
