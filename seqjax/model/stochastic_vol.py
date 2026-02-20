@@ -73,7 +73,7 @@ class LogVolRW(Parameters):
     )
 
 
-class LogVarAR(Parameters):
+class LogVarParams(Parameters):
     """Parameters for a log-volatility random walk."""
 
     std_log_var: Scalar
@@ -93,10 +93,26 @@ class LogVarStd(Parameters):
     )
 
 
-def lvar_to_std_only(lv_only: LogVarStd, ref_params: LogVarAR) -> LogVarAR:
-    return LogVarAR(
+class LogVarAR(Parameters):
+    """Parameters for a log-volatility random walk."""
+
+    ar: Scalar
+    _shape_template: ClassVar = OrderedDict(
+        ar=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
+
+
+def lvar_from_std_only(lv_only: LogVarStd, ref_params: LogVarParams) -> LogVarParams:
+    return LogVarParams(
         std_log_var=lv_only.std_log_var,
         ar=jnp.ones_like(lv_only.std_log_var) * ref_params.ar,
+    )
+
+
+def lvar_from_ar_only(ar_only: LogVarAR, ref_params: LogVarParams) -> LogVarParams:
+    return LogVarParams(
+        std_log_var=jnp.ones_like(ar_only.ar) * ref_params.ar,
+        ar=ar_only.ar,
     )
 
 
@@ -167,7 +183,6 @@ class StochVarARPrior(ParameterPrior[LogVarAR, HyperParameters]):
         _ = hyperparameters  # unused
         # from aicher https://arxiv.org/pdf/1901.10568
         return LogVarAR(
-            std_log_var=10 / jrandom.gamma(key, 10),
             ar=jrandom.uniform(key, minval=-1, maxval=1),
         )
 
@@ -175,9 +190,26 @@ class StochVarARPrior(ParameterPrior[LogVarAR, HyperParameters]):
     def log_prob(parameters: LogVarAR, hyperparameters: HyperParameters) -> Scalar:
         _ = hyperparameters  # unused
         return (
+            jstats.uniform.logpdf(parameters.ar, loc=-1.0, scale=2.0)
+        )
+    
+class StochVarFullPrior(ParameterPrior[LogVarParams, HyperParameters]):
+    @staticmethod
+    def sample(key: PRNGKeyArray, hyperparameters: HyperParameters) -> LogVarParams:
+        _ = hyperparameters  # unused
+        # from aicher https://arxiv.org/pdf/1901.10568
+        return LogVarParams(
+            std_log_var=10 / jrandom.gamma(key, 10),
+            ar=jrandom.uniform(key, minval=-1, maxval=1),
+        )
+
+    @staticmethod
+    def log_prob(parameters: LogVarParams, hyperparameters: HyperParameters) -> Scalar:
+        _ = hyperparameters  # unused
+        return (
             jstats.gamma.logpdf(1 / parameters.std_log_var, 10, scale=1 / 10)
             - 2 * jnp.log(parameters.std_log_var)
-            - jstats.uniform.logpdf(parameters.ar, loc=-1.0, scale=2.0)
+            + jstats.uniform.logpdf(parameters.ar, loc=-1.0, scale=2.0)
         )
 
 
@@ -345,7 +377,7 @@ Latent Priors
 def gaussian_var_start_sample(
     key: PRNGKeyArray,
     conditions: tuple[NoCondition],
-    parameters: LogVarAR,
+    parameters: LogVarParams,
 ) -> tuple[LatentVar]:
     # mu = 2 * jnp.log(0.16)
     # sigma = jnp.array(0.5)
@@ -360,7 +392,7 @@ def gaussian_var_start_sample(
 def gaussian_var_start_log_prob(
     latent: tuple[LatentVar],
     conditions: tuple[NoCondition],
-    parameters: LogVarAR,
+    parameters: LogVarParams,
 ) -> Scalar:
     (start_lv,) = latent
     mu = jnp.array(0.0)
@@ -376,7 +408,7 @@ def gaussian_var_start_log_prob(
     return base_log_p
 
 
-gaussian_var_start = Prior[tuple[LatentVar], tuple[NoCondition], LogVarAR](
+gaussian_var_start = Prior[tuple[LatentVar], tuple[NoCondition], LogVarParams](
     order=1, sample=gaussian_var_start_sample, log_prob=gaussian_var_start_log_prob
 )
 
@@ -507,7 +539,7 @@ def random_walk_ar_sample(
     key: PRNGKeyArray,
     latent_history: tuple[LatentVar],
     condition: NoCondition,
-    parameters: LogVarAR,
+    parameters: LogVarParams,
 ) -> LatentVar:
     (last_log_var,) = latent_history
     loc = parameters.ar * last_log_var.log_var
@@ -519,7 +551,7 @@ def random_walk_ar_log_prob(
     latent_history: tuple[LatentVar],
     latent: LatentVar,
     condition: NoCondition,
-    parameters: LogVarAR,
+    parameters: LogVarParams,
 ) -> Scalar:
     (last_log_var,) = latent_history
     loc = parameters.ar * last_log_var.log_var
@@ -527,7 +559,7 @@ def random_walk_ar_log_prob(
     return jstats.norm.logpdf(latent.log_var, loc=loc, scale=scale)
 
 
-random_walk_ar = Transition[tuple[LatentVar], LatentVar, NoCondition, LogVarAR](
+random_walk_ar = Transition[tuple[LatentVar], LatentVar, NoCondition, LogVarParams](
     order=1,
     sample=random_walk_ar_sample,
     log_prob=random_walk_ar_log_prob,
@@ -572,7 +604,6 @@ skew_random_walk = Transition[
     log_prob=skew_rw_log_prob,
 )
 
-
 def skew_return_mean_and_scale(
     last_latent: LatentVol,
     current_latent: LatentVol,
@@ -610,7 +641,7 @@ def log_return_var_sample(
     latent: tuple[LatentVar],
     observation_history: tuple[()],
     condition: NoCondition,
-    parameters: LogVarAR,
+    parameters: LogVarParams,
 ) -> LogReturnObs:
     (current_latent,) = latent
     return_scale = jnp.exp(0.5 * current_latent.log_var)
@@ -623,7 +654,7 @@ def log_return_var_prob(
     observation: LogReturnObs,
     observation_history: tuple[()],
     condition: NoCondition,
-    parameters: LogVarAR,
+    parameters: LogVarParams,
 ) -> Scalar:
     (current_latent,) = latent
     return_scale = jnp.exp(0.5 * current_latent.log_var)
@@ -631,7 +662,7 @@ def log_return_var_prob(
     return jstats.norm.logpdf(log_return, loc=0.0, scale=return_scale)
 
 
-log_return_var = Emission[tuple[LatentVar], NoCondition, LogReturnObs, LogVarAR](
+log_return_var = Emission[tuple[LatentVar], NoCondition, LogReturnObs, LogVarParams](
     order=1,
     sample=log_return_var_sample,
     log_prob=log_return_var_prob,
@@ -763,13 +794,13 @@ class SimpleStochasticVar(
         LatentVar,
         LogReturnObs,
         NoCondition,
-        LogVarAR,
+        LogVarParams,
     ]
 ):
     latent_cls = LatentVar
     observation_cls = LogReturnObs
     condition_cls = NoCondition
-    parameter_cls = LogVarAR
+    parameter_cls = LogVarParams
 
     prior = gaussian_var_start
     transition = random_walk_ar
@@ -781,14 +812,14 @@ class SimpleStochasticVarBayesian(
         LatentVar,
         LogReturnObs,
         NoCondition,
-        LogVarAR,
+        LogVarParams,
         LogVarStd,
         HyperParameters,
     ]
 ):
-    def __init__(self, ref_params: LogVarAR):
+    def __init__(self, ref_params: LogVarParams):
         self.convert_to_model_parameters = staticmethod(
-            partial(lvar_to_std_only, ref_params=ref_params)
+            partial(lvar_from_std_only, ref_params=ref_params)
         )
 
     inference_parameter_cls = LogVarStd
@@ -796,19 +827,39 @@ class SimpleStochasticVarBayesian(
     parameter_prior = StochVarPrior()
 
 
+class ARStochasticVarBayesian(
+    BayesianSequentialModel[
+        LatentVar,
+        LogReturnObs,
+        NoCondition,
+        LogVarParams,
+        LogVarAR,
+        HyperParameters,
+    ]
+):
+    def __init__(self, ref_params: LogVarParams):
+        self.convert_to_model_parameters = staticmethod(
+            partial(lvar_from_ar_only, ref_params=ref_params)
+        )
+
+    inference_parameter_cls = LogVarAR
+    target = SimpleStochasticVar()
+    parameter_prior = StochVarARPrior()
+
+
 class StochasticVarBayesian(
     BayesianSequentialModel[
         LatentVar,
         LogReturnObs,
         NoCondition,
-        LogVarAR,
-        LogVarAR,
+        LogVarParams,
+        LogVarParams,
         HyperParameters,
     ]
 ):
-    inference_parameter_cls = LogVarAR
+    inference_parameter_cls = LogVarParams
     target = SimpleStochasticVar()
-    parameter_prior = StochVarARPrior()
+    parameter_prior = StochVarFullPrior()
     convert_to_model_parameters = staticmethod(lambda parameters: parameters)
 
 class SimpleStochasticVolBayesian(
