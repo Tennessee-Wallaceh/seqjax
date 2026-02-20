@@ -164,18 +164,15 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         condition_context: Float[Array, " condition_dim"],
     ) -> tuple[Float[Array, " x_dim"], Float[Array, ""]]:
         raise NotImplementedError
-
-    def sample_sub_path(
+        
+    def sample_and_log_prob(
         self,
         key: PRNGKeyArray,
-        theta_context: Float[Array, "param_dim"],
-        context: Float[Array, "sample_length context_dim"],
-        condition_context: Float[Array, "sample_length condition_dim"],
-        num_steps: int,
-        offset: int,
-        init: tuple[Array, ...],
+        condition: LatentContext
     ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
-        
+        parameter_context = condition.parameter_context.ravel().flatten()
+        initial_prev_x_key, sample_key = jrandom.split(key, 2)
+
         def update(carry, key_context):
             key, ctx, condition = key_context
             ix, prev_x = carry
@@ -183,59 +180,36 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
                 jnp.arange(self.lag_order) + ix - self.lag_order >= 0
             )
             next_x, log_q_x_ix = self.conditional(
-                key, prev_x, previous_available_flag, theta_context, ctx, condition
+                key, 
+                prev_x, 
+                previous_available_flag, 
+                parameter_context, 
+                ctx.ravel().flatten(), 
+                condition.ravel().flatten()
             )
             next_x_context = (*prev_x[1:], next_x)
             return (ix + 1, next_x_context), (next_x, log_q_x_ix)
 
-        init_state = (offset, init)
-
-        keys = jrandom.split(key, num_steps)
-        subpath_context = context[offset : offset + num_steps]
-        subpath_condition_context = condition_context[offset : offset + num_steps]
-        target_condition_shape = (
-            subpath_context.shape[:-1] + subpath_condition_context.shape[-1:]
-        )  # keep condition last dim, take context leading dims
-        subpath_condition_context = jnp.broadcast_to(
-            subpath_condition_context, target_condition_shape
-        )
+        init_state = self.initial_x_context(initial_prev_x_key, condition)
 
         _, (x_path, log_q_x_path) = jax.lax.scan(
             update,
-            init_state,
-            (keys, subpath_context, subpath_condition_context),
-        )
-        return self.target_struct_cls.unravel(x_path), jnp.sum(log_q_x_path, axis=-1)
-
-    def sample_and_log_prob(
-        self,
-        key: PRNGKeyArray,
-        condition: LatentContext
-    ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
-        parameter_context = condition.parameter_context.ravel().flatten()
-        observation_context = condition.sequence_embedded_context
-        condition_context = condition.condition_context.ravel()
-        initial_prev_x_key, sample_key = jrandom.split(key, 2)
-        x_path, log_q_x_path = self.sample_sub_path(
-            sample_key,
-            parameter_context,
-            observation_context,
-            condition_context,
-            self.shape[0],
-            0,
-            self.initial_x_context(
-                initial_prev_x_key, 
-                parameter_context, 
-                condition_context
+            (0, init_state),
+            (
+                jrandom.split(sample_key, self.shape[0]), 
+                condition.sequence_embedded_context,
+                condition.condition_context
             ),
         )
-        return x_path, jnp.sum(log_q_x_path)
+        return (
+            self.target_struct_cls.unravel(x_path), 
+            jnp.sum(jnp.sum(log_q_x_path, axis=-1))
+        )
 
     def initial_x_context(
         self,
         key: PRNGKeyArray,
-        parameter_context: PRNGKeyArray,
-        condition_context: PRNGKeyArray,
+        condition: LatentContext,
     ) -> tuple[Float[Array, " x_dim"], ...]:
         """Return initial context of zeros."""
         return tuple(

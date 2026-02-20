@@ -308,6 +308,8 @@ class BufferedSSMVI[
     latent_approximation: AmortizedVariationalApproximation[ParticleT]
     parameter_approximation: UnconditionalVariationalApproximation[ParametersT]
     embedding: Embedder[ObservationT, ConditionT, ParametersT]
+    batch_length: int
+    buffer_length: int
     control_variate: bool = eqx.field(default=False, static=True)
 
     def joint_sample_and_log_prob(
@@ -328,8 +330,6 @@ class BufferedSSMVI[
     ]:
         # read off configuration
         path_length = observations.batch_shape[0]
-        batch_length = self.latent_approximation.batch_length
-        buffer_length = self.latent_approximation.buffer_length
 
         # split keys for sampling
         key, start_key = jrandom.split(key)
@@ -347,8 +347,8 @@ class BufferedSSMVI[
             partial(
                 sample_batch_and_mask,
                 sequence_length=path_length,
-                batch_length=batch_length,
-                buffer_length=buffer_length,
+                batch_length=self.batch_length,
+                buffer_length=self.buffer_length,
                 observation_path=observations,
                 condition=conditions,
             )
@@ -413,8 +413,8 @@ class BufferedSSMVI[
         # each index appears in max(batch length) batches
         # batches are sampled uniformly, so scale by
         latent_scaling = (
-            self.latent_approximation.batch_length + observations.batch_shape[0] - 1
-        ) / self.latent_approximation.batch_length
+            self.batch_length + observations.batch_shape[0] - 1
+        ) / self.batch_length
 
         theta_q, log_q_theta, x_path, log_q_x, extra_info = (
             self.joint_sample_and_log_prob(
@@ -479,8 +479,6 @@ class BufferedSSMVI[
     ) -> typing.Any:
         # read off configuration
         path_length = observations.batch_shape[0]
-        batch_length = self.latent_approximation.batch_length
-        buffer_length = self.latent_approximation.buffer_length
 
         # split keys for sampling
         key, start_key = jrandom.split(key)
@@ -498,8 +496,8 @@ class BufferedSSMVI[
             partial(
                 sample_batch_and_mask,
                 sequence_length=path_length,
-                batch_length=batch_length,
-                buffer_length=buffer_length,
+                batch_length=self.batch_length,
+                buffer_length=self.buffer_length,
                 observation_path=observations,
                 condition=conditions,
             )

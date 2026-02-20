@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import typing
 
-from .api import LatentContext, VariationalApproximationFactory, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
+from .api import Embedder, LatentContext, VariationalApproximationFactory, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
 
 
 def _ensure_legacy_key(key: jaxtyping.PRNGKeyArray) -> jaxtyping.PRNGKeyArray:
@@ -115,22 +115,16 @@ class AmortizedMAF[
 ](AmortizedVariationalApproximation[TargetStructT]):
     """Conditional masked autoregressive flow over buffered latent paths."""
 
-    target_struct_cls: type[TargetStructT]
+    
     distribution: FlowjaxTransformed
     _flat_sample_dim: int = eqx.field(static=True)
-    _condition_dim: int = eqx.field(static=True)
-    _parameter_dim: int = eqx.field(static=True)
-    _context_dim: int = eqx.field(static=True)
 
     def __init__(
         self,
         target_struct_cls: type[TargetStructT],
         *,
-        buffer_length: int,
-        batch_length: int,
-        context_dim: int,
-        parameter_dim: int,
-        condition_dim: int,
+        sample_length: int,
+        embedder: Embedder,
         key: jaxtyping.PRNGKeyArray,
         nn_width: int,
         nn_depth: int,
@@ -139,20 +133,16 @@ class AmortizedMAF[
         base_scale: jaxtyping.Array | float = 1.0,
         transformer: AbstractBijection | None = None,
     ) -> None:
-        sample_length = 2 * buffer_length + batch_length
+        
         shape = (sample_length, target_struct_cls.flat_dim)
         super().__init__(
             target_struct_cls,
             shape=shape,
-            batch_length=batch_length,
-            buffer_length=buffer_length,
+            sample_length=sample_length,
         )
         self.target_struct_cls = target_struct_cls
         flat_sample_dim = sample_length * target_struct_cls.flat_dim
         self._flat_sample_dim = flat_sample_dim
-        self._parameter_dim = parameter_dim
-        self._context_dim = context_dim
-        self._condition_dim = condition_dim
 
         if transformer is None:
             transformer = Affine()
@@ -160,12 +150,11 @@ class AmortizedMAF[
         loc = jnp.broadcast_to(jnp.asarray(base_loc), (flat_sample_dim,))
         scale = jnp.broadcast_to(jnp.asarray(base_scale), (flat_sample_dim,))
 
-        cond_input_dim = parameter_dim + sample_length * (context_dim + condition_dim)
-        print("COND INPUT:", cond_input_dim)
-        print("parameter_dim INPUT:", parameter_dim)
-        print("context_dim INPUT:", context_dim)
-        print("condition_dim INPUT:", condition_dim)
-        key = _ensure_legacy_key(key)
+        cond_input_dim = (
+            embedder.parameter_context_dim
+            + embedder.condition_context_dim
+            + embedder.embedded_context_dim
+        )
 
         self.distribution = masked_autoregressive_flow(
             key,
@@ -183,11 +172,12 @@ class AmortizedMAF[
         self,
         condition: LatentContext,
     ) -> jaxtyping.Array:
-        theta_flat = condition.global_param_context.ravel()
-        obs_flat = jnp.ravel(condition.sequence_embedded_context)
-        cond_flat = jnp.ravel(condition_context)
         return jnp.concatenate(
-            [theta_flat, obs_flat, cond_flat], axis=0
+            [
+                condition.parameter_context.ravel().flatten(), 
+                condition.condition_context.ravel().flatten(), 
+                condition.embedded_context, 
+            ], axis=0
         )
 
     def sample_and_log_prob(
@@ -197,8 +187,7 @@ class AmortizedMAF[
     ) -> tuple[TargetStructT, jaxtyping.Scalar]:
         
         cond = self._build_condition(condition)
-        flow_key = _ensure_legacy_key(key)
-        flat_sample, log_q = self.distribution.sample_and_log_prob(flow_key, condition=cond)
+        flat_sample, log_q = self.distribution.sample_and_log_prob(key, condition=cond)
         reshaped_sample = jnp.reshape(flat_sample, self.shape)
         latent_sample = typing.cast(
             TargetStructT, self.target_struct_cls.unravel(reshaped_sample)
@@ -360,7 +349,7 @@ class AmortizedARMAF[
         base_scale: jaxtyping.Array | float = 1.0,
         transformer: AbstractBijection | None = None,
     ) -> None:
-        print("NEW BAG")
+
         sample_length = 2 * buffer_length + batch_length
         shape = (sample_length, target_struct_cls.flat_dim)
         super().__init__(

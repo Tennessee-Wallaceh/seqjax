@@ -2,55 +2,82 @@ import equinox as eqx
 from jaxtyping import Array, Int
 import jax.numpy as jnp
 import jax
+from dataclasses import field
 
+from seqjax.model.base import BayesianSequentialModel
 from .api import LatentContext, Embedder
+
+
+# class PositionalEmbedder(Embedder):
+#     """
+#     Reshapes observation information to a context of appropriate size for
+#     each step in the batch
+#     """
+#     sample_length: int
+#     pos_context: int 
+
+#     def __init__():
+#         seq_length = sequence_embedded_context.shape[0]
+#         pos = (jnp.arange(seq_length) + 0.5) / seq_length
+                                                    
+#         freqs = (2.0 ** jnp.arange(self.n_pos_embedding)) * jnp.pi 
+
+#         x = pos[:, None] * freqs[None, :]
+#         self.pos_context = jnp.concatenate(
+#             [pos[:, None], jnp.sin(x), jnp.cos(x)],
+#             axis=-1
+#         )
+
+#     def embed():
 
 class WindowEmbedder(Embedder):
     """
     Reshapes observation information to a context of appropriate size for
     each step in the batch
     """
-
-    sample_length: int
     prev_window: int
     post_window: int
-    y_dimension: int
+    
+    y_dimension: int = field(init=False)
+    window_size: int = field(init=False)
+    indexer: Int[Array, "sample_length window_size"] = field(init=False)
 
-    window_size: int
-    indexer: Int[Array, "sample_length window_size"]
-
-    def __init__(
+    def __post__init__(
         self,
-        sample_length,
-        prev_window,
-        post_window,
-        y_dimension: int = 1,
     ):
-        self.prev_window = prev_window  # take prev_window observations before
-        self.post_window = post_window  # take post_window observations after
-        self.window_size = prev_window + post_window + 1
-        self.y_dimension = y_dimension
-        self.context_dimension = y_dimension * self.window_size
-        self.sample_length = sample_length
+        self.window_size = self.prev_window + self.post_window + 1
+        self.y_dimension = self.target_posterior.target.observation_cls.flat_dim
+        (
+            self.observation_context_dim,
+            self.condition_context_dim,
+            self.parameter_context_dim,
+            self.embedded_context_dim,
+        ) = LatentContext.from_sequence_context_dims(
+            self.target_posterior, self.sample_length
+        )
+
+        self.sequence_embedded_context_dim = self.y_dimension * self.window_size
 
         # build the indexer, applied to each dimension of y
         # will give the context window
         # the indexer operates on the padded observations
         # padded_y.shape == [prev_window + observation_length + post_window, y_dimension]
-        sample_path_ix = jnp.arange(sample_length).reshape(-1, 1)
+        sample_path_ix = jnp.arange(self.sample_length).reshape(-1, 1)
         self.indexer = (
             jnp.hstack(
-                [sample_path_ix - step for step in reversed(range(1, prev_window + 1))]
+                [sample_path_ix - step for step in reversed(range(1, self.prev_window + 1))]
                 + [sample_path_ix]
-                + [sample_path_ix + step for step in range(1, post_window + 1)]
+                + [sample_path_ix + step for step in range(1, self.post_window + 1)]
             )
-            + prev_window
+            + self.prev_window
         )
 
     def _pad(self, observations):
-        return jnp.pad(observations, (self.prev_window, self.post_window), mode="mean")[
-            self.indexer
-        ]
+        return jnp.pad(
+            observations, 
+            (self.prev_window, self.post_window), 
+            mode="edge",
+        )[self.indexer]
 
     def embed(
         self, 
@@ -62,7 +89,9 @@ class WindowEmbedder(Embedder):
         per_dim_context = jax.vmap(self._pad, in_axes=[1])(observation_array)
         
         # flip so leading dim is step index, and flatten each step
-        sequence_embedded_context = jax.vmap(jnp.ravel)(jnp.transpose(per_dim_context, (1, 0, 2)))
+        sequence_embedded_context = jax.vmap(jnp.ravel)(
+            jnp.transpose(per_dim_context, (1, 0, 2))
+        )
         return LatentContext.build_from_sequence_context(
             sequence_embedded_context, 
             observations,
@@ -74,13 +103,40 @@ class WindowEmbedder(Embedder):
 class RNNEmbedder(Embedder):
     cell_fwd: eqx.nn.GRUCell
     cell_rev: eqx.nn.GRUCell
+    hidden: int
 
-    def __init__(self, hidden: int, y_dim: int, *, key):
+    def __init__(
+        self, 
+        target_posterior: BayesianSequentialModel,
+        sample_length: int,
+        sequence_length: int,
+        hidden: int, 
+        *, 
+        key
+    ):
+        y_dim = self.target_posterior.target.observation_cls.flat_dim
         k1, k2 = jax.random.split(key)
         self.cell_fwd = eqx.nn.GRUCell(y_dim, hidden, key=k1)
         self.cell_rev = eqx.nn.GRUCell(y_dim, hidden, key=k2)
-        self.context_dimension = 2 * hidden  # fwd ⊕ rev
+        self.hidden = hidden
+        super().__init__(target_posterior, sample_length, sequence_length)
 
+    def __post__init__(
+        self,
+    ):
+        self.sequence_embedded_context_dim = (
+            self.target_posterior.target.observation_cls.flat_dim
+            * self.hidden * 2
+        ) 
+        (
+            self.observation_context_dim,
+            self.condition_context_dim,
+            self.parameter_context_dim,
+            self.embedded_context_dim,
+        ) = LatentContext.from_sequence_context_dims(
+            self.target_posterior, self.sample_length
+        )
+        
     def _scan(self, cell, seq):
         def step(carry, x):
             new_carry = cell(x, carry)
@@ -106,23 +162,29 @@ class RNNEmbedder(Embedder):
 class Conv1DEmbedder(Embedder):
     in_proj: eqx.nn.Conv1d
     convs: tuple[eqx.nn.Conv1d, ...]
+    hidden: int
+    pooling: eqx.nn.AdaptiveAvgPool1d
 
     def __init__(
         self,
+        target_posterior: BayesianSequentialModel,
+        sample_length: int,
+        sequence_length: int,
         hidden: int,
-        y_dim: int,
         *,
         kernel_size: int = 5,
         depth: int = 2,
+        pool_dim: None | int = None,
         key,
     ):
         k_in, *k_layers = jax.random.split(key, depth + 1)
 
         self.in_proj = eqx.nn.Conv1d(
-            in_channels=y_dim,
+            in_channels=target_posterior.target.observation_cls.flat_dim,
             out_channels=hidden,
             kernel_size=1,
             padding="SAME",
+            padding_mode="REPLICATE",
             key=k_in,
         )
 
@@ -131,15 +193,35 @@ class Conv1DEmbedder(Embedder):
                 in_channels=hidden,
                 out_channels=hidden,
                 kernel_size=kernel_size,
-                padding="SAME",   # centered/offline
+                padding="SAME",
+                padding_mode="REPLICATE",
                 key=k,
             )
             for k in k_layers
         )
+        self.hidden = hidden
 
-        self.context_dimension = hidden
+        if pool_dim is None:
+            pool_dim = max(1, int(0.1 * sample_length))
+        self.pooling = eqx.nn.AdaptiveAvgPool1d(pool_dim)
 
-    def embed(self, observations, conditions, parameters):
+        self.sequence_embedded_context_dim = (
+            target_posterior.target.observation_cls.flat_dim
+            * self.hidden
+        )
+        
+        self.embedded_context_dim = self.pooling.target_shape[0] * self.hidden
+        (
+            self.observation_context_dim,
+            self.condition_context_dim,
+            self.parameter_context_dim,
+        ) = LatentContext.from_sequence_and_embedded_dims(
+            target_posterior, sample_length
+        )
+
+        super().__init__(target_posterior, sample_length, sequence_length)
+
+    def convolve(self, observations):
         seq = observations.ravel()     # (T, y_dim)
         x = jnp.swapaxes(seq, 0, 1)    # (y_dim, T)
 
@@ -149,11 +231,15 @@ class Conv1DEmbedder(Embedder):
             x = conv(x)
             x = jax.nn.gelu(x)
 
-        sequence_embedded_context = jnp.swapaxes(x, 0, 1)   # (T, hidden)
+        return x
     
-        return LatentContext.build_from_sequence_context(
-            sequence_embedded_context, 
+    def embed(self, observations, conditions, parameters):
+        sequence_embedded_context = self.convolve(observations)
+        downsampled_embedding = self.pooling(sequence_embedded_context).flatten()
+        return LatentContext.build_from_sequence_and_embedded(
+            jnp.swapaxes(sequence_embedded_context, 0, 1),  # (T, hidden)
+            downsampled_embedding,
             observations,
             conditions,
-            parameters
+            parameters,
         )

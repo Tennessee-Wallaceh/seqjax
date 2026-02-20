@@ -1,8 +1,9 @@
 from abc import abstractmethod
 import typing
-from dataclasses import dataclass
-
+from dataclasses import dataclass, field
+from seqjax.model.base import BayesianSequentialModel
 import jax
+import jax.numpy as jnp
 import equinox as eqx
 import jaxtyping
 import seqjax.model.typing as seqjtyping
@@ -48,8 +49,18 @@ class LatentContext[
     condition_context: ConditionT
     parameter_context: ParameterT
     embedded_context: jaxtyping.Array
+    sequence_embedded_context: jaxtyping.Array
 
-    sequence_embedded_context: HiddenT
+    @classmethod
+    def from_sequence_context_dims(cls, target_posterior, sample_length) -> tuple[
+        int, int, int, int
+    ]:
+        return (
+            target_posterior.target.observation_cls.flat_dim * sample_length,
+            target_posterior.target.condition_cls.flat_dim * sample_length,
+            target_posterior.target.parameter_cls.flat_dim,
+            target_posterior.target.observation_cls.flat_dim * sample_length
+        )
 
     @classmethod
     def build_from_sequence_context(
@@ -58,7 +69,8 @@ class LatentContext[
         observations: ObservationT,
         conditions: ConditionT,
         parameters: ParameterT,
-    ):
+
+    ):  
         return cls(
             observation_context=observations,
             condition_context=conditions,
@@ -67,27 +79,61 @@ class LatentContext[
             sequence_embedded_context=sequence_embedded_context,
         )
 
+    @classmethod
+    def from_sequence_and_embedded_dims(cls, target_posterior, sample_length) -> tuple[
+        int, int, int
+    ]:
+        return (
+            target_posterior.target.observation_cls.flat_dim * sample_length,
+            target_posterior.target.condition_cls.flat_dim * sample_length,
+            target_posterior.target.parameter_cls.flat_dim,
+        )
+
+    @classmethod
+    def build_from_sequence_and_embedded(
+        cls, 
+        sequence_embedded_context: HiddenT,
+        embedded_context: jaxtyping.Array,
+        observations: ObservationT,
+        conditions: ConditionT,
+        parameters: ParameterT,
+    ):  
+        return cls(
+            observation_context=observations,
+            condition_context=conditions,
+            parameter_context=parameters,
+            embedded_context=embedded_context,
+            sequence_embedded_context=sequence_embedded_context,
+        )
+
+
 class Embedder[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
-    ParameterT: seqjtyping.Parameters,
+    InferenceParameterT: seqjtyping.Parameters,
 ](eqx.Module):
     """
-    Maps observation sequence to a context vector for
-    each point in the batch
+    Maps observation sequence to various embeddings.
     """
-    context_dimension: int
+    target_posterior: BayesianSequentialModel
+    sample_length: int
+    sequence_length: int
+    observation_context_dim: int = field(init=False)
+    condition_context_dim: int = field(init=False)
+    parameter_context_dim: int = field(init=False)
+    embedded_context_dim: int = field(init=False)
+    sequence_embedded_context_dim: int = field(init=False) # per step
 
     @abstractmethod
     def embed(
         self,
         observations: ObservationT,
         conditions: ConditionT,
-        parameters: ParameterT,
+        parameters: InferenceParameterT,
     ) -> LatentContext[
         ObservationT,
         ConditionT,
-        ParameterT,
+        InferenceParameterT,
         jaxtyping.Array,
     ]: ...
 
@@ -98,8 +144,7 @@ class AmortizedVariationalApproximation[
     TargetStructT,
     LatentContext,
 ]):
-    batch_length: int
-    buffer_length: int
+    sample_length: int
 
 class UnconditionalVariationalApproximation[
     TargetStructT: seqjtyping.Packable,

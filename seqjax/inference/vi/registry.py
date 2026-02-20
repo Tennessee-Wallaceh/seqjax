@@ -47,6 +47,7 @@ class Conv1DEmbedderConfig:
     hidden_dim: int = 2
     kernel_size: int = 3
     depth: int = 2
+    pool_dim: None | int = None
 
 @dataclass
 class BiRNNEmbedder:
@@ -72,44 +73,53 @@ embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
 
 def _build_embedder(
     embedder_config: EmbedderConfig,
-    target_dim: int,
+    target_posterior: BayesianSequentialModel,
+    sequence_length: int,
     sample_length: int,
     embedding_key: jaxtyping.PRNGKeyArray,
 ) -> embedder.Embedder:
     embed: embedder.Embedder
     if isinstance(embedder_config, ShortContextEmbedder):
         embed = embedder.WindowEmbedder(
+            target_posterior=target_posterior,
             sample_length=sample_length,
+            sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
             post_window=embedder_config.post_window,
-            y_dimension=target_dim,
         )
     elif isinstance(embedder_config, PassthroughEmbedder):
         embed = embedder.WindowEmbedder(
+            target_posterior=target_posterior,
             sample_length=sample_length,
+            sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
             post_window=embedder_config.post_window,
-            y_dimension=target_dim,
         )
     elif isinstance(embedder_config, LongContextEmbedder):
         embed = embedder.WindowEmbedder(
+            target_posterior=target_posterior,
             sample_length=sample_length,
+            sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
             post_window=embedder_config.post_window,
-            y_dimension=target_dim,
         )
     elif isinstance(embedder_config, Conv1DEmbedderConfig):
         embed = embedder.Conv1DEmbedder(
+            target_posterior=target_posterior,
+            sample_length=sample_length,
+            sequence_length=sequence_length,
             hidden=embedder_config.hidden_dim,
-            y_dim=target_dim,
             kernel_size=embedder_config.kernel_size,
             depth=embedder_config.depth,
             key=embedding_key,
+            pool_dim=embedder_config.pool_dim,
         )
     elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
-            embedder_config.hidden_dim,
-            target_dim,
+            target_posterior=target_posterior,
+            sample_length=sample_length,
+            sequence_length=sequence_length,
+            hidden=embedder_config.hidden_dim,
             key=embedding_key,
         )
     else:
@@ -238,7 +248,7 @@ class AutoregressiveLatentApproximation:
 
 
 @dataclass
-class MaskedAutoregressiveFlowLatentApproximation:
+class MAFLatentApproximation:
     label: str = field(init=False, default="masked-autoregressive-flow")
     nn_width: int = 20
     nn_depth: int = 2
@@ -270,7 +280,7 @@ class StructuredPrecisionLatentApproximation:
 
 LatentApproximation = (
     AutoregressiveLatentApproximation 
-    | MaskedAutoregressiveFlowLatentApproximation
+    | MAFLatentApproximation
     | MAFARLatentApproximation
     | MAFPriorLatentApproximation
     | StructuredPrecisionLatentApproximation
@@ -280,7 +290,7 @@ LatentApproximationLabels = typing.Literal[
 ]
 latent_approximation_registry: dict[LatentApproximationLabels, type[LatentApproximation]] = {
     "autoregressive": AutoregressiveLatentApproximation,
-    "masked-autoregressive-flow": MaskedAutoregressiveFlowLatentApproximation,
+    "masked-autoregressive-flow": MAFLatentApproximation,
     "ar-maf": MAFARLatentApproximation,
     "prior-maf": MAFARLatentApproximation,
     "structured": StructuredPrecisionLatentApproximation,
@@ -341,23 +351,26 @@ def build_approximation(
     if isinstance(config, FullVIConfig):
         embed = _build_embedder(
             config.embedder,
-            target_observation_class.flat_dim,
-            sequence_length,
-            embedding_key,
+            target_posterior,
+            sample_length=sequence_length,
+            sequence_length=sequence_length,
+            embedding_key=embedding_key,
         )
     elif isinstance(config, BufferedVIConfig):
         embed = _build_embedder(
             config.embedder,
-            target_observation_class.flat_dim,
-            config.batch_length + 2 * config.buffer_length,
-            embedding_key,
+            target_posterior,
+            sequence_length=sequence_length,
+            sample_length=config.batch_length + 2 * config.buffer_length,
+            embedding_key=embedding_key,
         )
 
     approximation: base.SSMVariationalApproximation
     latent_approximation: (
         autoregressive.AmortizedUnivariateAutoregressor
-        | base.AmortizedMaskedAutoregressiveFlow
-        | base.AmortizedARMaskedAutoregressiveFlow
+        | maf.AmortizedMAF
+        | maf.AmortizedARMAF
+        | maf.AmortizedLatentPriorMAF
         | structured.StructuredPrecisionGaussian
     )
     if isinstance(config, FullVIConfig):
@@ -365,7 +378,7 @@ def build_approximation(
             target_latent_class,
             buffer_length=0,
             batch_length=sequence_length,
-            context_dim=embed.context_dimension + 1,  # just location
+            context_dim=embed.context_dimension + 1,
             parameter_dim=target_param_class.flat_dim,
             condition_dim=target_posterior.target.condition_cls.flat_dim,
             lag_order=1,
@@ -397,14 +410,11 @@ def build_approximation(
                 key=approximation_key,
             )
 
-        elif isinstance(latent_config, MaskedAutoregressiveFlowLatentApproximation):
-            latent_approximation = base.AmortizedMaskedAutoregressiveFlow(
+        elif isinstance(latent_config, MAFLatentApproximation):
+            latent_approximation = maf.AmortizedMAF(
                 target_latent_class,
-                buffer_length=config.buffer_length,
-                batch_length=config.batch_length,
-                context_dim=embed.context_dimension,
-                parameter_dim=target_param_class.flat_dim,
-                condition_dim=target_posterior.target.condition_cls.flat_dim,
+                sample_length=config.buffer_length * 2 + config.batch_length,
+                embedder=embed,
                 key=approximation_key,
                 nn_width=latent_config.nn_width,
                 nn_depth=latent_config.nn_depth,
@@ -413,7 +423,7 @@ def build_approximation(
                 base_scale=latent_config.base_scale,
             )
         elif isinstance(latent_config, MAFARLatentApproximation):
-            latent_approximation = base.AmortizedARMaskedAutoregressiveFlow(
+            latent_approximation = maf.AmortizedARMAF(
                 target_latent_class,
                 buffer_length=config.buffer_length,
                 batch_length=config.batch_length,
@@ -463,6 +473,8 @@ def build_approximation(
             latent_approximation,
             parameter_approximation,
             embed,
+            batch_length=config.batch_length,
+            buffer_length=config.buffer_length,
             control_variate=config.control_variate,
         )
     return approximation

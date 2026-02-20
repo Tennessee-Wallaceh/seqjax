@@ -103,7 +103,7 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
         ),
     },
     "aicher_stochastic_vol": {
-        "base": stochastic_vol.LogVarAR(
+        "base": stochastic_vol.LogVarParams(
             std_log_var=jnp.array(0.5),
             ar=jnp.array(0.9),
         ),
@@ -147,6 +147,9 @@ default_parameter_transforms: dict[type[Parameters], dict[str, typing.Any]] = {
         "std_log_var": "softplus",
     },
     stochastic_vol.LogVarAR: {
+        "ar": "sigmoid",
+    },
+    stochastic_vol.LogVarParams: {
         "std_log_var": "softplus",
         "ar": "sigmoid",
     },
