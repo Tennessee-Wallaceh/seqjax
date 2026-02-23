@@ -112,14 +112,14 @@ class LGSSMParameterPrior(ParameterPrior[LGSSMParameters, HyperParameters]):
     @staticmethod
     def sample(
         key: PRNGKeyArray,
-        condition: NoCondition,
+        condition: HyperParameters,
     ) -> LGSSMParameters:
         raise NotImplementedError
 
     def log_prob(
         self,
         parameters: LGSSMParameters,
-        condition: NoCondition,
+        condition: HyperParameters,
     ) -> Scalar:
         raise NotImplementedError
 

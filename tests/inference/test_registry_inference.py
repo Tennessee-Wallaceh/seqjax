@@ -79,6 +79,12 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
             embedder=vi.registry.BiRNNEmbedder(),
             observations_per_step=1,
             samples_per_context=1,
+            pre_training_optimization=vi.run.AdamOpt(lr=1e-2, total_steps=1),
+            prior_training_optimization=vi.run.AdamOpt(lr=1e-2, total_steps=1),
+            latent_approximation=vi.registry.AutoregressiveLatentApproximation(
+                nn_width=4,
+                nn_depth=1,
+            ),
             parameter_approximation=vi.registry.MeanFieldParameterApproximation(),
         ),
         200,

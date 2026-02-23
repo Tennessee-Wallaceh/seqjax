@@ -256,6 +256,7 @@ def _build_parameter_approximation[
         field_bijections=field_bijections,
     )
 
+    base_factory: typing.Callable[..., base.UnconditionalVariationalApproximation]
     if isinstance(approximation, MeanFieldParameterApproximation):
         base_factory = base.MeanField
     elif isinstance(approximation, MultivariateNormalParameterApproximation):
@@ -334,7 +335,14 @@ class FullVIConfig:
     embedder: EmbedderConfig
     observations_per_step: int
     samples_per_context: int
-    parameter_approximation: ParameterApproximation
+    parameter_approximation: ParameterApproximation = field(
+        default_factory=MeanFieldParameterApproximation
+    )
+    latent_approximation: LatentApproximation = field(
+        default_factory=AutoregressiveLatentApproximation
+    )
+    pre_training_optimization: None | optimization_registry.OptConfig = None
+    prior_training_optimization: None | optimization_registry.OptConfig = None
 
 
 @dataclass
@@ -397,15 +405,43 @@ def build_approximation(
         | structured.StructuredPrecisionGaussian
     )
     if isinstance(config, FullVIConfig):
-        latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
-            target_latent_class,
-            sample_length=sequence_length,
-            embedder=embed,
-            lag_order=1,
-            nn_width=20,
-            nn_depth=2,
-            key=approximation_key,
-        )
+        latent_config = config.latent_approximation
+
+        if isinstance(latent_config, AutoregressiveLatentApproximation):
+            latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
+                target_latent_class,
+                sample_length=sequence_length,
+                embedder=embed,
+                lag_order=latent_config.lag_order,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                key=approximation_key,
+            )
+        elif isinstance(latent_config, MAFLatentApproximation):
+            latent_approximation = maf.AmortizedMAF(
+                target_latent_class,
+                sample_length=sequence_length,
+                embedder=embed,
+                key=approximation_key,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                flow_layers=latent_config.flow_layers,
+                base_loc=latent_config.base_loc,
+                base_scale=latent_config.base_scale,
+            )
+        elif isinstance(latent_config, StructuredPrecisionLatentApproximation):
+            latent_approximation = structured.StructuredPrecisionGaussian(
+                target_latent_class,
+                sample_length=sequence_length,
+                embedder=embed,
+                hidden_dim=latent_config.nn_width,
+                depth=latent_config.nn_depth,
+                key=approximation_key,
+            )
+        else:
+            raise ValueError(
+                f"Unknown latent approximation configuration: {latent_config!r}"
+            )
 
         approximation = base.FullAutoregressiveVI(
             latent_approximation,
