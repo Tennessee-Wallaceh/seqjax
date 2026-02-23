@@ -70,6 +70,7 @@ class StructuredPrecisionGaussian[
             target_struct_cls,
             shape=(sample_length, self.x_dim),
             sample_length=sample_length,
+
         )
         self.target_struct_cls = target_struct_cls
         self.embedder = embedder

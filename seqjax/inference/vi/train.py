@@ -62,6 +62,34 @@ BufferedApproximationT = BufferedSSMVI[
     InferenceParametersT,
     HyperParametersT,
 ]
+
+
+class SupportsPretrainLoss(Protocol):
+    def estimate_pretrain_loss(
+        self,
+        observations: ObservationT,
+        conditions: ConditionT,
+        key: jaxtyping.PRNGKeyArray,
+        context_samples: int,
+        samples_per_context: int,
+        target_posterior: "TargetModelT",
+        hyperparameters: HyperParametersT | None,
+    ) -> jaxtyping.Scalar: ...
+
+
+class SupportsPriorFitLoss(Protocol):
+    def estimate_prior_fit_loss(
+        self,
+        observations: ObservationT,
+        conditions: ConditionT,
+        key: jaxtyping.PRNGKeyArray,
+        context_samples: int,
+        samples_per_context: int,
+        target_posterior: "TargetModelT",
+        hyperparameters: HyperParametersT | None,
+    ) -> jaxtyping.Scalar: ...
+
+
 TargetModelT = BayesianSequentialModel[
     ParticleT,
     ObservationT,
@@ -149,7 +177,10 @@ def loss_pre_train_neg_elbo(
     num_context: int,
     samples_per_context: int,
 ) -> jaxtyping.Scalar:
-    approximation = typing.cast(BufferedApproximationT, eqx.combine(trainable, static))
+    approximation = typing.cast(
+        SupportsPretrainLoss,
+        eqx.combine(trainable, static),
+    )
 
     return approximation.estimate_pretrain_loss(
         observations,
@@ -172,7 +203,10 @@ def loss_pre_train_prior(
     num_context: int,
     samples_per_context: int,
 ) -> jaxtyping.Scalar:
-    approximation = typing.cast(BufferedApproximationT, eqx.combine(trainable, static))
+    approximation = typing.cast(
+        SupportsPriorFitLoss,
+        eqx.combine(trainable, static),
+    )
     return approximation.estimate_prior_fit_loss(
         observations,
         typing.cast(ConditionT, conditions),
