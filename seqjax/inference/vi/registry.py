@@ -173,9 +173,19 @@ class MaskedAutoregressiveParameterApproximation:
     nn_depth: int = 2
 
 
-ParameterApproximationLabels = typing.Literal["mean-field", "maf"]
+@dataclass
+class MultivariateNormalParameterApproximation:
+    label: str = field(init=False, default="multivariate-normal")
+    diag_jitter: float = 1e-6
+
+
+ParameterApproximationLabels = typing.Literal[
+    "mean-field", "maf", "multivariate-normal"
+]
 ParameterApproximation = (
-    MeanFieldParameterApproximation | MaskedAutoregressiveParameterApproximation
+    MeanFieldParameterApproximation
+    | MaskedAutoregressiveParameterApproximation
+    | MultivariateNormalParameterApproximation
 )
 
 parameter_approximation_registry: dict[
@@ -183,6 +193,7 @@ parameter_approximation_registry: dict[
 ] = {
     "mean-field": MeanFieldParameterApproximation,
     "maf": MaskedAutoregressiveParameterApproximation,
+    "multivariate-normal": MultivariateNormalParameterApproximation,
 }
 
 
@@ -245,6 +256,11 @@ def _build_parameter_approximation[
     if isinstance(approximation, MeanFieldParameterApproximation):
         base_factory: base.VariationalApproximationFactory[ParametersT, None] = (
             base.MeanField
+        )
+    elif isinstance(approximation, MultivariateNormalParameterApproximation):
+        base_factory = partial(
+            base.MultivariateNormal,
+            diag_jitter=approximation.diag_jitter,
         )
     elif isinstance(approximation, MaskedAutoregressiveParameterApproximation):
         base_factory = base.MaskedAutoregressiveFlowFactory[ParametersT](
