@@ -36,6 +36,7 @@ SequentialModelLabel = typing.Literal[
     "simple_stochastic_vol",
     "aicher_stochastic_vol",
     "skew_stochastic_vol",
+    "full_svol",
 ]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
@@ -67,6 +68,10 @@ posterior_factories: dict[SequentialModelLabel, PosteriorFactory] = {
     "aicher_stochastic_vol": typing.cast(
         PosteriorFactory,
         lambda _ref_params: stochastic_vol.SimpleStochasticVarBayesian(_ref_params),
+    ),
+    "full_svol": typing.cast(
+        PosteriorFactory,
+        stochastic_vol.StochasticVarBayesian,
     ),
 }
 

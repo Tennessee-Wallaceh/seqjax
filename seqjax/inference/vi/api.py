@@ -58,7 +58,7 @@ class LatentContext[
         return (
             target_posterior.target.observation_cls.flat_dim * sample_length,
             target_posterior.target.condition_cls.flat_dim * sample_length,
-            target_posterior.target.parameter_cls.flat_dim,
+            target_posterior.inference_parameter_cls.flat_dim,
             target_posterior.target.observation_cls.flat_dim * sample_length
         )
 
@@ -86,7 +86,7 @@ class LatentContext[
         return (
             target_posterior.target.observation_cls.flat_dim * sample_length,
             target_posterior.target.condition_cls.flat_dim * sample_length,
-            target_posterior.target.parameter_cls.flat_dim,
+            target_posterior.inference_parameter_cls.flat_dim,
         )
 
     @classmethod
