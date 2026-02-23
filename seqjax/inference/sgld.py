@@ -145,10 +145,6 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
     grad_keys = split_keys[:num_samples]
     noise_keys = split_keys[num_samples:]
 
-    jax.debug.print("start={a}", a=initial_parameters)
-    jax.debug.print("grad_keys={a}", a=grad_keys)
-    jax.debug.print("noise_keys={a}", a=noise_keys)
-
     if jax.tree_util.tree_structure(config.step_size) == jax.tree_util.tree_structure(
         initial_parameters
     ):  # type: ignore[operator]
@@ -164,8 +160,7 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
         inp: tuple[jaxtyping.PRNGKeyArray, jaxtyping.PRNGKeyArray],
     ):
         ix, params = carry
-        jax.debug.print("inp={a}", a=inp)
-        g_key, n_key = inp
+        _, (g_key, n_key) = inp
         grad = grad_estimator(params, g_key)
         noise = _tree_randn_like(n_key, params)
         updates = jax.tree_util.tree_map(
