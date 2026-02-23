@@ -11,6 +11,7 @@ from seqjax.inference.vi import transformations
 from seqjax.inference.vi import transformed
 from seqjax.inference.vi import base
 from seqjax.inference.vi import embedder
+from seqjax.inference.vi import aggregation
 from seqjax.inference.vi import maf
 from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import structured
@@ -56,6 +57,7 @@ class Conv1DEmbedderConfig:
 class BiRNNEmbedder:
     label: EmbedderName = field(init=False, default="bi-rnn")
     hidden_dim: int = 10
+    aggregation_kind: aggregation.AggregationKind = "observation-flatten"
 
 
 @dataclass
@@ -136,6 +138,7 @@ def _build_embedder(
             sample_length=sample_length,
             sequence_length=sequence_length,
             hidden=embedder_config.hidden_dim,
+            aggregation_kind=embedder_config.aggregation_kind,
             key=embedding_key,
         )
     elif isinstance(embedder_config, TransformerEmbedderConfig):

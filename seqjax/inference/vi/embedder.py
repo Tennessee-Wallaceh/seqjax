@@ -5,7 +5,8 @@ import jax
 from dataclasses import field
 
 from seqjax.model.base import BayesianSequentialModel
-from .api import LatentContext, Embedder
+from .api import LatentContext, Embedder, SequenceAggregator
+from .aggregation import AggregationKind, build_sequence_aggregator
 
 
 # class PositionalEmbedder(Embedder):
@@ -104,6 +105,8 @@ class RNNEmbedder(Embedder):
     cell_fwd: eqx.nn.GRUCell
     cell_rev: eqx.nn.GRUCell
     hidden: int
+    aggregation_kind: AggregationKind = eqx.field(static=True)
+    aggregator: SequenceAggregator = eqx.field(static=True)
 
     def __init__(
         self, 
@@ -111,31 +114,34 @@ class RNNEmbedder(Embedder):
         sample_length: int,
         sequence_length: int,
         hidden: int, 
+        aggregation_kind: AggregationKind = "observation-flatten",
         *, 
         key
     ):
-        y_dim = self.target_posterior.target.observation_cls.flat_dim
+        y_dim = target_posterior.target.observation_cls.flat_dim
         k1, k2 = jax.random.split(key)
         self.cell_fwd = eqx.nn.GRUCell(y_dim, hidden, key=k1)
         self.cell_rev = eqx.nn.GRUCell(y_dim, hidden, key=k2)
         self.hidden = hidden
-        super().__init__(target_posterior, sample_length, sequence_length)
-
-    def __post__init__(
-        self,
-    ):
-        self.sequence_embedded_context_dim = (
-            self.target_posterior.target.observation_cls.flat_dim
-            * self.hidden * 2
-        ) 
+        self.aggregation_kind = aggregation_kind
+        self.sequence_embedded_context_dim = self.hidden * 2
+        observation_dim = target_posterior.target.observation_cls.flat_dim
+        self.aggregator = build_sequence_aggregator(
+            aggregation_kind,
+            sample_length=sample_length,
+            sequence_dim=self.sequence_embedded_context_dim,
+            observation_dim=observation_dim,
+        )
+        self.embedded_context_dim = self.aggregator.output_dim
         (
             self.observation_context_dim,
             self.condition_context_dim,
             self.parameter_context_dim,
-            self.embedded_context_dim,
-        ) = LatentContext.from_sequence_context_dims(
-            self.target_posterior, self.sample_length
+        ) = LatentContext.from_sequence_and_embedded_dims(
+            target_posterior, sample_length
         )
+
+        super().__init__(target_posterior, sample_length, sequence_length)
         
     def _scan(self, cell, seq):
         def step(carry, x):
@@ -151,8 +157,10 @@ class RNNEmbedder(Embedder):
         h_fwd = self._scan(self.cell_fwd, seq)
         h_rev = self._scan(self.cell_rev, seq[::-1])[::-1]
         sequence_embedded_context = jnp.concatenate([h_fwd, h_rev], axis=-1)  # (T, 2*hidden)
-        return LatentContext.build_from_sequence_context(
+        embedded_context = self.aggregator(sequence_embedded_context, observations)
+        return LatentContext.build_from_sequence_and_embedded(
             sequence_embedded_context, 
+            embedded_context,
             observations,
             conditions,
             parameters
@@ -163,7 +171,8 @@ class Conv1DEmbedder(Embedder):
     in_proj: eqx.nn.Conv1d
     convs: tuple[eqx.nn.Conv1d, ...]
     hidden: int
-    pooling: eqx.nn.AdaptiveAvgPool1d | eqx.nn.AdaptiveMaxPool1d
+    aggregation_kind: AggregationKind = eqx.field(static=True)
+    aggregator: SequenceAggregator = eqx.field(static=True)
 
     def __init__(
         self,
@@ -202,22 +211,23 @@ class Conv1DEmbedder(Embedder):
         )
         self.hidden = hidden
 
-        if pool_dim is None:
-            pool_dim = max(1, int(0.1 * sample_length))
-
-        if pool_kind == 'avg':
-            self.pooling = eqx.nn.AdaptiveAvgPool1d(pool_dim)
-        elif pool_kind == 'max':
-            self.pooling = eqx.nn.AdaptiveMaxPool1d(pool_dim)
+        if pool_kind == "avg":
+            self.aggregation_kind = "avg-pool"
+        elif pool_kind == "max":
+            self.aggregation_kind = "max-pool"
         else:
-            raise Exception(f"pool_kind: {pool_kind} not supported!")
-        
-        self.sequence_embedded_context_dim = (
-            target_posterior.target.observation_cls.flat_dim
-            * self.hidden
+            raise ValueError(f"pool_kind: {pool_kind} not supported!")
+
+        self.sequence_embedded_context_dim = self.hidden
+        observation_dim = target_posterior.target.observation_cls.flat_dim
+        self.aggregator = build_sequence_aggregator(
+            self.aggregation_kind,
+            sample_length=sample_length,
+            sequence_dim=self.sequence_embedded_context_dim,
+            observation_dim=observation_dim,
+            pool_dim=pool_dim,
         )
-        
-        self.embedded_context_dim = self.pooling.target_shape[0] * self.hidden
+        self.embedded_context_dim = self.aggregator.output_dim
         (
             self.observation_context_dim,
             self.condition_context_dim,
@@ -238,14 +248,14 @@ class Conv1DEmbedder(Embedder):
             x = conv(x)
             x = jax.nn.gelu(x)
 
-        return x
-    
+        return jnp.swapaxes(x, 0, 1)   # (T, hidden)
+
     def embed(self, observations, conditions, parameters):
         sequence_embedded_context = self.convolve(observations)
-        downsampled_embedding = self.pooling(sequence_embedded_context).flatten()
+        aggregated = self.aggregator(sequence_embedded_context, observations)
         return LatentContext.build_from_sequence_and_embedded(
-            jnp.swapaxes(sequence_embedded_context, 0, 1),  # (T, hidden)
-            downsampled_embedding,
+            sequence_embedded_context,
+            aggregated,
             observations,
             conditions,
             parameters,
