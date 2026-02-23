@@ -59,9 +59,10 @@ def test_generate_slurm_jobs_one_script_per_configuration(tmp_path: Path, capsys
     assert 'DATA_SEED="$((BASE_DATA_SEED + (SLURM_ARRAY_TASK_ID / FIT_SEED_REPEATS)))"' in script
     assert '  --data-seed "$DATA_SEED"' in script
     assert '  --fit-seed "$FIT_SEED"' in script
-    assert "CODES=(" in script
-    assert "'A.1'" in script
-    assert "'B.1'" in script
+    assert "CODES=(" not in script
+    assert "for code in \"${CODES[@]}\"" not in script
+    assert "  --code 'A.1'" in script
+    assert "  --code 'B.1'" in script
 
     output = capsys.readouterr().out
     assert "Total requested wall time across generated jobs: 03:00:00" in output
