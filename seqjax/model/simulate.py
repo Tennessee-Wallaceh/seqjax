@@ -96,8 +96,7 @@ def step[
 
 
 def simulate[
-    SeqLength: int,
-    LatentT: seqjtyping.Latent[SeqLength],
+    LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
@@ -120,7 +119,7 @@ def simulate[
         ObservationHistoryT,
     ],
     parameters: ParametersT,
-    sequence_length: SeqLength,
+    sequence_length: int,
     condition: ConditionT | None = None,
     reference_emission: ObservationHistoryT | None = None,
 ) -> tuple[
