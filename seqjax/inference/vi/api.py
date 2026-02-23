@@ -107,6 +107,17 @@ class LatentContext[
         )
 
 
+class SequenceAggregator(typing.Protocol):
+    @property
+    def output_dim(self) -> int: ...
+
+    def __call__(
+        self,
+        sequence_features: jaxtyping.Array,
+        observations: seqjtyping.Observation,
+    ) -> jaxtyping.Array: ...
+
+
 class Embedder[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,

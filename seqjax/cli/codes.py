@@ -204,7 +204,8 @@ embedder_config: NestedCode = {
             "PK": ("pool_kind", lambda x: x, "avg"),
         }),
         "BiRNN": ("bi-rnn", {
-            "H": ("hidden_dim", parse_int_required, "10")
+            "H": ("hidden_dim", parse_int_required, "10"),
+            "AG": ("aggregation_kind", lambda x: x, "observation-flatten"),
         }),
         "LC": ("long-window", {}),
         "SC": ("short-window", {}),
