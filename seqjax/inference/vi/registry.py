@@ -170,22 +170,33 @@ class MeanFieldParameterApproximation:
 
 
 @dataclass
-class MaskedAutoregressiveParameterApproximation:
+class MAFParameterApproximation:
     label: str = field(init=False, default="maf")
     nn_width: int = 32
     nn_depth: int = 2
 
 
-ParameterApproximationLabels = typing.Literal["mean-field", "maf"]
+@dataclass
+class MultivariateNormalParameterApproximation:
+    label: str = field(init=False, default="multivariate-normal")
+    diag_jitter: float = 1e-6
+
+
+ParameterApproximationLabels = typing.Literal[
+    "mean-field", "maf", "multivariate-normal"
+]
 ParameterApproximation = (
-    MeanFieldParameterApproximation | MaskedAutoregressiveParameterApproximation
+    MeanFieldParameterApproximation
+    | MAFParameterApproximation
+    | MultivariateNormalParameterApproximation
 )
 
 parameter_approximation_registry: dict[
     ParameterApproximationLabels, type[ParameterApproximation]
 ] = {
     "mean-field": MeanFieldParameterApproximation,
-    "maf": MaskedAutoregressiveParameterApproximation,
+    "maf": MAFParameterApproximation,
+    "multivariate-normal": MultivariateNormalParameterApproximation,
 }
 
 
@@ -246,15 +257,19 @@ def _build_parameter_approximation[
     )
 
     if isinstance(approximation, MeanFieldParameterApproximation):
-        base_factory: base.VariationalApproximationFactory[ParametersT, None] = (
-            base.MeanField
+        base_factory = base.MeanField
+    elif isinstance(approximation, MultivariateNormalParameterApproximation):
+        base_factory = partial(
+            base.MultivariateNormal,
+            diag_jitter=approximation.diag_jitter,
         )
-    elif isinstance(approximation, MaskedAutoregressiveParameterApproximation):
-        base_factory = base.MaskedAutoregressiveFlowFactory[ParametersT](
+    elif isinstance(approximation, MAFParameterApproximation):
+        base_factory =partial(
+            maf.MaskedAutoregressiveFlow,
             key=key,
             nn_width=approximation.nn_width,
             nn_depth=approximation.nn_depth,
-        )
+        ) 
     else:
         raise ValueError(f"Unsupported parameter approximation: {approximation}")
 
@@ -288,22 +303,6 @@ class MAFLatentApproximation:
     flow_layers: int = 1
 
 @dataclass
-class MAFPriorLatentApproximation:
-    label: str = field(init=False, default="masked-autoregressive-flow")
-    nn_width: int = 20
-    nn_depth: int = 2
-    flow_layers: int = 1
-
-@dataclass
-class MAFARLatentApproximation:
-    label: str = field(init=False, default="ar-maf")
-    nn_width: int = 20
-    nn_depth: int = 2
-    base_loc: float = 0.0
-    base_scale: float = 1.0
-    flow_layers: int = 1
-
-@dataclass
 class StructuredPrecisionLatentApproximation:
     label: str = field(init=False, default="structured")
     nn_width: int = 32
@@ -312,18 +311,14 @@ class StructuredPrecisionLatentApproximation:
 LatentApproximation = (
     AutoregressiveLatentApproximation 
     | MAFLatentApproximation
-    | MAFARLatentApproximation
-    | MAFPriorLatentApproximation
     | StructuredPrecisionLatentApproximation
 )
 LatentApproximationLabels = typing.Literal[
-    "autoregressive", "masked-autoregressive-flow", "ar-maf", "prior-maf", "structured"
+    "autoregressive", "masked-autoregressive-flow", "structured"
 ]
 latent_approximation_registry: dict[LatentApproximationLabels, type[LatentApproximation]] = {
     "autoregressive": AutoregressiveLatentApproximation,
     "masked-autoregressive-flow": MAFLatentApproximation,
-    "ar-maf": MAFARLatentApproximation,
-    "prior-maf": MAFARLatentApproximation,
     "structured": StructuredPrecisionLatentApproximation,
 }
 
@@ -368,7 +363,6 @@ def build_approximation(
 ) -> base.SSMVariationalApproximation:
     parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
 
-    target_observation_class = target_posterior.target.observation_cls
     target_param_class = target_posterior.inference_parameter_cls
     target_latent_class = target_posterior.target.latent_cls
 
@@ -400,18 +394,13 @@ def build_approximation(
     latent_approximation: (
         autoregressive.AmortizedUnivariateAutoregressor
         | maf.AmortizedMAF
-        | maf.AmortizedARMAF
-        | maf.AmortizedLatentPriorMAF
         | structured.StructuredPrecisionGaussian
     )
     if isinstance(config, FullVIConfig):
         latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
             target_latent_class,
-            buffer_length=0,
-            batch_length=sequence_length,
-            context_dim=embed.context_dimension + 1,
-            parameter_dim=target_param_class.flat_dim,
-            condition_dim=target_posterior.target.condition_cls.flat_dim,
+            sample_length=sequence_length,
+            embedder=embed,
             lag_order=1,
             nn_width=20,
             nn_depth=2,
@@ -430,11 +419,8 @@ def build_approximation(
         if isinstance(latent_config, AutoregressiveLatentApproximation):
             latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
                 target_latent_class,
-                buffer_length=config.buffer_length,
-                batch_length=config.batch_length,
-                context_dim=embed.context_dimension,
-                parameter_dim=target_param_class.flat_dim,
-                condition_dim=target_posterior.target.condition_cls.flat_dim,
+                sample_length=config.buffer_length * 2 + config.batch_length,
+                embedder=embed,
                 lag_order=latent_config.lag_order,
                 nn_width=latent_config.nn_width,
                 nn_depth=latent_config.nn_depth,
@@ -453,44 +439,12 @@ def build_approximation(
                 base_loc=latent_config.base_loc,
                 base_scale=latent_config.base_scale,
             )
-        elif isinstance(latent_config, MAFARLatentApproximation):
-            latent_approximation = maf.AmortizedARMAF(
-                target_latent_class,
-                buffer_length=config.buffer_length,
-                batch_length=config.batch_length,
-                context_dim=embed.context_dimension,
-                parameter_dim=target_param_class.flat_dim,
-                condition_dim=target_posterior.target.condition_cls.flat_dim,
-                key=approximation_key,
-                nn_width=latent_config.nn_width,
-                nn_depth=latent_config.nn_depth,
-                flow_layers=latent_config.flow_layers,
-                base_loc=latent_config.base_loc,
-                base_scale=latent_config.base_scale,
-            )
-        elif isinstance(latent_config, MAFPriorLatentApproximation):
-            sample_dim = (2 * config.buffer_length + config.batch_length) * target_observation_class.flat_dim
-            latent_approximation = maf.AmortizedLatentPriorMAF(
-                target_posterior.target,
-                buffer_length=config.buffer_length,
-                batch_length=config.batch_length,
-                context_dim=sample_dim,
-                parameter_dim=target_param_class.flat_dim,
-                condition_dim=target_posterior.target.condition_cls.flat_dim,
-                key=approximation_key,
-                nn_width=latent_config.nn_width,
-                nn_depth=latent_config.nn_depth,
-                flow_layers=latent_config.flow_layers,
-            )
 
         elif isinstance(latent_config, StructuredPrecisionLatentApproximation):
             latent_approximation = structured.StructuredPrecisionGaussian(
                 target_latent_class,
-                buffer_length=config.buffer_length,
-                batch_length=config.batch_length,
-                context_dim=embed.context_dimension,
-                parameter_dim=target_param_class.flat_dim,
-                condition_dim=target_posterior.target.condition_cls.flat_dim,
+                sample_length=config.buffer_length * 2 + config.batch_length,
+                embedder=embed,
                 hidden_dim=latent_config.nn_width,
                 depth=latent_config.nn_depth,
                 key=approximation_key,

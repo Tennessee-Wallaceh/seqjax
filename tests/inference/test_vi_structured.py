@@ -7,15 +7,18 @@ from seqjax.model.ar import LatentValue
 from seqjax.model.typing import NoCondition
 
 
+class _MockEmbedder:
+    sequence_embedded_context_dim = 4
+    parameter_context_dim = 2
+    condition_context_dim = NoCondition.flat_dim
+
+
 def test_structured_precision_gaussian_sample_shape_and_finite_log_prob() -> None:
     sample_length = 7
     approximation = StructuredPrecisionGaussian(
         LatentValue,
-        batch_length=5,
-        buffer_length=1,
-        context_dim=4,
-        parameter_dim=2,
-        condition_dim=NoCondition.flat_dim,
+        sample_length=sample_length,
+        embedder=_MockEmbedder(),
         hidden_dim=8,
         depth=1,
         key=jax.random.PRNGKey(0),

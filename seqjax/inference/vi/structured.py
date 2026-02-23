@@ -16,7 +16,7 @@ from jax.nn import softplus
 from jaxtyping import Array, Float, PRNGKeyArray
 
 import seqjax.model.typing as seqjtyping
-from .api import AmortizedVariationalApproximation, LatentContext
+from .api import AmortizedVariationalApproximation, Embedder, LatentContext
 
 
 _LOG_2PI = jnp.log(2.0 * jnp.pi)
@@ -46,8 +46,7 @@ class StructuredPrecisionGaussian[
     """
 
     target_struct_cls: Type[LatentT]
-    batch_length: int
-    buffer_length: int
+    embedder: Embedder
     context_dim: int
     parameter_dim: int
     condition_dim: int
@@ -60,31 +59,27 @@ class StructuredPrecisionGaussian[
         self,
         target_struct_cls: Type[LatentT],
         *,
-        batch_length: int,
-        buffer_length: int,
-        context_dim: int,
-        parameter_dim: int,
-        condition_dim: int,
+        sample_length: int,
+        embedder: Embedder,
         hidden_dim: int,
         depth: int,
         key: PRNGKeyArray,
     ) -> None:
-        sample_length = 2 * buffer_length + batch_length
         self.x_dim = target_struct_cls.flat_dim
         super().__init__(
             target_struct_cls,
-            (sample_length, self.x_dim),
-            sample_length,
+            shape=(sample_length, self.x_dim),
+            sample_length=sample_length,
+
         )
         self.target_struct_cls = target_struct_cls
-        self.batch_length = batch_length
-        self.buffer_length = buffer_length
-        self.context_dim = context_dim
-        self.parameter_dim = parameter_dim
-        self.condition_dim = condition_dim
+        self.embedder = embedder
+        self.context_dim = embedder.sequence_embedded_context_dim
+        self.parameter_dim = embedder.parameter_context_dim
+        self.condition_dim = embedder.condition_context_dim
 
         diag_key, subdiag_key, mean_key = jrandom.split(key, 3)
-        in_dim = context_dim + parameter_dim + condition_dim
+        in_dim = self.context_dim + self.parameter_dim + self.condition_dim
         self.chol_diagonal_net = eqx.nn.MLP(
             in_size=in_dim,
             out_size=self.x_dim * self.x_dim,
