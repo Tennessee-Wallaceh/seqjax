@@ -55,9 +55,8 @@ class MaskedAutoregressiveFlow[
         if transformer is None:
             transformer = Affine()
 
-        flow_key = _ensure_legacy_key(key)
         self.flow = FlowjaxMAF(
-            flow_key,
+            key,
             transformer=transformer,
             dim=dim,
             nn_width=nn_width,
@@ -70,8 +69,7 @@ class MaskedAutoregressiveFlow[
         self.distribution = distribution
 
     def sample_and_log_prob(self, key, condition=None):
-        flow_key = _ensure_legacy_key(key)
-        flat_sample = self.distribution.sample(flow_key)
+        flat_sample = self.distribution.sample(key)
         log_q = self.distribution.log_prob(flat_sample)
         return self.target_struct_cls.unravel(flat_sample), log_q
 
