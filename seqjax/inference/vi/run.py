@@ -172,7 +172,7 @@ def run_buffered_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided
     if tracker is None:
-        tracker = train.Tracker(metric_samples=1000)
+        tracker = train.Tracker(metric_samples=5000)
 
     #TODO: find a way to pass dynamic objects to inference runs
     start_approximation = None
