@@ -443,7 +443,7 @@ def build_approximation(
                 f"Unknown latent approximation configuration: {latent_config!r}"
             )
 
-        approximation = base.FullAutoregressiveVI(
+        approximation = base.FullVI(
             latent_approximation,
             parameter_approximation,
             embed,
