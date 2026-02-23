@@ -254,9 +254,7 @@ def _build_parameter_approximation[
     )
 
     if isinstance(approximation, MeanFieldParameterApproximation):
-        base_factory: base.VariationalApproximationFactory[ParametersT, None] = (
-            base.MeanField
-        )
+        base_factory = base.MeanField
     elif isinstance(approximation, MultivariateNormalParameterApproximation):
         base_factory = partial(
             base.MultivariateNormal,
@@ -265,6 +263,7 @@ def _build_parameter_approximation[
     elif isinstance(approximation, MAFParameterApproximation):
         base_factory =partial(
             maf.MaskedAutoregressiveFlow,
+            key=key,
             nn_width=approximation.nn_width,
             nn_depth=approximation.nn_depth,
         ) 
