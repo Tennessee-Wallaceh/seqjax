@@ -128,6 +128,7 @@ def _build_embedder(
             depth=embedder_config.depth,
             key=embedding_key,
             pool_dim=embedder_config.pool_dim,
+            pool_kind=embedder_config.pool_kind,
         )
     elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
