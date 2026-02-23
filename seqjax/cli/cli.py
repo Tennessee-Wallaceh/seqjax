@@ -5,6 +5,7 @@ from dataclasses import asdict, is_dataclass
 import typer
 
 from seqjax.cli import codes
+from seqjax.cli import slurm_jobs
 from seqjax.experiment import ExperimentConfig, run_experiment
 from seqjax.inference import registry as inference_registry
 from seqjax.model import registry as model_registry
@@ -147,6 +148,32 @@ def list_codes(method: inference_registry.InferenceName) -> None:
         typer.echo(codes.format_code_options(codes.codes[method]))
     except KeyError:
         typer.echo(f"Inference method {method} not found.")
+
+
+
+@app.command("generate-slurm-jobs")
+def generate_slurm_jobs_cmd(
+    plan_file: str = typer.Option(..., "--plan-file", "--plan", help="Python plan file defining PLAN dict."),
+    experiment_name: str | None = typer.Option(None, "--experiment-name", help="Override plan experiment name."),
+    output_root: str | None = typer.Option(None, "--output-root", help="Override plan output root folder."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Resolve and print target files without writing."),
+) -> None:
+    """Generate Slurm scripts from a Python-defined ablation plan."""
+
+    outputs = slurm_jobs.generate_slurm_jobs(
+        plan_file=plan_file,
+        experiment_name_override=experiment_name,
+        output_root_override=output_root,
+        dry_run=dry_run,
+    )
+
+    if dry_run:
+        typer.echo("Dry-run: would generate the following scripts:")
+    else:
+        typer.echo("Generated scripts:")
+
+    for output in outputs:
+        typer.echo(f"  - {output}")
 
 @app.command()
 def run(

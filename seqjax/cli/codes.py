@@ -196,6 +196,13 @@ embedder_config: NestedCode = {
     "field": "embedder",
     "registry": vi.registry.embedder_registry,
     "options": {
+        "C1D": ("conv1d", {
+            "H": ("hidden_dim", parse_int_required, "2"),
+            "K": ("kernel_size", parse_int_required, "3"),
+            "D": ("depth", parse_int_required, "2"),
+            "P": ("pool_dim", parse_int_optional, "NO"),
+            "PK": ("pool_kind", lambda x: x, "avg"),
+        }),
         "BiRNN": ("bi-rnn", {
             "H": ("hidden_dim", parse_int_required, "10")
         }),
@@ -227,7 +234,13 @@ codes["full-vi"] = {
         "registry": vi.registry.latent_approximation_registry,
         "options": {
             "SEQ": ("autoregressive", {}),
-            "MAF": ("masked-autoregressive-flow", {})
+            "MAF": ("masked-autoregressive-flow", {
+                "W": ("nn_width", parse_int_required, "20"),
+                "D": ("nn_depth", parse_int_required, "2"),
+                "FL": ("flow_layers", parse_int_required, "1"),
+                "BL": ("base_loc", parse_float, "0"),
+                "BS": ("base_scale", parse_float, "1"),
+            })
         }
     },
 }
