@@ -3,6 +3,7 @@ from functools import partial
 
 import equinox as eqx
 import jax.scipy.stats as jstats
+import jax.scipy.linalg as jlinalg
 import jaxtyping
 
 import jax.numpy as jnp
@@ -34,6 +35,48 @@ class MeanField[TargetStructT: seqjtyping.Packable](
         x = z * scale + self.loc
         log_q_x = jstats.norm.logpdf(x, loc=self.loc, scale=scale)
         return self.target_struct_cls.unravel(x), jnp.sum(log_q_x)
+
+
+class MultivariateNormal[TargetStructT: seqjtyping.Packable](
+    UnconditionalVariationalApproximation[TargetStructT]
+):
+    """Full-covariance multivariate Gaussian over flattened parameters."""
+
+    target_struct_cls: type[TargetStructT]
+    loc: jaxtyping.Float[jaxtyping.Array, " TargetStructT.dim"]
+    _unc_tril: jaxtyping.Float[jaxtyping.Array, "TargetStructT.dim TargetStructT.dim"]
+    _diag_jitter: float = eqx.field(static=True)
+
+    def __init__(
+        self,
+        target_struct_cls: type[TargetStructT],
+        *,
+        diag_jitter: float = 1e-6,
+    ):
+        super().__init__(target_struct_cls, shape=(target_struct_cls.flat_dim,))
+        self.target_struct_cls = target_struct_cls
+        dim = target_struct_cls.flat_dim
+        self.loc = jnp.zeros((dim,))
+        self._unc_tril = jnp.zeros((dim, dim))
+        self._diag_jitter = diag_jitter
+
+    def _cholesky(self) -> jaxtyping.Array:
+        strictly_lower = jnp.tril(self._unc_tril, k=-1)
+        diagonal = softplus(jnp.diag(self._unc_tril)) + self._diag_jitter
+        return strictly_lower + jnp.diag(diagonal)
+
+    def sample_and_log_prob(self, key, condition=None):
+        dim = self.target_struct_cls.flat_dim
+        chol = self._cholesky()
+        epsilon = jrandom.normal(key, (dim,))
+        flat_sample = self.loc + chol @ epsilon
+
+        centered = flat_sample - self.loc
+        standardized = jlinalg.solve_triangular(chol, centered, lower=True)
+        log_det = jnp.sum(jnp.log(jnp.diag(chol)))
+        log_norm = -0.5 * dim * jnp.log(2.0 * jnp.pi)
+        log_prob = log_norm - log_det - 0.5 * jnp.sum(standardized**2)
+        return self.target_struct_cls.unravel(flat_sample), log_prob
 
     
 def buffer_params(

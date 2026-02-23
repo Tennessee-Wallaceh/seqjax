@@ -73,9 +73,8 @@ class StructuredPrecisionGaussian[
         self.x_dim = target_struct_cls.flat_dim
         super().__init__(
             target_struct_cls,
-            (sample_length, self.x_dim),
-            batch_length,
-            buffer_length,
+            shape=(sample_length, self.x_dim),
+            sample_length=sample_length,
         )
         self.target_struct_cls = target_struct_cls
         self.batch_length = batch_length
