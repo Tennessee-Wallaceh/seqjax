@@ -163,8 +163,14 @@ def run_experiment(
     target_params = experiment_config.data_config.generative_parameters
     model = experiment_config.posterior_factory(target_params)
 
-    x_path, observation_path, condition = io.get_remote_data(
-        data_wandb_run, experiment_config.data_config
+    data_storage: io.DataStorage
+    if resolved_runtime_config.wandb_offline:
+        data_storage = io.LocalFilesystemDataStorage(resolved_runtime_config.local_root)
+    else:
+        data_storage = io.WandbArtifactDataStorage(data_wandb_run)
+
+    x_path, observation_path, condition = data_storage.get_data(
+        experiment_config.data_config
     )
     if condition is None:
         condition = seqjtyping.NoCondition()
