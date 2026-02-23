@@ -150,7 +150,7 @@ class SSMVariationalApproximation[
     ) -> typing.Any: ...
 
 
-class FullAutoregressiveVI[
+class FullVI[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
