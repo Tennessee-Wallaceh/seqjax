@@ -137,9 +137,36 @@ def run_buffered_vi[
             key,
         )
     start_approximation = approximation
-    optim = optimization_registry.build_optimizer(config.optimization)
+    
     opt_state: optax.GradientTransformation
-    if config.pre_training_optimization:
+
+    if config.prior_training_optimization and not isinstance(
+        config.prior_training_optimization, optimization_registry.NoOpt
+    ):
+        print("Starting prior-training...")
+        pre_train_optim = optimization_registry.build_optimizer(
+            config.prior_training_optimization
+        )
+        approximation, _ = train.train(
+            model=approximation,
+            observations=observation_path,
+            conditions=condition_path,
+            key=key,
+            optim=pre_train_optim,
+            target=target_posterior,
+            num_steps=config.prior_training_optimization.total_steps,
+            run_tracker=tracker,
+            observations_per_step=config.observations_per_step,
+            samples_per_context=config.samples_per_context,
+            loss_label="param-prior",
+            time_limit_s=config.prior_training_optimization.time_limit_s,
+            sync_interval_s=sync_interval_s,
+        )
+
+
+    if config.pre_training_optimization and not isinstance(
+        config.pre_training_optimization, optimization_registry.NoOpt
+    ):
         print("Starting pre-training...")
         pre_train_optim = optimization_registry.build_optimizer(
             config.pre_training_optimization
@@ -155,15 +182,19 @@ def run_buffered_vi[
             run_tracker=tracker,
             observations_per_step=config.observations_per_step,
             samples_per_context=config.samples_per_context,
-            pre_train=True,
+            loss_label="pretrain",
             time_limit_s=config.pre_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
 
-    if config.optimization.total_steps == 0:
+    
+    if isinstance(
+        config.optimization, optimization_registry.NoOpt
+    ) or config.optimization.total_steps == 0:
         fitted_approximation = approximation
         opt_state = None
     else:
+        optim = optimization_registry.build_optimizer(config.optimization)
         fitted_approximation, opt_state = train.train(
             model=approximation,
             observations=observation_path,

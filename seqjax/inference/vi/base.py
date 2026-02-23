@@ -545,5 +545,28 @@ class BufferedSSMVI[
         )
 
         neg_elbo = log_q_x - log_p_y_x
-
+        
         return jnp.mean(neg_elbo)
+    
+    def estimate_prior_fit_loss(
+        self,
+        observations: ObservationT,
+        conditions: ConditionT,
+        key: jaxtyping.PRNGKeyArray,
+        context_samples: int,
+        samples_per_context: int,
+        target_posterior: BayesianSequentialModel,
+        hyperparameters: HyperParametersT,
+    ) -> typing.Any:
+        # split keys for sampling
+        parameter_keys = jrandom.split(key, (context_samples, samples_per_context))
+        theta_q, log_q_theta = jax.vmap(
+            jax.vmap(self.parameter_approximation.sample_and_log_prob)
+        )(parameter_keys, None)
+        log_p_theta = jax.vmap(
+            jax.vmap(
+                lambda x: target_posterior.parameter_prior.log_prob(x, hyperparameters)
+            )
+        )(theta_q)
+        prior_elbo = log_q_theta - log_p_theta
+        return jnp.mean(prior_elbo)

@@ -162,6 +162,35 @@ def loss_pre_train_neg_elbo(
     )
 
 
+def loss_pre_train_prior(
+    trainable: TrainableModuleT,
+    static: StaticModuleT,
+    observations: ObservationT,
+    conditions: ConditionT | None,
+    key: jaxtyping.PRNGKeyArray,
+    target_posterior: TargetModelT,
+    num_context: int,
+    samples_per_context: int,
+) -> jaxtyping.Scalar:
+    approximation = typing.cast(BufferedApproximationT, eqx.combine(trainable, static))
+    return approximation.estimate_prior_fit_loss(
+        observations,
+        typing.cast(ConditionT, conditions),
+        key,
+        num_context,
+        samples_per_context,
+        target_posterior,
+        None,
+    )
+
+
+LossLables = typing.Literal["elbo", "pretrain", "param-prior"]
+losses: dict[LossLables, Callable] = {
+    "elbo": loss_buffered_neg_elbo,
+    "pretrain": loss_pre_train_neg_elbo,
+    "param-prior": loss_pre_train_prior,
+}
+
 @eqx.filter_jit
 def sample_theta_qs(
     static: StaticModuleT,
@@ -231,7 +260,7 @@ class Tracker:
         loss: jaxtyping.Scalar,
         key: jaxtyping.PRNGKeyArray,
         loop: _ProgressIterator,
-        loss_kind: bool,
+        loss_label: LossLables,
         force_record: bool = False,
     ) -> dict[typing.Any, typing.Any]:
         if force_record or self.record_trigger(opt_step, elapsed_time_s):
@@ -239,7 +268,7 @@ class Tracker:
                 "step": int(opt_step + 1),
                 "loss": float(loss),
                 "elapsed_time_s": elapsed_time_s,
-                "loss_kind": "pre-train" if loss_kind else "elbo",
+                "loss_kind": loss_label,
             }
 
             qs, means, theta = sample_theta_qs(
@@ -282,7 +311,7 @@ def train(
     filter_spec: PyTree[bool] | None = None,
     observations_per_step: int = 5,
     samples_per_context: int = 10,
-    pre_train: bool = False,
+    loss_label: LossLables = 'elbo',
     nb_context: bool = False,
     initial_opt_state: OptStateT | None = None,
     time_limit_s: int | None = None,
@@ -314,7 +343,7 @@ def train(
 
     # loss configuration
     base_loss_fn: Callable[..., jaxtyping.Scalar]
-    base_loss_fn = loss_pre_train_neg_elbo if pre_train else loss_buffered_neg_elbo
+    base_loss_fn = losses[loss_label]
     loss_fn = typing.cast(
         LossFunction,
         partial(
@@ -369,7 +398,7 @@ def train(
     )
 
     tracker_postfix = run_tracker.track_step(
-        -1, -1, static, _trainable, loss, key, loop, pre_train,
+        -1, -1, static, _trainable, loss, key, loop, loss_label,
     )
 
     elapsed_time_s = 0.0
@@ -400,7 +429,7 @@ def train(
                 loss,
                 subkey,
                 loop,
-                pre_train,
+                loss_label,
             )
 
             if time_limit_s and elapsed_time_s > time_limit_s:
@@ -438,7 +467,7 @@ def train(
         loss,
         subkey,
         loop,
-        pre_train,
+        loss_label,
         force_record=True,
     )
 

@@ -195,7 +195,7 @@ def get_interval_spline():
 
 configured_bijections: dict[str, typing.Callable[[], transformations.Bijector]] = {
     "interval_spline": get_interval_spline,
-    "sigmoid": partial(transformations.Sigmoid, lower=-1.2, upper=1.2),
+    "sigmoid": partial(transformations.Sigmoid, lower=-1. + 1e-6, upper=1. - 1e-6),
     "softplus": transformations.Softplus,
 }
 
@@ -353,7 +353,7 @@ class BufferedVIConfig:
     latent_approximation: LatentApproximation = field(
         default_factory=AutoregressiveLatentApproximation
     )
-
+    prior_training_optimization: None | optimization_registry.OptConfig = None
 
 def build_approximation(
     config: FullVIConfig | BufferedVIConfig,

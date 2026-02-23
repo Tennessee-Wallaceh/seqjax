@@ -78,9 +78,11 @@ class LogVarParams(Parameters):
 
     std_log_var: Scalar
     ar: Scalar
+    long_term_log_var: Scalar
     _shape_template = OrderedDict(
         std_log_var=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
         ar=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        long_term_log_var=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
     )
 
 
@@ -106,6 +108,7 @@ def lvar_from_std_only(lv_only: LogVarStd, ref_params: LogVarParams) -> LogVarPa
     return LogVarParams(
         std_log_var=lv_only.std_log_var,
         ar=jnp.ones_like(lv_only.std_log_var) * ref_params.ar,
+        long_term_log_var=jnp.ones_like(lv_only.std_log_var) * ref_params.long_term_log_var,
     )
 
 
@@ -113,6 +116,7 @@ def lvar_from_ar_only(ar_only: LogVarAR, ref_params: LogVarParams) -> LogVarPara
     return LogVarParams(
         std_log_var=jnp.ones_like(ar_only.ar) * ref_params.ar,
         ar=ar_only.ar,
+        long_term_log_var=jnp.ones_like(ar_only.ar) * ref_params.long_term_log_var,
     )
 
 
@@ -198,18 +202,22 @@ class StochVarFullPrior(ParameterPrior[LogVarParams, HyperParameters]):
     def sample(key: PRNGKeyArray, hyperparameters: HyperParameters) -> LogVarParams:
         _ = hyperparameters  # unused
         # from aicher https://arxiv.org/pdf/1901.10568
+        k1, k2, k3 = jrandom.split(key, 3)
+        long_term_log_var_mean = 2 * jnp.log(jnp.array(0.16)) 
         return LogVarParams(
-            std_log_var=10 / jrandom.gamma(key, 10),
-            ar=jrandom.uniform(key, minval=-1, maxval=1),
+            std_log_var=10 / jrandom.gamma(k1, 10),
+            ar=jrandom.uniform(k2, minval=-1, maxval=1),
+            long_term_log_var=long_term_log_var_mean + jrandom.normal(k3),
         )
 
     @staticmethod
     def log_prob(parameters: LogVarParams, hyperparameters: HyperParameters) -> Scalar:
         _ = hyperparameters  # unused
+        long_term_log_var_mean = 2 * jnp.log(jnp.array(0.16)) 
         return (
-            jstats.gamma.logpdf(1 / parameters.std_log_var, 10, scale=1 / 10)
-            - 2 * jnp.log(parameters.std_log_var)
+            jstats.gamma.logpdf(1 / parameters.std_log_var, 10, scale=1 / 10) - 2 * jnp.log(parameters.std_log_var)
             + jstats.uniform.logpdf(parameters.ar, loc=-1.0, scale=2.0)
+            + jstats.norm.logpdf(parameters.long_term_log_var, loc=long_term_log_var_mean)
         )
 
 
@@ -381,7 +389,7 @@ def gaussian_var_start_sample(
 ) -> tuple[LatentVar]:
     # mu = 2 * jnp.log(0.16)
     # sigma = jnp.array(0.5)
-    mu = jnp.array(0.0)
+    mu = parameters.long_term_log_var
     sigma = jnp.sqrt(
         jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar))
     )
@@ -395,11 +403,10 @@ def gaussian_var_start_log_prob(
     parameters: LogVarParams,
 ) -> Scalar:
     (start_lv,) = latent
-    mu = jnp.array(0.0)
+    mu = parameters.long_term_log_var
     sigma = jnp.sqrt(
         jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar))
     )
-
     base_log_p = jstats.norm.logpdf(
         start_lv.log_var,
         loc=mu,
@@ -542,7 +549,9 @@ def random_walk_ar_sample(
     parameters: LogVarParams,
 ) -> LatentVar:
     (last_log_var,) = latent_history
-    loc = parameters.ar * last_log_var.log_var
+    loc = parameters.long_term_log_var + parameters.ar * (
+        last_log_var.log_var - parameters.long_term_log_var
+    )
     scale = parameters.std_log_var
     return LatentVar(log_var=loc + scale * jrandom.normal(key))
 
@@ -554,7 +563,9 @@ def random_walk_ar_log_prob(
     parameters: LogVarParams,
 ) -> Scalar:
     (last_log_var,) = latent_history
-    loc = parameters.ar * last_log_var.log_var
+    loc = parameters.long_term_log_var + parameters.ar * (
+        last_log_var.log_var - parameters.long_term_log_var
+    )
     scale = parameters.std_log_var
     return jstats.norm.logpdf(latent.log_var, loc=loc, scale=scale)
 

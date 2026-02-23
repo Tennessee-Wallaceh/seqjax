@@ -106,6 +106,7 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
         "base": stochastic_vol.LogVarParams(
             std_log_var=jnp.array(0.5),
             ar=jnp.array(0.9),
+            long_term_log_var=2 * jnp.log(jnp.array(0.16)),
         ),
     },
     "skew_stochastic_vol": {
