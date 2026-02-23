@@ -6,13 +6,15 @@ import typer
 
 from seqjax.cli import codes
 from seqjax.cli import slurm_jobs
-from seqjax.experiment import ExperimentConfig, run_experiment
+from seqjax.experiment import ExperimentConfig, RuntimeConfig, run_experiment
 from seqjax.inference import registry as inference_registry
 from seqjax.model import registry as model_registry
 from .results import ResultProcessor
 
 
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
+
+StorageMode = typing.Literal["wandb", "wandb-offline"]
 
 def _resolve_model_label(label: str) -> model_registry.SequentialModelLabel:
     if label not in model_registry.posterior_factories:
@@ -205,6 +207,16 @@ def run(
         "--dry-run",
         help="Print the resolved configuration and exit without running inference.",
     ),
+    storage_mode: StorageMode = typer.Option(
+        "wandb",
+        "--storage-mode",
+        help="Storage backend mode: wandb uploads remotely, wandb-offline stores locally.",
+    ),
+    local_root: str = typer.Option(
+        "./wandb",
+        "--local-root",
+        help="Local directory used by W&B offline mode.",
+    ),
 ) -> None:
     """Run an experiment using the configured inference method."""
 
@@ -231,6 +243,10 @@ def run(
         payload = {
             "experiment_name": experiment_name,
             "config": _structure_to_dict(experiment_config),
+            "runtime": {
+                "storage_mode": storage_mode,
+                "local_root": local_root,
+            },
         }
         typer.echo(json.dumps(payload, indent=2))
         raise typer.Exit(code=0)
@@ -239,7 +255,12 @@ def run(
         f"Running experiment '{experiment_name}' with model '{canonical_model}' "
         f"and inference '{inference_method}'."
     )
-    run_experiment(experiment_name, experiment_config, ResultProcessor())
+    run_experiment(
+        experiment_name,
+        experiment_config,
+        ResultProcessor(),
+        runtime_config=RuntimeConfig(storage_mode=storage_mode, local_root=local_root),
+    )
 
 
 def main() -> None:
