@@ -112,7 +112,6 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
             std_log_var=jnp.array(0.5),
             ar=jnp.array(0.9),
             long_term_log_var=2 * jnp.log(jnp.array(0.16)),
-            skew=jnp.array(0.0),
         ),
     },
     "skew_stochastic_vol": {
