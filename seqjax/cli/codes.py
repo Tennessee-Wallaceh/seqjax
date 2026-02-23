@@ -175,16 +175,35 @@ shared_optimizer: dict[str, FlatCode] = {
     "MAXT": ("time_limit_s", parse_time_optional, "5m"),
 }
 
+cosine_optimizer: dict[str, FlatCode] = {
+    "WARM": ("warmup_steps", parse_int_required, "100"),
+    "DEC": ("decay_steps", parse_int_required, "5k"),
+    "PEAK": ("peak_lr", parse_float, "1e-2"),
+    "END": ("end_lr", parse_float, "1e-5"),
+    "MAXS": ("total_steps", parse_int_required, "10k"),
+    "MAXT": ("time_limit_s", parse_time_optional, "5m"),
+}
+
 optimization_config: NestedCode = {
     "field": "optimization",
     "registry": optimization_registry.registry,
     "options": {
-        "ADAM": ("adam-plain", shared_optimizer)
+        "ADAM": ("adam-plain", shared_optimizer),
+        "COS": ("cosine-sched", cosine_optimizer),
     }
 }
 
 pre_train_config: NestedCode = {
     "field": "pre_training_optimization",
+    "registry": optimization_registry.registry,
+    "options": {
+        "NO": ("none", {}),
+        "ADAM": ("adam-plain", shared_optimizer)
+    }
+}
+
+prior_train_config: NestedCode = {
+    "field": "prior_training_optimization",
     "registry": optimization_registry.registry,
     "options": {
         "NO": ("none", {}),
@@ -208,6 +227,7 @@ embedder_config: NestedCode = {
         }),
         "LC": ("long-window", {}),
         "SC": ("short-window", {}),
+        "PS": ("passthrough", {}),
         "TX": ("transformer", {
             "H": ("hidden_dim", parse_int_required, "32"),
             "D": ("depth", parse_int_required, "2"),
@@ -226,27 +246,39 @@ codes["full-vi"] = {
         "field": "parameter_approximation",
         "registry": vi.registry.parameter_approximation_registry,
         "options": {
-            "MF": ("mean-field", {})
-        }
-    },
-    "LAX": {
-        "field": "latent_approximation",
-        "registry": vi.registry.latent_approximation_registry,
-        "options": {
-            "SEQ": ("autoregressive", {}),
-            "MAF": ("masked-autoregressive-flow", {
-                "W": ("nn_width", parse_int_required, "20"),
+            "MF": ("mean-field", {}),
+            "MAF": ("maf", {
+                "W": ("nn_width", parse_int_required, "32"),
                 "D": ("nn_depth", parse_int_required, "2"),
-                "FL": ("flow_layers", parse_int_required, "1"),
-                "BL": ("base_loc", parse_float, "0"),
-                "BS": ("base_scale", parse_float, "1"),
-            })
+            }),
+            "MVN": ("multivariate-normal", {
+                "J": ("diag_jitter", parse_float, "1e-6"),
+            }),
         }
     },
 }
 
 codes["buffer-vi"] = codes["full-vi"].copy()
+codes["buffer-vi"]["LAX"] = {
+    "field": "latent_approximation",
+    "registry": vi.registry.latent_approximation_registry,
+    "options": {
+        "SEQ": ("autoregressive", {}),
+        "MAF": ("masked-autoregressive-flow", {
+            "W": ("nn_width", parse_int_required, "20"),
+            "D": ("nn_depth", parse_int_required, "2"),
+            "FL": ("flow_layers", parse_int_required, "1"),
+            "BL": ("base_loc", parse_float, "0"),
+            "BS": ("base_scale", parse_float, "1"),
+        }),
+        "STR": ("structured", {
+            "W": ("nn_width", parse_int_required, "32"),
+            "D": ("nn_depth", parse_int_required, "2"),
+        }),
+    }
+}
 codes["buffer-vi"]["PT"] = pre_train_config
+codes["buffer-vi"]["PR"] = prior_train_config
 codes["buffer-vi"]["B"] = ("buffer_length", parse_int_required, "10")
 codes["buffer-vi"]["M"] = ("batch_length", parse_int_required, "5")
 
