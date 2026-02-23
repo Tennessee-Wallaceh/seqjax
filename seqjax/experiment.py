@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Protocol, cast
+import os
+from typing import Any, Literal, Protocol, cast
 
 import jax.random as jrandom
 import wandb
@@ -53,6 +54,32 @@ class ExperimentConfig:
     @property
     def posterior_factory(self) -> model_registry.PosteriorFactory:
         return self.data_config.posterior_factory
+
+
+StorageMode = Literal["wandb", "wandb-offline"]
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    """Runtime-only settings for experiment execution and tracking."""
+
+    storage_mode: StorageMode = "wandb"
+    local_root: str = "./wandb"
+
+    @property
+    def wandb_offline(self) -> bool:
+        return self.storage_mode == "wandb-offline"
+
+
+def configure_wandb_runtime(runtime_config: RuntimeConfig) -> None:
+    """Set environment variables expected by W&B for local/offline execution."""
+
+    if runtime_config.wandb_offline:
+        os.environ["WANDB_MODE"] = "offline"
+        os.environ["WANDB_DIR"] = runtime_config.local_root
+    else:
+        os.environ.pop("WANDB_MODE", None)
+        os.environ.pop("WANDB_DIR", None)
 
 
 
@@ -122,8 +149,12 @@ def run_experiment(
     experiment_name: str,
     experiment_config: ExperimentConfig,
     result_processor: ResultProcessor | None = None,
+    runtime_config: RuntimeConfig | None = None,
 ):
     """Execute an experiment using the shared harness."""
+
+    resolved_runtime_config = runtime_config or RuntimeConfig()
+    configure_wandb_runtime(resolved_runtime_config)
 
     config_dict = asdict(experiment_config)
 

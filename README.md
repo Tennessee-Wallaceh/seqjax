@@ -46,3 +46,30 @@ SeqJAX will check at runtime that `AR1Target` and its components implement the r
 - A `registry` converts static config (a dataclass) to objects
 - A `run` submodule defines an interface between static config and models, building appropriate objects and using them to produce posterior samples
 - The `cli` submodule is a command line interface for targeting data with inference configured by command line options. It relies on a remmote backend for storing+loading run outputs. The idea is to convert flat strings into config understood by a `registry`.
+
+## Local/offline experiment storage
+
+The CLI `run` command now supports:
+
+- `--storage-mode wandb` (default): standard online W&B runs/artifacts.
+- `--storage-mode wandb-offline`: store run metadata and artifacts on local disk without uploading.
+- `--local-root <path>`: base directory used for local W&B files when offline mode is enabled.
+
+Typical local layout in offline mode looks like:
+
+```
+<local-root>/
+  wandb/
+    offline-run-*/
+      files/
+      logs/
+      run-*.wandb
+```
+
+To sync an offline run later, point `wandb` at the created offline run directory:
+
+```bash
+wandb sync <local-root>/wandb/offline-run-*
+```
+
+Use the normal W&B login flow before syncing if you want those runs uploaded to a remote project.
