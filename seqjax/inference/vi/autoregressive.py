@@ -9,7 +9,7 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
-from .api import LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
+from .api import Embedder, LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
 
 
 
@@ -125,8 +125,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     """Base class for autoregressive variational samplers."""
 
     target_struct_cls: Type[seqjax.model.typing.Packable]
-    buffer_length: int
-    batch_length: int
+    embedder: Embedder
     context_dim: int
     condition_dim: int
     parameter_dim: int
@@ -135,23 +134,20 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     def __init__(
         self,
         target_struct_cls,
-        batch_length: int,
-        buffer_length: int,
-        context_dim: int,
-        parameter_dim: int,
-        condition_dim: int,
+        *,
+        sample_length: int,
+        embedder: Embedder,
         lag_order: int,
     ) -> None:
-        sample_length = 2 * buffer_length + batch_length
         super().__init__(
             target_struct_cls,
             (sample_length, target_struct_cls.flat_dim),
-            batch_length,
-            buffer_length,
+            sample_length,
         )
-        self.context_dim = context_dim
-        self.parameter_dim = parameter_dim
-        self.condition_dim = condition_dim
+        self.embedder = embedder
+        self.context_dim = embedder.sequence_embedded_context_dim
+        self.parameter_dim = embedder.parameter_context_dim
+        self.condition_dim = embedder.condition_context_dim
         self.lag_order = lag_order
 
     def conditional(
@@ -232,11 +228,8 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
         self,
         target_struct_cls,
         *,
-        buffer_length: int,
-        batch_length: int,
-        context_dim: int,
-        parameter_dim: int,
-        condition_dim: int,
+        sample_length: int,
+        embedder: Embedder,
         lag_order: int,
         nn_width: int,
         nn_depth: int,
@@ -244,14 +237,11 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
     ) -> None:
         super().__init__(
             target_struct_cls,
-            buffer_length=buffer_length,
-            batch_length=batch_length,
-            context_dim=context_dim,
-            parameter_dim=parameter_dim,
-            condition_dim=condition_dim,
+            sample_length=sample_length,
+            embedder=embedder,
             lag_order=lag_order,
         )
-        input_dim = lag_order * 2 + context_dim + parameter_dim + condition_dim
+        input_dim = lag_order * 2 + self.context_dim + self.parameter_dim + self.condition_dim
         self.amortizer_mlp = ResNetMLP(
             in_size=input_dim,
             width=nn_width,
@@ -303,11 +293,8 @@ class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
         self,
         model: BayesianSequentialModel,
         *,
-        buffer_length: int,
-        batch_length: int,
-        context_dim: int,
-        parameter_dim: int,
-        condition_dim: int,
+        sample_length: int,
+        embedder: Embedder,
         lag_order: int,
         nn_width: int,
         nn_depth: int,
@@ -315,14 +302,11 @@ class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
     ) -> None:
         super().__init__(
             model.target.latent_cls,
-            buffer_length=buffer_length,
-            batch_length=batch_length,
-            context_dim=context_dim,
-            parameter_dim=parameter_dim,
-            condition_dim=condition_dim,
+            sample_length=sample_length,
+            embedder=embedder,
             lag_order=lag_order,
         )
-        input_dim = lag_order * 2 + context_dim + parameter_dim + condition_dim
+        input_dim = lag_order * 2 + self.context_dim + self.parameter_dim + self.condition_dim
         self.amortizer_mlp = ResNetMLP(
             in_size=input_dim,
             width=nn_width,
