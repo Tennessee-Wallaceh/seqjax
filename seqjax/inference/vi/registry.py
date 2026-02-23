@@ -397,11 +397,8 @@ def build_approximation(
     if isinstance(config, FullVIConfig):
         latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
             target_latent_class,
-            buffer_length=0,
-            batch_length=sequence_length,
-            context_dim=embed.context_dimension + 1,
-            parameter_dim=target_param_class.flat_dim,
-            condition_dim=target_posterior.target.condition_cls.flat_dim,
+            sample_length=sequence_length,
+            embedder=embed,
             lag_order=1,
             nn_width=20,
             nn_depth=2,
@@ -420,11 +417,8 @@ def build_approximation(
         if isinstance(latent_config, AutoregressiveLatentApproximation):
             latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
                 target_latent_class,
-                buffer_length=config.buffer_length,
-                batch_length=config.batch_length,
-                context_dim=embed.context_dimension,
-                parameter_dim=target_param_class.flat_dim,
-                condition_dim=target_posterior.target.condition_cls.flat_dim,
+                sample_length=config.buffer_length * 2 + config.batch_length,
+                embedder=embed,
                 lag_order=latent_config.lag_order,
                 nn_width=latent_config.nn_width,
                 nn_depth=latent_config.nn_depth,
@@ -447,11 +441,8 @@ def build_approximation(
         elif isinstance(latent_config, StructuredPrecisionLatentApproximation):
             latent_approximation = structured.StructuredPrecisionGaussian(
                 target_latent_class,
-                buffer_length=config.buffer_length,
-                batch_length=config.batch_length,
-                context_dim=embed.context_dimension,
-                parameter_dim=target_param_class.flat_dim,
-                condition_dim=target_posterior.target.condition_cls.flat_dim,
+                sample_length=config.buffer_length * 2 + config.batch_length,
+                embedder=embed,
                 hidden_dim=latent_config.nn_width,
                 depth=latent_config.nn_depth,
                 key=approximation_key,
