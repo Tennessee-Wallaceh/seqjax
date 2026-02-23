@@ -167,7 +167,7 @@ class MeanFieldParameterApproximation:
 
 
 @dataclass
-class MaskedAutoregressiveParameterApproximation:
+class MAFParameterApproximation:
     label: str = field(init=False, default="maf")
     nn_width: int = 32
     nn_depth: int = 2
@@ -184,7 +184,7 @@ ParameterApproximationLabels = typing.Literal[
 ]
 ParameterApproximation = (
     MeanFieldParameterApproximation
-    | MaskedAutoregressiveParameterApproximation
+    | MAFParameterApproximation
     | MultivariateNormalParameterApproximation
 )
 
@@ -192,7 +192,7 @@ parameter_approximation_registry: dict[
     ParameterApproximationLabels, type[ParameterApproximation]
 ] = {
     "mean-field": MeanFieldParameterApproximation,
-    "maf": MaskedAutoregressiveParameterApproximation,
+    "maf": MAFParameterApproximation,
     "multivariate-normal": MultivariateNormalParameterApproximation,
 }
 
@@ -262,12 +262,12 @@ def _build_parameter_approximation[
             base.MultivariateNormal,
             diag_jitter=approximation.diag_jitter,
         )
-    elif isinstance(approximation, MaskedAutoregressiveParameterApproximation):
-        base_factory = base.MaskedAutoregressiveFlowFactory[ParametersT](
-            key=key,
+    elif isinstance(approximation, MAFParameterApproximation):
+        base_factory =partial(
+            maf.MaskedAutoregressiveFlow,
             nn_width=approximation.nn_width,
             nn_depth=approximation.nn_depth,
-        )
+        ) 
     else:
         raise ValueError(f"Unsupported parameter approximation: {approximation}")
 
