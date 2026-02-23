@@ -163,7 +163,7 @@ class Conv1DEmbedder(Embedder):
     in_proj: eqx.nn.Conv1d
     convs: tuple[eqx.nn.Conv1d, ...]
     hidden: int
-    pooling: eqx.nn.AdaptiveAvgPool1d
+    pooling: eqx.nn.AdaptiveAvgPool1d | eqx.nn.AdaptiveMaxPool1d
 
     def __init__(
         self,
@@ -175,8 +175,9 @@ class Conv1DEmbedder(Embedder):
         kernel_size: int = 5,
         depth: int = 2,
         pool_dim: None | int = None,
+        pool_kind: str = 'avg',
         key,
-    ):
+    ):      
         k_in, *k_layers = jax.random.split(key, depth + 1)
 
         self.in_proj = eqx.nn.Conv1d(
@@ -203,8 +204,14 @@ class Conv1DEmbedder(Embedder):
 
         if pool_dim is None:
             pool_dim = max(1, int(0.1 * sample_length))
-        self.pooling = eqx.nn.AdaptiveAvgPool1d(pool_dim)
 
+        if pool_kind == 'avg':
+            self.pooling = eqx.nn.AdaptiveAvgPool1d(pool_dim)
+        elif pool_kind == 'max':
+            self.pooling = eqx.nn.AdaptiveMaxPool1d(pool_dim)
+        else:
+            raise Exception(f"pool_kind: {pool_kind} not supported!")
+        
         self.sequence_embedded_context_dim = (
             target_posterior.target.observation_cls.flat_dim
             * self.hidden

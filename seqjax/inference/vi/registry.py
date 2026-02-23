@@ -50,6 +50,7 @@ class Conv1DEmbedderConfig:
     kernel_size: int = 3
     depth: int = 2
     pool_dim: None | int = None
+    pool_kind: str = "avg"
 
 @dataclass
 class BiRNNEmbedder:
