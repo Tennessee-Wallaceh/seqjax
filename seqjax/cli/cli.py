@@ -132,7 +132,7 @@ def build_inference_config(
 def list_models() -> None:
     """Display registered models and their parameter presets."""
 
-    for label, model in sorted(model_registry.sequential_models.items()):
+    for label, model in sorted(model_registry.posterior_factories.items()):
         presets = ", ".join(sorted(model_registry.parameter_settings[label].keys()))
         typer.echo(f"{label}: {model.__class__.__name__} (presets: {presets})")
 

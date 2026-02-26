@@ -49,6 +49,7 @@ sequential_models: dict[SequentialModelLabel, AllSequentialModels] = {
     "simple_stochastic_vol": stochastic_vol.SimpleStochasticVol(),
     "aicher_stochastic_vol": stochastic_vol.SimpleStochasticVar(),
     "skew_stochastic_vol": stochastic_vol.SkewStochasticVol(),
+    "full_svol": stochastic_vol.SimpleStochasticVar(),
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model
@@ -71,7 +72,7 @@ posterior_factories: dict[SequentialModelLabel, PosteriorFactory] = {
     ),
     "full_svol": typing.cast(
         PosteriorFactory,
-        stochastic_vol.StochasticVarBayesian,
+        lambda _ref_params: stochastic_vol.StochasticVarBayesian()
     ),
 }
 
@@ -120,6 +121,13 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
             mean_reversion=jnp.array(12.0),
             long_term_vol=jnp.array(0.16),
             skew=jnp.array(0.0),
+        ),
+    },
+    "full_svol": {
+        "base": stochastic_vol.LogVarParams(
+            std_log_var=jnp.array(0.5),
+            ar=jnp.array(0.9),
+            long_term_log_var=2 * jnp.log(jnp.array(0.16)),
         ),
     },
 }
