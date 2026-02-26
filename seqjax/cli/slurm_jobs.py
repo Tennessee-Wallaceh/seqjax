@@ -11,6 +11,7 @@ from typing import Any, TypedDict, cast
 class SharedPlan(TypedDict, total=False):
     model: str
     sequence_length: int
+    num_sequences: int
     inference: str
     test_samples: int
     wall_time: str
@@ -53,6 +54,7 @@ def _render_script(
     install_cmd: str,
     model: str,
     sequence_length: int,
+    num_sequences: int,
     base_data_seed: int,
     inference: str,
     fixed_codes: list[str],
@@ -96,6 +98,7 @@ def _render_script(
             "CMD=(python -m seqjax.cli run",
             f"  --model {model}",
             f"  --sequence-length {sequence_length}",
+            f"  --num-sequences {num_sequences}",
             '  --data-seed "$DATA_SEED"',
             '  --fit-seed "$FIT_SEED"',
             f"  --inference {inference}",
@@ -210,6 +213,7 @@ def generate_slurm_jobs(
                 install_cmd=str(shared.get("install_cmd", "uv pip install -e .[dev]")),
                 model=str(shared["model"]),
                 sequence_length=int(shared["sequence_length"]),
+                num_sequences=int(shared.get("num_sequences", 1)),
                 base_data_seed=base_data_seed,
                 inference=str(shared["inference"]),
                 fixed_codes=fixed_codes,

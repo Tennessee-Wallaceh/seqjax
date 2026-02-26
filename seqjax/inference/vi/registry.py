@@ -15,6 +15,7 @@ from seqjax.inference.vi import aggregation
 from seqjax.inference.vi import maf
 from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import structured
+from seqjax.inference.vi.sampling import VISampleConfig, VISamplingKwargs
 from seqjax.model.base import BayesianSequentialModel
 from seqjax.model.registry import default_parameter_transforms
 
@@ -329,12 +330,12 @@ Approximations
 
 
 @dataclass
-class FullVIConfig:
+class FullVIConfig(VISampleConfig):
     optimization: optimization_registry.OptConfig
     parameter_field_bijections: dict[str, str | transformations.Bijector]
     embedder: EmbedderConfig
-    observations_per_step: int
     samples_per_context: int
+    num_sequence_minibatch: int = 1
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
     )
@@ -344,15 +345,30 @@ class FullVIConfig:
     pre_training_optimization: None | optimization_registry.OptConfig = None
     prior_training_optimization: None | optimization_registry.OptConfig = None
 
+    def training_sampling_kwargs(self, *, loss_label: str) -> VISamplingKwargs:
+        return {
+            "context_samples": 1,
+            "samples_per_context": self.samples_per_context,
+            "num_sequence_minibatch": self.num_sequence_minibatch,
+        }
+
+    def evaluation_sampling_kwargs(self, *, test_samples: int) -> VISamplingKwargs:
+        return {
+            "context_samples": 1,
+            "samples_per_context": max(1, int(test_samples)),
+            "num_sequence_minibatch": self.num_sequence_minibatch,
+        }
+
 
 @dataclass
-class BufferedVIConfig:
+class BufferedVIConfig(VISampleConfig):
     optimization: optimization_registry.OptConfig
     buffer_length: int
     batch_length: int
-    observations_per_step: int
+    num_context_per_sequence: int
     samples_per_context: int
     embedder: EmbedderConfig
+    num_sequence_minibatch: int = 1
     control_variate: bool = False
     pre_training_optimization: None | optimization_registry.OptConfig = None
     parameter_approximation: ParameterApproximation = field(
@@ -362,6 +378,22 @@ class BufferedVIConfig:
         default_factory=AutoregressiveLatentApproximation
     )
     prior_training_optimization: None | optimization_registry.OptConfig = None
+
+    def training_sampling_kwargs(self, *, loss_label: str) -> VISamplingKwargs:
+        return {
+            "context_samples": self.num_context_per_sequence,
+            "samples_per_context": self.samples_per_context,
+            "num_sequence_minibatch": self.num_sequence_minibatch,
+        }
+
+    def evaluation_sampling_kwargs(self, *, test_samples: int) -> VISamplingKwargs:
+        context_samples = max(1, min(self.num_context_per_sequence, int(test_samples)))
+        samples_per_context = max(1, int(test_samples) // context_samples)
+        return {
+            "context_samples": context_samples,
+            "samples_per_context": samples_per_context,
+            "num_sequence_minibatch": self.num_sequence_minibatch,
+        }
 
 def build_approximation(
     config: FullVIConfig | BufferedVIConfig,

@@ -8,6 +8,7 @@ import jax.random as jrandom
 import wandb
 
 from seqjax import io
+from seqjax.inference import interface as inference_interface
 from seqjax.inference import registry as inference_registry
 from seqjax.model import registry as model_registry
 from seqjax.inference import vi
@@ -36,9 +37,9 @@ class ResultProcessor(Protocol):
         config: "ExperimentConfig",
         param_samples: Any,
         extra_data: Any,
-        x_path: Any,
-        observation_path: Any,
-        condition: Any,
+        x_paths: Any,
+        observation_paths: Any,
+        conditions: Any,
     ) -> None: ...
 
 
@@ -88,9 +89,9 @@ def process_results(
     experiment_config: ExperimentConfig,
     param_samples: Any,
     extra_data: Any,
-    x_path: Any,
-    observation_path: Any,
-    condition: Any,
+    x_paths: Any,
+    observation_paths: Any,
+    conditions: Any,
     result_processor: ResultProcessor | None,
 ) -> None:
     """Delegate experiment results to a result processor if provided."""
@@ -103,9 +104,9 @@ def process_results(
         experiment_config,
         param_samples,
         extra_data,
-        x_path,
-        observation_path,
-        condition,
+        x_paths,
+        observation_paths,
+        conditions,
     )
 
 
@@ -166,17 +167,22 @@ def run_experiment(
     target_params = experiment_config.data_config.generative_parameters
     model = experiment_config.posterior_factory(target_params)
 
+    
     data_storage: io.DataStorage
     if resolved_runtime_config.wandb_offline:
         data_storage = io.LocalFilesystemDataStorage(resolved_runtime_config.local_root)
     else:
         data_storage = io.WandbArtifactDataStorage(data_wandb_run)
 
-    x_path, observation_path, condition = data_storage.get_data(
-        experiment_config.data_config
+    x_paths, observations, conditions = data_storage.get_remote_data(
+        data_wandb_run, experiment_config.data_config
     )
-    if condition is None:
-        condition = seqjtyping.NoCondition()
+    condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
+
+    dataset = inference_interface.ObservationDataset(
+        observations=observations,
+        conditions=condition_paths,
+    )
 
     data_wandb_run.finish()
 
@@ -196,8 +202,7 @@ def run_experiment(
         model,
         hyperparameters=None,
         key=jrandom.key(experiment_config.fit_seed),
-        observation_path=observation_path,
-        condition_path=condition,
+        dataset=dataset,
         test_samples=experiment_config.test_samples,
         config=experiment_config.inference.config,
         tracker=build_tracker(experiment_config, wandb_run),
@@ -224,11 +229,11 @@ def run_experiment(
         experiment_config,
         param_samples,
         extra_data,
-        x_path,
-        observation_path,
-        condition,
+        x_paths,
+        observations,
+        conditions,
         result_processor,
     )
     process_wandb_run.finish()
 
-    return (param_samples, extra_data, x_path, observation_path)
+    return (param_samples, extra_data, x_paths, observations)

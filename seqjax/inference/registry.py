@@ -1,7 +1,14 @@
 import typing
 from dataclasses import dataclass
 
-from seqjax.inference import InferenceMethod, mcmc, pmcmc, vi, sgld
+from seqjax.inference import (
+    InferenceMethod,
+    adapt_single_sequence_inference,
+    mcmc,
+    pmcmc,
+    sgld,
+    vi,
+)
 
 InferenceName = typing.Literal[
     "NUTS",
@@ -59,7 +66,7 @@ def register_inference[MethodConfig](
 register_inference(
     "NUTS",
     config_cls=mcmc.NUTSConfig,
-    run=mcmc.run_bayesian_nuts,
+    run=adapt_single_sequence_inference(mcmc.run_bayesian_nuts),
     name_fn=lambda _, config: (
         f"NUTS-c{config.num_chains}-w{config.num_warmup}"
     )
@@ -71,7 +78,7 @@ register_inference(
     run=vi.run.run_buffered_vi,
     name_fn=lambda label, config: (
         f"{label}-B{config.buffer_length}-M{config.batch_length}"
-        f"-MC{config.samples_per_context}-BS{config.observations_per_step}"
+        f"-MC{config.samples_per_context}-BS{config.num_context_per_sequence}"
         # + "".join(
         #     f"-{param}_{bijector_label}"
         #     for param, bijector_label in config.parameter_field_bijections.items()
@@ -100,7 +107,7 @@ register_inference(
 register_inference(
     "particle-mcmc",
     config_cls=pmcmc.ParticleMCMCConfig,
-    run=pmcmc.run_particle_mcmc,
+    run=adapt_single_sequence_inference(pmcmc.run_particle_mcmc),
     # name_fn=lambda config: (
     #     "particle-mcmc"
     #     + (
@@ -119,14 +126,14 @@ register_inference(
 register_inference(
     "full-sgld",
     config_cls=sgld.SGLDConfig,
-    run=sgld.run_full_sgld_mcmc,
+    run=adapt_single_sequence_inference(sgld.run_full_sgld_mcmc),
     # name_fn=lambda config: f"full-sgld-p{config.particle_filter_config.num_particles}",
 )
 
 register_inference(
     "buffer-sgld",
     config_cls=sgld.BufferedSGLDConfig,
-    run=sgld.run_buffer_sgld_mcmc,
+    run=adapt_single_sequence_inference(sgld.run_buffer_sgld_mcmc),
     # name_fn=lambda config: (
     #     f"buffer-sgld-p{config.particle_filter_config.num_particles}"
     #     f"-b{config.buffer_length}-m{config.batch_length}-ss{config.step_size:.3g}"

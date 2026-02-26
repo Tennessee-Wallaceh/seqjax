@@ -13,7 +13,7 @@ import optax  # type: ignore[import-untyped]
 from seqjax.inference.vi import train
 from seqjax.model.base import BayesianSequentialModel
 import seqjax.model.typing as seqjtyping
-from seqjax.inference.interface import inference_method
+from seqjax.inference.interface import InferenceDataset, inference_method
 from seqjax.inference.vi import registry
 from seqjax.inference.optimization import registry as optimization_registry
 
@@ -40,8 +40,7 @@ def run_full_path_vi[
     ],
     hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationT,
-    condition_path: ConditionT,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,
     config: registry.FullVIConfig,
     tracker: typing.Any = None,
@@ -50,6 +49,7 @@ def run_full_path_vi[
     if tracker is None:
         tracker = train.Tracker(metric_samples=1000)
 
+    observation_path, _ = dataset.sequence(0)
     sequence_length = observation_path.batch_shape[0]
 
     approximation = registry.build_approximation(
@@ -70,15 +70,13 @@ def run_full_path_vi[
         )
         approximation, _ = train.train(
             model=approximation,
-            observations=observation_path,
-            conditions=condition_path,
+            dataset=dataset,
             key=key,
             optim=prior_train_optim,
             target=target_posterior,
             num_steps=config.prior_training_optimization.total_steps,
             run_tracker=tracker,
-            observations_per_step=config.observations_per_step,
-            samples_per_context=config.samples_per_context,
+            sample_kwargs=config.training_sampling_kwargs(loss_label="param-prior"),
             loss_label="param-prior",
             time_limit_s=config.prior_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
@@ -93,15 +91,13 @@ def run_full_path_vi[
         )
         approximation, _ = train.train(
             model=approximation,
-            observations=observation_path,
-            conditions=condition_path,
+            dataset=dataset,
             key=key,
             optim=pre_train_optim,
             target=target_posterior,
             num_steps=config.pre_training_optimization.total_steps,
             run_tracker=tracker,
-            observations_per_step=config.observations_per_step,
-            samples_per_context=config.samples_per_context,
+            sample_kwargs=config.training_sampling_kwargs(loss_label="pretrain"),
             loss_label="pretrain",
             time_limit_s=config.pre_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
@@ -116,25 +112,24 @@ def run_full_path_vi[
 
         fitted_approximation, opt_state = train.train(
             model=approximation,
-            observations=observation_path,
-            conditions=condition_path,
+            dataset=dataset,
             key=key,
             optim=optim,
             target=target_posterior,
             num_steps=config.optimization.total_steps,
             run_tracker=tracker,
-            observations_per_step=config.observations_per_step,
-            samples_per_context=config.samples_per_context,
+            sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
             time_limit_s=config.optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
 
     # run sample again for testing purposes
-    n_context = 100
-    s_per_context = int(test_samples / n_context)
+    eval_sampling_kwargs = config.evaluation_sampling_kwargs(test_samples=test_samples)
     theta_q, log_q_theta, x_q, log_q_x_path, _ = (
         fitted_approximation.joint_sample_and_log_prob(
-            observation_path, condition_path, key, n_context, s_per_context
+            dataset,
+            key,
+            eval_sampling_kwargs,
         )
     )
 
@@ -164,8 +159,7 @@ def run_buffered_vi[
     ],
     hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationT,
-    condition_path: ConditionT | None,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,
     config: registry.BufferedVIConfig,
     tracker: typing.Any = None,
@@ -178,6 +172,7 @@ def run_buffered_vi[
     start_approximation = None
     sync_interval_s = None
 
+    observation_path, _ = dataset.sequence(0)
     sequence_length = observation_path.batch_shape[0]
 
     if start_approximation is not None:
@@ -202,15 +197,13 @@ def run_buffered_vi[
         )
         approximation, _ = train.train(
             model=approximation,
-            observations=observation_path,
-            conditions=condition_path,
+            dataset=dataset,
             key=key,
             optim=pre_train_optim,
             target=target_posterior,
             num_steps=config.prior_training_optimization.total_steps,
             run_tracker=tracker,
-            observations_per_step=config.observations_per_step,
-            samples_per_context=config.samples_per_context,
+            sample_kwargs=config.training_sampling_kwargs(loss_label="param-prior"),
             loss_label="param-prior",
             time_limit_s=config.prior_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
@@ -226,15 +219,13 @@ def run_buffered_vi[
         )
         approximation, _ = train.train(
             model=approximation,
-            observations=observation_path,
-            conditions=condition_path,
+            dataset=dataset,
             key=key,
             optim=pre_train_optim,
             target=target_posterior,
             num_steps=config.pre_training_optimization.total_steps,
             run_tracker=tracker,
-            observations_per_step=config.observations_per_step,
-            samples_per_context=config.samples_per_context,
+            sample_kwargs=config.training_sampling_kwargs(loss_label="pretrain"),
             loss_label="pretrain",
             time_limit_s=config.pre_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
@@ -250,30 +241,29 @@ def run_buffered_vi[
         optim = optimization_registry.build_optimizer(config.optimization)
         fitted_approximation, opt_state = train.train(
             model=approximation,
-            observations=observation_path,
-            conditions=condition_path,
+            dataset=dataset,
             key=key,
             optim=optim,
             target=target_posterior,
             num_steps=config.optimization.total_steps,
             run_tracker=tracker,
-            observations_per_step=config.observations_per_step,
-            samples_per_context=config.samples_per_context,
+            sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
             time_limit_s=config.optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
 
     # run sample again for testing purposes
-    n_context = 100
-    s_per_context = int(test_samples / n_context)
+    eval_sampling_kwargs = config.evaluation_sampling_kwargs(test_samples=test_samples)
     (
         theta_q,
         log_q_theta,
         x_q,
         log_q_x_path,
-        (approx_start, theta_mask, y_batch, c_batch),
+        (approx_start, theta_mask, y_batch, c_batch, sequence_minibatch_rescaling),
     ) = fitted_approximation.joint_sample_and_log_prob(
-        observation_path, condition_path, key, n_context, s_per_context
+        dataset,
+        key,
+        eval_sampling_kwargs,
     )
 
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)

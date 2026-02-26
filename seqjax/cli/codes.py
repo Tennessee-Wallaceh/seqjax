@@ -241,7 +241,7 @@ embedder_config: NestedCode = {
 codes["full-vi"] = {
     "OPT": optimization_config,
     "MC": ("samples_per_context", parse_int_required, "10"),
-    "BS": ("observations_per_step", parse_int_required, "10"),
+    "SMB": ("num_sequence_minibatch", parse_int_required, "1"),
     "EMB": embedder_config,
     "PAX": {
         "field": "parameter_approximation",
@@ -260,6 +260,7 @@ codes["full-vi"] = {
 }
 
 codes["buffer-vi"] = codes["full-vi"].copy()
+codes["buffer-vi"]["BS"] = ("num_context_per_sequence", parse_int_required, "10")
 codes["buffer-vi"]["LAX"] = {
     "field": "latent_approximation",
     "registry": vi.registry.latent_approximation_registry,
