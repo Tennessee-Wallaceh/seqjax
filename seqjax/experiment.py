@@ -117,11 +117,14 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run):
         or experiment_config.inference.label == "full-vi"
     ):
 
-        def wandb_update(update, static, trainable, opt_step, loss, key):
+        def wandb_update(
+            update, static, trainable, opt_step, loss, loss_label, key
+        ):
             wandb_update = {
                 "step": opt_step,
                 "elapsed_time_s": update["elapsed_time_s"],
                 "loss": loss,
+                loss_label: float(loss),
             }
 
             for label, value in update.items():

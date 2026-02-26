@@ -259,10 +259,11 @@ class Tracker:
         Callable[
             [
                 TrackerLogRow,
-                StaticModuleT,
-                TrainableModuleT,
+                typing.Any,
+                typing.Any,
                 int,
                 jaxtyping.Scalar,
+                str,
                 jaxtyping.PRNGKeyArray,
             ],
             tuple[list[str], list[LoggedValue]],
@@ -303,7 +304,6 @@ class Tracker:
                 "loss": float(loss),
                 "elapsed_time_s": elapsed_time_s,
                 "loss_kind": loss_label,
-                loss_label: float(loss),
             }
 
             qs, means, theta = sample_theta_qs(
@@ -319,7 +319,7 @@ class Tracker:
             mean_str = " , ".join(_reads)
 
             for fcn in self.custom_record_fcns:
-                out = fcn(update, static, trainable, opt_step, loss, key)
+                out = fcn(update, static, trainable, opt_step, loss, loss_label, key)
                 if out is None:
                     continue
                 labels, values = out
