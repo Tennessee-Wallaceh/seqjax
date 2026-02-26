@@ -245,10 +245,11 @@ class Tracker:
         Callable[
             [
                 TrackerLogRow,
-                StaticModuleT,
-                TrainableModuleT,
+                typing.Any,
+                typing.Any,
                 int,
                 jaxtyping.Scalar,
+                str,
                 jaxtyping.PRNGKeyArray,
             ],
             tuple[list[str], list[LoggedValue]],
@@ -304,7 +305,7 @@ class Tracker:
             mean_str = " , ".join(_reads)
 
             for fcn in self.custom_record_fcns:
-                out = fcn(update, static, trainable, opt_step, loss, key)
+                out = fcn(update, static, trainable, opt_step, loss, loss_label, key)
                 if out is None:
                     continue
                 labels, values = out

@@ -91,16 +91,10 @@ def _render_script(
         'FIT_SEED="$((BASE_FIT_SEED + (SLURM_ARRAY_TASK_ID % FIT_SEED_REPEATS)))"',
         'DATA_SEED="$((BASE_DATA_SEED + (SLURM_ARRAY_TASK_ID / FIT_SEED_REPEATS)))"',
         "",
-        "CODES=(",
     ]
-
-    for token in combination:
-        lines.append(f"  {_quote(token)}")
 
     lines.extend(
         [
-            ")",
-            "",
             "CMD=(python -m seqjax.cli run",
             f"  --model {model}",
             f"  --sequence-length {sequence_length}",
@@ -116,9 +110,11 @@ def _render_script(
 
     for token in fixed_codes:
         lines.append(f"  --code {_quote(token)}")
-
+    
+    for token in combination:
+        lines.append(f"  --code {_quote(token)}")
+    
     lines.append(")")
-    lines.append('for code in "${CODES[@]}"; do CMD+=(--code "$code"); done')
     lines.append(f"CMD+=({_quote(experiment_name)})")
     lines.append('printf "Running: %q " "${CMD[@]}"; echo')
     lines.append('"${CMD[@]}"')

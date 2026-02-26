@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Protocol, cast
+import os
+from typing import Any, Literal, Protocol, cast
 
 import jax.random as jrandom
 import wandb
@@ -56,6 +57,32 @@ class ExperimentConfig:
         return self.data_config.posterior_factory
 
 
+StorageMode = Literal["wandb", "wandb-offline"]
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    """Runtime-only settings for experiment execution and tracking."""
+
+    storage_mode: StorageMode = "wandb"
+    local_root: str = "./wandb"
+
+    @property
+    def wandb_offline(self) -> bool:
+        return self.storage_mode == "wandb-offline"
+
+
+def configure_wandb_runtime(runtime_config: RuntimeConfig) -> None:
+    """Set environment variables expected by W&B for local/offline execution."""
+
+    if runtime_config.wandb_offline:
+        os.environ["WANDB_MODE"] = "offline"
+        os.environ["WANDB_DIR"] = runtime_config.local_root
+    else:
+        os.environ.pop("WANDB_MODE", None)
+        os.environ.pop("WANDB_DIR", None)
+
+
 
 def process_results(
     run: Any,
@@ -91,11 +118,14 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run):
         or experiment_config.inference.label == "full-vi"
     ):
 
-        def wandb_update(update, static, trainable, opt_step, loss, key):
+        def wandb_update(
+            update, static, trainable, opt_step, loss, loss_label, key
+        ):
             wandb_update = {
                 "step": opt_step,
                 "elapsed_time_s": update["elapsed_time_s"],
                 "loss": loss,
+                loss_label: float(loss),
             }
 
             for label, value in update.items():
@@ -123,8 +153,12 @@ def run_experiment(
     experiment_name: str,
     experiment_config: ExperimentConfig,
     result_processor: ResultProcessor | None = None,
+    runtime_config: RuntimeConfig | None = None,
 ):
     """Execute an experiment using the shared harness."""
+
+    resolved_runtime_config = runtime_config or RuntimeConfig()
+    configure_wandb_runtime(resolved_runtime_config)
 
     config_dict = asdict(experiment_config)
 
@@ -133,7 +167,14 @@ def run_experiment(
     target_params = experiment_config.data_config.generative_parameters
     model = experiment_config.posterior_factory(target_params)
 
-    x_paths, observations, conditions = io.get_remote_data(
+    
+    data_storage: io.DataStorage
+    if resolved_runtime_config.wandb_offline:
+        data_storage = io.LocalFilesystemDataStorage(resolved_runtime_config.local_root)
+    else:
+        data_storage = io.WandbArtifactDataStorage(data_wandb_run)
+
+    x_paths, observations, conditions = data_storage.get_remote_data(
         data_wandb_run, experiment_config.data_config
     )
     condition_paths = seqjtyping.NoCondition() if conditions is None else conditions

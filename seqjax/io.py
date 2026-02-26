@@ -33,6 +33,12 @@ class WandbRun(Protocol):
     def finish(self) -> None: ...
 
 
+class DataStorage(Protocol):
+    """Storage backend interface used to load or create datasets."""
+
+    def get_data(self, data_config: DataConfig) -> tuple[Packable, Packable, Packable | None]: ...
+
+
 SEQJAX_DATA_DIR = "../"
 
 
@@ -237,7 +243,6 @@ def load_packable_artifact_all(
             )
     return loaded_data
 
-
 def get_remote_data(run: WandbRun, data_config: DataConfig):
     artifact_name = data_config.dataset_name
 
@@ -348,3 +353,149 @@ def get_remote_data(run: WandbRun, data_config: DataConfig):
     observation_stacked = _stack_packables(observation_paths)
     condition_stacked = _stack_packables(typing.cast(list[Packable], condition_paths)) if condition_paths else None
     return x_stacked, observation_stacked, condition_stacked
+
+  
+def _simulate_data(data_config: DataConfig) -> tuple[Packable, Packable, Packable | None]:
+    condition: Packable | None = None
+    data_key = jrandom.PRNGKey(data_config.seed)
+
+    if data_config.target_model_label in condition_generators:
+        condition = condition_generators[data_config.target_model_label](
+            data_config.sequence_length
+        )
+
+    x_path, observation_path = simulate.simulate(
+        data_key,
+        data_config.target,
+        data_config.generative_parameters,
+        sequence_length=data_config.sequence_length,
+        condition=condition,
+    )
+
+    return x_path, observation_path, condition
+
+
+class WandbArtifactDataStorage:
+    """Dataset storage backend backed by W&B artifacts."""
+
+    def __init__(self, run: WandbRun):
+        self._run = run
+
+    def get_data(
+        self,
+        data_config: DataConfig,
+    ) -> tuple[Packable, Packable, Packable | None]:
+        artifact_name = data_config.dataset_name
+        condition: Packable | None = None
+
+        if not packable_artifact_present(self._run, artifact_name):
+            print(f"{artifact_name} not present on remote, generating...")
+            x_path, observation_path, condition = _simulate_data(data_config)
+
+            print(f"saving {artifact_name} on remote...")
+            to_save: typing.Any = [
+                ("x_path", x_path, {}),
+                ("observation_path", observation_path, {}),
+            ]
+            if condition is not None:
+                to_save.append(("condition", condition, {}))
+            save_packable_artifact(self._run, artifact_name, "dataset", to_save)
+            return x_path, observation_path, condition
+
+        print(f"{artifact_name} present on remote, downloading...")
+        to_load = [
+            ("x_path", data_config.target.latent_cls),
+            ("observation_path", data_config.target.observation_cls),
+        ]
+        if data_config.target_model_label in condition_generators:
+            to_load.append(("condition", data_config.target.condition_cls))
+
+        loaded = load_packable_artifact(self._run, artifact_name, to_load)
+
+        if data_config.target_model_label in condition_generators:
+            (x_path, _), (observation_path, _), (condition, _) = loaded
+        else:
+            (x_path, _), (observation_path, _) = loaded
+
+        return x_path, observation_path, condition
+
+
+class LocalFilesystemDataStorage:
+    """Dataset storage backend that persists parquet files locally."""
+
+    def __init__(self, local_root: str):
+        self._base_dir = os.path.join(local_root, "datasets")
+
+    def _dataset_dir(self, artifact_name: str) -> str:
+        return os.path.join(self._base_dir, artifact_name)
+
+    def _file_path(self, artifact_name: str, file_name: str) -> str:
+        return os.path.join(self._dataset_dir(artifact_name), f"{file_name}.parquet")
+
+    def _dataset_present(self, data_config: DataConfig) -> bool:
+        artifact_name = data_config.dataset_name
+        required = ["x_path", "observation_path"]
+        if data_config.target_model_label in condition_generators:
+            required.append("condition")
+
+        return all(os.path.isfile(self._file_path(artifact_name, name)) for name in required)
+
+    def _save_data(
+        self,
+        artifact_name: str,
+        x_path: Packable,
+        observation_path: Packable,
+        condition: Packable | None,
+    ) -> None:
+        dataset_dir = self._dataset_dir(artifact_name)
+        os.makedirs(dataset_dir, exist_ok=True)
+        packable_to_df(x_path).write_parquet(self._file_path(artifact_name, "x_path"))
+        packable_to_df(observation_path).write_parquet(
+            self._file_path(artifact_name, "observation_path")
+        )
+        if condition is not None:
+            packable_to_df(condition).write_parquet(
+                self._file_path(artifact_name, "condition")
+            )
+
+    def _load_data(
+        self, data_config: DataConfig
+    ) -> tuple[Packable, Packable, Packable | None]:
+        artifact_name = data_config.dataset_name
+        x_path = df_to_packable(
+            data_config.target.latent_cls,
+            pl.read_parquet(self._file_path(artifact_name, "x_path")),
+        )
+        observation_path = df_to_packable(
+            data_config.target.observation_cls,
+            pl.read_parquet(self._file_path(artifact_name, "observation_path")),
+        )
+
+        condition: Packable | None = None
+        if data_config.target_model_label in condition_generators:
+            condition = df_to_packable(
+                data_config.target.condition_cls,
+                pl.read_parquet(self._file_path(artifact_name, "condition")),
+            )
+        return x_path, observation_path, condition
+
+    def get_data(
+        self,
+        data_config: DataConfig,
+    ) -> tuple[Packable, Packable, Packable | None]:
+        artifact_name = data_config.dataset_name
+
+        if not self._dataset_present(data_config):
+            print(f"{artifact_name} not present locally, generating...")
+            x_path, observation_path, condition = _simulate_data(data_config)
+            print(f"saving {artifact_name} locally...")
+            self._save_data(artifact_name, x_path, observation_path, condition)
+            return x_path, observation_path, condition
+
+        print(f"{artifact_name} present locally, loading...")
+        return self._load_data(data_config)
+
+
+def get_remote_data(run: WandbRun, data_config: DataConfig):
+    return WandbArtifactDataStorage(run).get_data(data_config)
+
