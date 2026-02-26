@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 from seqjax.inference import (
     InferenceMethod,
-    adapt_single_sequence_inference,
     mcmc,
     pmcmc,
     sgld,
@@ -126,14 +125,14 @@ register_inference(
 register_inference(
     "full-sgld",
     config_cls=sgld.SGLDConfig,
-    run=adapt_single_sequence_inference(sgld.run_full_sgld_mcmc),
+    run=sgld.run_full_sgld_mcmc,
     # name_fn=lambda config: f"full-sgld-p{config.particle_filter_config.num_particles}",
 )
 
 register_inference(
     "buffer-sgld",
     config_cls=sgld.BufferedSGLDConfig,
-    run=adapt_single_sequence_inference(sgld.run_buffer_sgld_mcmc),
+    run=sgld.run_buffer_sgld_mcmc,
     # name_fn=lambda config: (
     #     f"buffer-sgld-p{config.particle_filter_config.num_particles}"
     #     f"-b{config.buffer_length}-m{config.batch_length}-ss{config.step_size:.3g}"
