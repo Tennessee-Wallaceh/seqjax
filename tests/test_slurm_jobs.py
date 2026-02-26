@@ -197,3 +197,70 @@ PLAN = {
         assert "Unknown sub_grid 'missing_grid'" in str(exc)
     else:
         raise AssertionError("Expected ValueError for unknown sub-grid reference")
+
+
+def test_generate_slurm_jobs_respects_start_ix(tmp_path: Path) -> None:
+    plan_file = tmp_path / "plan.py"
+    plan_file.write_text(
+        """
+PLAN = {
+    "experiment_name": "demo",
+    "shared": {
+        "model": "aicher_stochastic_vol",
+        "inference": "buffer-vi",
+        "sequence_length": 25,
+    },
+    "studies": [
+        {
+            "name": "study_one",
+            "start_ix": 7,
+            "axes": {"a": [["A.1"], ["A.2"]]},
+        }
+    ],
+}
+""",
+        encoding="utf-8",
+    )
+
+    outputs = slurm_jobs.generate_slurm_jobs(
+        plan_file=str(plan_file),
+        output_root_override=str(tmp_path / "out"),
+        dry_run=False,
+    )
+
+    assert [path.name for path in outputs] == ["study_one_7.sh", "study_one_8.sh"]
+
+
+def test_generate_slurm_jobs_rejects_invalid_start_ix(tmp_path: Path) -> None:
+    plan_file = tmp_path / "plan.py"
+    plan_file.write_text(
+        """
+PLAN = {
+    "experiment_name": "demo",
+    "shared": {
+        "model": "aicher_stochastic_vol",
+        "inference": "buffer-vi",
+        "sequence_length": 25,
+    },
+    "studies": [
+        {
+            "name": "study_one",
+            "start_ix": -1,
+            "axes": {"a": [["A.1"]]},
+        }
+    ],
+}
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        slurm_jobs.generate_slurm_jobs(
+            plan_file=str(plan_file),
+            output_root_override=str(tmp_path / "out"),
+            dry_run=False,
+        )
+    except ValueError as exc:
+        assert "start_ix must be >= 0" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for invalid start_ix")

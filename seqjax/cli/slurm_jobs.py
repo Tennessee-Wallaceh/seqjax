@@ -35,6 +35,23 @@ class SharedPlan(TypedDict, total=False):
     sub_grids: dict[str, list[list[str]]]
 
 
+class StudyPlan(TypedDict, total=False):
+    name: str
+    wall_time: str
+    gpus: int
+    fit_seed_repeats: int
+    data_seed_repeats: int
+    base_fit_seed: int
+    base_data_seed: int
+    output_pattern: str
+    job_name: str
+    fixed_codes: list[str]
+    axes: dict[str, list[object]]
+    sub_grids: dict[str, list[list[str]]]
+    start_ix: int
+
+
+
 def _quote(token: str) -> str:
     return "'" + token.replace("'", "'\\''") + "'"
 
@@ -251,6 +268,16 @@ def _format_hhmmss(total_seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+
+def _parse_start_ix(raw_start_ix: object, *, study_name: str) -> int:
+    if raw_start_ix is None:
+        return 0
+    if not isinstance(raw_start_ix, int):
+        raise ValueError(f"study '{study_name}' start_ix must be an integer")
+    if raw_start_ix < 0:
+        raise ValueError(f"study '{study_name}' start_ix must be >= 0")
+    return raw_start_ix
+
 def generate_slurm_jobs(
     *,
     plan_file: str,
@@ -276,7 +303,8 @@ def generate_slurm_jobs(
     total_requested_seconds = 0
     total_gpu_seconds = 0
 
-    for study in plan["studies"]:
+    for raw_study in plan["studies"]:
+        study = cast(StudyPlan, raw_study)
         study_name = study["name"]
         study_dir_name = str(study_name).replace(" ", "-")
 
@@ -303,6 +331,8 @@ def generate_slurm_jobs(
         per_run_seconds = _parse_hhmmss(wall_time)
         repeat_count = fit_seed_repeats * data_seed_repeats
 
+        start_ix = _parse_start_ix(study.get("start_ix"), study_name=str(study_name))
+
         for job_ix, combination in enumerate(combinations):
             script_text = _render_script(
                 experiment_name=experiment_name,
@@ -324,7 +354,13 @@ def generate_slurm_jobs(
                 test_samples=shared.get("test_samples"),
             )
 
-            path = scripts_dir / f"{study_dir_name}_{job_ix}.sh"
+            effective_ix = start_ix + job_ix
+            path = scripts_dir / f"{study_dir_name}_{effective_ix}.sh"
+            if path in generated:
+                raise ValueError(
+                    f"Duplicate script path generated for study '{study_name}': {path}. "
+                    "Adjust start_ix to avoid index collisions."
+                )
             generated.append(path)
             if not dry_run:
                 path.write_text(script_text, encoding="utf-8")

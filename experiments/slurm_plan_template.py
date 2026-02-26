@@ -37,6 +37,7 @@ PLAN = {
     "studies": [
         {
             "name": "conv1d_capacity",
+            "start_ix": 0,
             "axes": {
                 "embedder": [
                     {
@@ -56,6 +57,7 @@ PLAN = {
         },
         {
             "name": "pooling_ablation",
+            "start_ix": 100,
             "axes": {
                 "pool": [
                     ["EMB.C1D", "EMB.C1D.PK-avg", "EMB.C1D.P-15"],
