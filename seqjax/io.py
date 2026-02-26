@@ -12,6 +12,8 @@ from seqjax.model.typing import Packable
 from seqjax.model.registry import DataConfig, condition_generators
 from seqjax.model import simulate
 import jax.random as jrandom
+import jax
+import jax.numpy as jnp
 
 import wandb
 import wandb.errors
@@ -32,6 +34,15 @@ class WandbRun(Protocol):
 
 
 SEQJAX_DATA_DIR = "../"
+
+
+def _stack_packables(packables: list[Packable]) -> Packable:
+    if len(packables) == 0:
+        raise ValueError("Cannot stack an empty packable list.")
+    return jax.tree_util.tree_map(
+        lambda *leaves: jnp.stack(leaves, axis=0),
+        *packables,
+    )
 
 
 def normalize_parquet_metadata(md: Mapping[str, Any]) -> dict[str, Any]:
@@ -229,50 +240,111 @@ def load_packable_artifact_all(
 
 def get_remote_data(run: WandbRun, data_config: DataConfig):
     artifact_name = data_config.dataset_name
-    condition = None
 
     if not packable_artifact_present(run, artifact_name):
         print(f"{artifact_name} not present on remote, generating...")
         data_key = jrandom.PRNGKey(data_config.seed)
+        sequence_keys = jrandom.split(data_key, data_config.num_sequences)
 
-        if data_config.target_model_label in condition_generators:
-            condition = condition_generators[data_config.target_model_label](
-                data_config.sequence_length
+        x_paths: list[Packable] = []
+        observation_paths: list[Packable] = []
+        condition_paths: list[Packable | None] = []
+
+        for sequence_idx, sequence_key in enumerate(sequence_keys):
+            condition = None
+            if data_config.target_model_label in condition_generators:
+                condition = condition_generators[data_config.target_model_label](
+                    data_config.sequence_length
+                )
+
+            x_path, observation_path = simulate.simulate(
+                sequence_key,
+                data_config.target,
+                data_config.generative_parameters,
+                sequence_length=data_config.sequence_length,
+                condition=condition,
             )
-
-        x_path, observation_path = simulate.simulate(
-            data_key,
-            data_config.target,
-            data_config.generative_parameters,  # needs params
-            sequence_length=data_config.sequence_length,
-            condition=condition,
-        )
+            x_paths.append(x_path)
+            observation_paths.append(observation_path)
+            condition_paths.append(condition)
 
         print(f"saving {artifact_name} on remote...")
-        to_save: typing.Any = [
-            ("x_path", x_path, {}),
-            ("observation_path", observation_path, {}),
-        ]
-        if condition is not None:
-            to_save.append(
-                ("condition", condition, {}),
-            )
+        to_save: typing.Any = []
+        if data_config.num_sequences == 1:
+            to_save.extend([
+                ("x_path", x_paths[0], {}),
+                ("observation_path", observation_paths[0], {}),
+            ])
+            if condition_paths[0] is not None:
+                to_save.append(("condition", condition_paths[0], {}))
+        else:
+            for sequence_idx, (x_path, observation_path) in enumerate(zip(x_paths, observation_paths)):
+                to_save.extend([
+                    (f"x_path_s{sequence_idx}", x_path, {"sequence_idx": sequence_idx}),
+                    (f"observation_path_s{sequence_idx}", observation_path, {"sequence_idx": sequence_idx}),
+                ])
+                condition = condition_paths[sequence_idx]
+                if condition is not None:
+                    to_save.append((f"condition_s{sequence_idx}", condition, {"sequence_idx": sequence_idx}))
+
         save_packable_artifact(run, artifact_name, "dataset", to_save)
-        return x_path, observation_path, condition
+
+        x_stacked = _stack_packables(x_paths)
+        observation_stacked = _stack_packables(observation_paths)
+        if all(c is not None for c in condition_paths):
+            condition_stacked = _stack_packables(typing.cast(list[Packable], condition_paths))
+        else:
+            condition_stacked = None
+        return x_stacked, observation_stacked, condition_stacked
 
     print(f"{artifact_name} present on remote, downloading...")
-    to_load = [
-        ("x_path", data_config.target.latent_cls),
-        ("observation_path", data_config.target.observation_cls),
-    ]
-    if data_config.target_model_label in condition_generators:
-        to_load.append(("condition", data_config.target.condition_cls))
+    if data_config.num_sequences == 1:
+        to_load = [
+            ("x_path", data_config.target.latent_cls),
+            ("observation_path", data_config.target.observation_cls),
+        ]
+        if data_config.target_model_label in condition_generators:
+            to_load.append(("condition", data_config.target.condition_cls))
+
+        loaded = load_packable_artifact(run, artifact_name, to_load)
+
+        if data_config.target_model_label in condition_generators:
+            (x_path, _), (observation_path, _), (condition, _) = loaded
+        else:
+            (x_path, _), (observation_path, _) = loaded
+            condition = None
+
+        x_stacked = _stack_packables([x_path])
+        observation_stacked = _stack_packables([observation_path])
+        condition_stacked = _stack_packables(typing.cast(list[Packable], [condition])) if condition is not None else None
+        return x_stacked, observation_stacked, condition_stacked
+
+    to_load = []
+    for sequence_idx in range(data_config.num_sequences):
+        to_load.extend([
+            (f"x_path_s{sequence_idx}", data_config.target.latent_cls),
+            (f"observation_path_s{sequence_idx}", data_config.target.observation_cls),
+        ])
+        if data_config.target_model_label in condition_generators:
+            to_load.append((f"condition_s{sequence_idx}", data_config.target.condition_cls))
 
     loaded = load_packable_artifact(run, artifact_name, to_load)
 
-    if data_config.target_model_label in condition_generators:
-        (x_path, _), (observation_path, _), (condition, _) = loaded
-    else:
-        (x_path, _), (observation_path, _) = loaded
+    x_paths = []
+    observation_paths = []
+    condition_paths = []
+    idx = 0
+    for _ in range(data_config.num_sequences):
+        (x_path, _), (observation_path, _) = loaded[idx], loaded[idx + 1]
+        idx += 2
+        x_paths.append(x_path)
+        observation_paths.append(observation_path)
+        if data_config.target_model_label in condition_generators:
+            (condition, _) = loaded[idx]
+            idx += 1
+            condition_paths.append(condition)
 
-    return x_path, observation_path, condition
+    x_stacked = _stack_packables(x_paths)
+    observation_stacked = _stack_packables(observation_paths)
+    condition_stacked = _stack_packables(typing.cast(list[Packable], condition_paths)) if condition_paths else None
+    return x_stacked, observation_stacked, condition_stacked

@@ -163,6 +163,7 @@ class DataConfig:
     generative_parameter_label: str
     sequence_length: int
     seed: int
+    num_sequences: int = 1
 
     @property
     def dataset_name(self):
@@ -170,6 +171,7 @@ class DataConfig:
         dataset_name += f"-{self.generative_parameter_label}"
         dataset_name += f"-d{self.seed}"
         dataset_name += f"-l{self.sequence_length}"
+        dataset_name += f"-n{self.num_sequences}"
         return dataset_name
 
     @property

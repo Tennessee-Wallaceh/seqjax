@@ -24,10 +24,12 @@ from jaxtyping import PyTree
 from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
 from seqjax.model.base import BayesianSequentialModel
+from seqjax.inference.interface import InferenceDataset
 from seqjax.inference.vi.base import (
     SSMVariationalApproximation,
     BufferedSSMVI,
 )
+from seqjax.inference.vi.sampling import VISamplingKwargs
 import seqjax.model.typing as seqjtyping
 
 DEFAULT_SYNC_INTERVAL_S = 10
@@ -67,11 +69,9 @@ BufferedApproximationT = BufferedSSMVI[
 class SupportsPretrainLoss(Protocol):
     def estimate_pretrain_loss(
         self,
-        observations: ObservationT,
-        conditions: ConditionT,
+        dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
-        context_samples: int,
-        samples_per_context: int,
+        sample_kwargs: VISamplingKwargs,
         target_posterior: "TargetModelT",
         hyperparameters: HyperParametersT | None,
     ) -> jaxtyping.Scalar: ...
@@ -80,11 +80,9 @@ class SupportsPretrainLoss(Protocol):
 class SupportsPriorFitLoss(Protocol):
     def estimate_prior_fit_loss(
         self,
-        observations: ObservationT,
-        conditions: ConditionT,
+        dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
-        context_samples: int,
-        samples_per_context: int,
+        sample_kwargs: VISamplingKwargs,
         target_posterior: "TargetModelT",
         hyperparameters: HyperParametersT | None,
     ) -> jaxtyping.Scalar: ...
@@ -113,8 +111,7 @@ LossFunction = Callable[
     [
         TrainableModuleT,
         StaticModuleT,
-        ObservationT,
-        ConditionT | None,
+        InferenceDataset[ObservationT, ConditionT],
         jaxtyping.PRNGKeyArray,
     ],
     jaxtyping.Scalar,
@@ -125,8 +122,7 @@ CompiledStepFn = Callable[
         TrainableModuleT,
         StaticModuleT,
         OptStateT,
-        ObservationT,
-        ConditionT | None,
+        InferenceDataset[ObservationT, ConditionT],
         jaxtyping.PRNGKeyArray,
     ],
     tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT],
@@ -136,8 +132,7 @@ LossAndGradFn = Callable[
     [
         TrainableModuleT,
         StaticModuleT,
-        ObservationT,
-        ConditionT | None,
+        InferenceDataset[ObservationT, ConditionT],
         jaxtyping.PRNGKeyArray,
     ],
     tuple[jaxtyping.Scalar, TrainableModuleT],
@@ -147,21 +142,18 @@ LossAndGradFn = Callable[
 def loss_buffered_neg_elbo(
     trainable: TrainableModuleT,
     static: StaticModuleT,
-    observations: ObservationT,
-    conditions: ConditionT | None,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
     target_posterior: TargetModelT,
-    num_context: int,
-    samples_per_context: int,
+    *,
+    sample_kwargs: VISamplingKwargs,
 ) -> jaxtyping.Scalar:
     approximation = typing.cast(SSMApproximationT, eqx.combine(trainable, static))
 
     return approximation.estimate_loss(
-        observations,
-        typing.cast(ConditionT, conditions),
+        dataset,
         key,
-        num_context,
-        samples_per_context,
+        sample_kwargs,
         target_posterior,
         None,
     )
@@ -170,12 +162,11 @@ def loss_buffered_neg_elbo(
 def loss_pre_train_neg_elbo(
     trainable: TrainableModuleT,
     static: StaticModuleT,
-    observations: ObservationT,
-    conditions: ConditionT | None,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
     target_posterior: TargetModelT,
-    num_context: int,
-    samples_per_context: int,
+    *,
+    sample_kwargs: VISamplingKwargs,
 ) -> jaxtyping.Scalar:
     approximation = typing.cast(
         SupportsPretrainLoss,
@@ -183,11 +174,9 @@ def loss_pre_train_neg_elbo(
     )
 
     return approximation.estimate_pretrain_loss(
-        observations,
-        typing.cast(ConditionT, conditions),
+        dataset,
         key,
-        num_context,
-        samples_per_context,
+        sample_kwargs,
         target_posterior,
         None,
     )
@@ -196,23 +185,20 @@ def loss_pre_train_neg_elbo(
 def loss_pre_train_prior(
     trainable: TrainableModuleT,
     static: StaticModuleT,
-    observations: ObservationT,
-    conditions: ConditionT | None,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
     target_posterior: TargetModelT,
-    num_context: int,
-    samples_per_context: int,
+    *,
+    sample_kwargs: VISamplingKwargs,
 ) -> jaxtyping.Scalar:
     approximation = typing.cast(
         SupportsPriorFitLoss,
         eqx.combine(trainable, static),
     )
     return approximation.estimate_prior_fit_loss(
-        observations,
-        typing.cast(ConditionT, conditions),
+        dataset,
         key,
-        num_context,
-        samples_per_context,
+        sample_kwargs,
         target_posterior,
         None,
     )
@@ -334,8 +320,7 @@ class Tracker:
 
 def train(
     model: SSMApproximationT,
-    observations: ObservationT,
-    conditions: ConditionT | None,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     target: TargetModelT,
     *,
     key: jaxtyping.PRNGKeyArray,
@@ -343,8 +328,7 @@ def train(
     run_tracker: Tracker | None,
     num_steps: int | None = 1000,
     filter_spec: PyTree[bool] | None = None,
-    observations_per_step: int = 5,
-    samples_per_context: int = 10,
+    sample_kwargs: VISamplingKwargs,
     loss_label: LossLables = 'elbo',
     nb_context: bool = False,
     initial_opt_state: OptStateT | None = None,
@@ -383,8 +367,7 @@ def train(
         partial(
             base_loss_fn,
             target_posterior=target,
-            num_context=observations_per_step,
-            samples_per_context=samples_per_context,
+            sample_kwargs=sample_kwargs,
         ),
     )
 
@@ -395,15 +378,13 @@ def train(
         trainable_in: TrainableModuleT,
         static_in: StaticModuleT,
         opt_state_in: OptStateT,
-        observations_in: ObservationT,
-        conditions_in: ConditionT | None,
+        dataset_in: InferenceDataset[ObservationT, ConditionT],
         key_in: jaxtyping.PRNGKeyArray,
     ) -> tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT]:
         loss, grads = loss_and_grad(
             trainable_in,
             static_in,
-            observations_in,
-            typing.cast(ConditionT, conditions_in),
+            dataset_in,
             key_in,
         )
         updates, opt_state_next = optim.update(grads, opt_state_in, params=trainable_in)
@@ -418,7 +399,7 @@ def train(
     compiled_make_step = typing.cast(
         CompiledStepFn,
         typing.cast(Any, eqx.filter_jit(make_step))
-        .lower(trainable, static, opt_state, observations, conditions, key)
+        .lower(trainable, static, opt_state, dataset, key)
         .compile(),
     )
 
@@ -428,7 +409,7 @@ def train(
 
     # init step (to get tracking info)
     loss, _trainable, _ = compiled_make_step(
-        trainable, static, opt_state, observations, conditions, key
+        trainable, static, opt_state, dataset, key
     )
 
     tracker_postfix = run_tracker.track_step(
@@ -442,7 +423,7 @@ def train(
     while True:
         subkey, key = jrandom.split(key)
         loss, trainable, opt_state = compiled_make_step(
-            trainable, static, opt_state, observations, conditions, subkey
+            trainable, static, opt_state, dataset, subkey
         )
         sync_now = (time.perf_counter() - phase_start) > sync_interval_s
 

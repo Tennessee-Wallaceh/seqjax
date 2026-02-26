@@ -185,6 +185,12 @@ def run(
     sequence_length: int = typer.Option(
         1000, "--sequence-length", min=1, help="Number of observations to simulate."
     ),
+    num_sequences: int = typer.Option(
+        1,
+        "--num-sequences",
+        min=1,
+        help="Number of independent observation sequences to simulate.",
+    ),
     data_seed: int = typer.Option(..., "--data-seed", help="Seed for data simulation."),
     fit_seed: int = typer.Option(..., "--fit-seed", help="Seed for inference."),
     inference_method: str = typer.Option(..., "--inference", help="Inference method."),
@@ -215,6 +221,7 @@ def run(
         target_model_label=canonical_model,
         generative_parameter_label=generative_parameters,
         sequence_length=sequence_length,
+        num_sequences=num_sequences,
         seed=data_seed,
     )
 
