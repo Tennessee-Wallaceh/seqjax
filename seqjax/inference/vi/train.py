@@ -303,6 +303,7 @@ class Tracker:
                 "loss": float(loss),
                 "elapsed_time_s": elapsed_time_s,
                 "loss_kind": loss_label,
+                loss_label: float(loss),
             }
 
             qs, means, theta = sample_theta_qs(
