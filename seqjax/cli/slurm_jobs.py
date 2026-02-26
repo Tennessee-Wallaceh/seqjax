@@ -5,7 +5,17 @@ from __future__ import annotations
 import importlib.util
 import itertools
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, Mapping, TypedDict, cast
+
+
+CodeBundle = list[str]
+CodeCombinations = list[tuple[str, ...]]
+
+
+class AxisOptionRef(TypedDict, total=False):
+    codes: list[str]
+    sub_grid: str
+    sub_grids: list[str]
 
 
 class SharedPlan(TypedDict, total=False):
@@ -22,24 +32,116 @@ class SharedPlan(TypedDict, total=False):
     data_seed_repeats: int
     base_fit_seed: int
     base_data_seed: int
+    sub_grids: dict[str, list[list[str]]]
 
 
 def _quote(token: str) -> str:
     return "'" + token.replace("'", "'\\''") + "'"
 
 
-def _cartesian_code_grid(axes: dict[str, list[list[str]]]) -> list[tuple[str, ...]]:
-    if not axes:
+def _cartesian_product_bundles(bundle_sets: list[list[CodeBundle]]) -> CodeCombinations:
+    if not bundle_sets:
         return [tuple()]
 
-    axis_options = [axes[name] for name in axes]
-    combinations: list[tuple[str, ...]] = []
-    for option_set in itertools.product(*axis_options):
+    combinations: CodeCombinations = []
+    for option_set in itertools.product(*bundle_sets):
         merged: list[str] = []
         for bundle in option_set:
             merged.extend(bundle)
         combinations.append(tuple(merged))
     return combinations
+
+
+def _validate_bundle(raw_bundle: object, *, context: str) -> CodeBundle:
+    if not isinstance(raw_bundle, list) or not all(isinstance(token, str) for token in raw_bundle):
+        raise ValueError(f"{context} must be a list of string code tokens")
+    return list(raw_bundle)
+
+
+def _resolve_axis_option(
+    raw_option: object,
+    *,
+    sub_grids: Mapping[str, list[list[str]]],
+    axis_name: str,
+    option_index: int,
+) -> list[CodeBundle]:
+    option_context = f"axis '{axis_name}' option {option_index}"
+    if isinstance(raw_option, list):
+        return [_validate_bundle(raw_option, context=option_context)]
+
+    if not isinstance(raw_option, dict):
+        raise ValueError(f"{option_context} must be either a list[str] or a dict with codes/sub_grid")
+
+    option = cast(AxisOptionRef, raw_option)
+    base_codes = _validate_bundle(option.get("codes", []), context=f"{option_context}['codes']")
+
+    sub_grid_names: list[str] = []
+    raw_sub_grid = option.get("sub_grid")
+    if raw_sub_grid is not None:
+        if not isinstance(raw_sub_grid, str):
+            raise ValueError(f"{option_context}['sub_grid'] must be a string")
+        sub_grid_names.append(raw_sub_grid)
+
+    raw_sub_grids = option.get("sub_grids", [])
+    if not isinstance(raw_sub_grids, list) or not all(isinstance(name, str) for name in raw_sub_grids):
+        raise ValueError(f"{option_context}['sub_grids'] must be a list of strings")
+    sub_grid_names.extend(raw_sub_grids)
+
+    if not sub_grid_names:
+        return [base_codes]
+
+    resolved_sets: list[list[CodeBundle]] = []
+    for sub_grid_name in sub_grid_names:
+        if sub_grid_name not in sub_grids:
+            available = ", ".join(sorted(sub_grids)) or "<none>"
+            raise ValueError(
+                f"Unknown sub_grid '{sub_grid_name}' referenced by {option_context}; available: {available}"
+            )
+
+        raw_entries = sub_grids[sub_grid_name]
+        resolved_sets.append(
+            [
+                _validate_bundle(
+                    raw_entry,
+                    context=f"sub_grid '{sub_grid_name}' entry {entry_ix}",
+                )
+                for entry_ix, raw_entry in enumerate(raw_entries)
+            ]
+        )
+
+    expanded_sub_grid_combos = _cartesian_product_bundles(resolved_sets)
+    return [base_codes + list(sub_codes) for sub_codes in expanded_sub_grid_combos]
+
+
+def _cartesian_code_grid(
+    axes: Mapping[str, list[object]],
+    *,
+    sub_grids: Mapping[str, list[list[str]]],
+) -> list[tuple[str, ...]]:
+    if not axes:
+        return [tuple()]
+
+    axis_options: list[list[CodeBundle]] = []
+    for axis_name, raw_options in axes.items():
+        if not isinstance(raw_options, list):
+            raise ValueError(f"axis '{axis_name}' must be a list of options")
+
+        resolved_options: list[CodeBundle] = []
+        for option_ix, raw_option in enumerate(raw_options):
+            resolved_options.extend(
+                _resolve_axis_option(
+                    raw_option,
+                    sub_grids=sub_grids,
+                    axis_name=axis_name,
+                    option_index=option_ix,
+                )
+            )
+
+        if not resolved_options:
+            raise ValueError(f"axis '{axis_name}' produced no options after sub_grid expansion")
+        axis_options.append(resolved_options)
+
+    return _cartesian_product_bundles(axis_options)
 
 
 def _render_script(
@@ -179,8 +281,10 @@ def generate_slurm_jobs(
         study_dir_name = str(study_name).replace(" ", "-")
 
         fixed_codes = list(shared.get("fixed_codes", [])) + list(study.get("fixed_codes", []))
-        axes = study.get("axes", {})
-        combinations = _cartesian_code_grid(axes)
+        axes = cast(Mapping[str, list[object]], study.get("axes", {}))
+        sub_grids = dict(shared.get("sub_grids", {}))
+        sub_grids.update(dict(study.get("sub_grids", {})))
+        combinations = _cartesian_code_grid(axes, sub_grids=sub_grids)
 
         wall_time = str(study.get("wall_time", shared.get("wall_time", "02:30:00")))
         gpus = int(study.get("gpus", shared.get("gpus", 1)))
