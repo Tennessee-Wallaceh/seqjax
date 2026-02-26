@@ -107,7 +107,7 @@ register_inference(
 register_inference(
     "particle-mcmc",
     config_cls=pmcmc.ParticleMCMCConfig,
-    run=adapt_single_sequence_inference(pmcmc.run_particle_mcmc),
+    run=pmcmc.run_particle_mcmc,
     # name_fn=lambda config: (
     #     "particle-mcmc"
     #     + (
