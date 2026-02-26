@@ -243,7 +243,7 @@ def load_packable_artifact_all(
             )
     return loaded_data
 
-def get_remote_data(run: WandbRun, data_config: DataConfig):
+def _get_remote_data_legacy(run: WandbRun, data_config: DataConfig):
     artifact_name = data_config.dataset_name
 
     if not packable_artifact_present(run, artifact_name):

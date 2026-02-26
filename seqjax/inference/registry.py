@@ -66,7 +66,7 @@ def register_inference[MethodConfig](
 register_inference(
     "NUTS",
     config_cls=mcmc.NUTSConfig,
-    run=adapt_single_sequence_inference(mcmc.run_bayesian_nuts),
+    run=mcmc.run_bayesian_nuts,
     name_fn=lambda _, config: (
         f"NUTS-c{config.num_chains}-w{config.num_warmup}"
     )
