@@ -21,7 +21,7 @@ from seqjax.inference.mcmc.metropolis import (
     RandomWalkConfig,
     run_random_walk_metropolis,
 )
-from seqjax.inference.interface import inference_method
+from seqjax.inference.interface import InferenceDataset, inference_method
 from seqjax import util
 import jax.scipy as jsp
 
@@ -61,9 +61,56 @@ def _make_log_joint_estimator[
         HyperParametersT,
     ],
     hyperparameters: HyperParametersT,
-    observation_path: ObservationT,
-    condition_path: ConditionT | None,
+    dataset: InferenceDataset[ObservationT, ConditionT],
 ):
+    observations = dataset.observations
+    conditions = dataset.conditions
+    num_sequences = dataset.num_sequences
+
+    class SequenceLogMarginalEstimator(typing.Protocol):
+        def __call__(
+            self,
+            particle_filter: SMCSampler[
+                ParticleT,
+                tuple[ParticleT, ...],
+                ObservationT,
+                ConditionT,
+                ParametersT,
+            ],
+            sequence_key: PRNGKeyArray,
+            params: InferenceParametersT,
+            observation_path: ObservationT,
+            condition_path: ConditionT | seqjtyping.NoCondition,
+        ) -> jaxtyping.Array: ...
+
+    def estimate_sequence_log_marginal(
+        particle_filter: SMCSampler[
+            ParticleT,
+            tuple[ParticleT, ...],
+            ObservationT,
+            ConditionT,
+            ParametersT,
+        ],
+        sequence_key: PRNGKeyArray,
+        params: InferenceParametersT,
+        observation_path: ObservationT,
+        condition_path: ConditionT | seqjtyping.NoCondition,
+    ) -> jaxtyping.Array:
+        model_params = target_posterior.convert_to_model_parameters(params)
+        _, _, (log_marginal_increments,) = run_filter(
+            sequence_key,
+            particle_filter,
+            model_params,
+            observation_path,
+            condition_path=condition_path,
+            recorders=(log_marginal_increment,),
+        )
+        return jnp.sum(log_marginal_increments)
+
+    sequence_log_marginal_estimator: SequenceLogMarginalEstimator = (
+        estimate_sequence_log_marginal
+    )
+
     def estimate_log_joint(
         particle_filter: SMCSampler[
             ParticleT,
@@ -75,16 +122,30 @@ def _make_log_joint_estimator[
         params: InferenceParametersT,
         key: PRNGKeyArray,
     ) -> jaxtyping.Array:
-        _, _, (log_marginal_increments,) = run_filter(
-            key,
-            particle_filter,
-            target_posterior.convert_to_model_parameters(params),
-            observation_path,
-            condition_path=seqjtyping.NoCondition(),
-            recorders=(log_marginal_increment,),
-        )
+        sequence_keys = jrandom.split(key, num_sequences)
+        if isinstance(conditions, seqjtyping.NoCondition):
+            log_marginal = jax.vmap(
+                lambda sequence_key, observation_path: sequence_log_marginal_estimator(
+                    particle_filter,
+                    sequence_key,
+                    params,
+                    observation_path,
+                    seqjtyping.NoCondition(),
+                )
+            )(sequence_keys, observations).sum()
+        else:
+            log_marginal = jax.vmap(
+                lambda sequence_key, observation_path, condition_path: sequence_log_marginal_estimator(
+                    particle_filter,
+                    sequence_key,
+                    params,
+                    observation_path,
+                    condition_path,
+                )
+            )(sequence_keys, observations, conditions).sum()
+
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
-        return jnp.sum(log_marginal_increments) + log_prior
+        return log_marginal + log_prior
 
     return estimate_log_joint
 
@@ -108,8 +169,7 @@ def run_particle_mcmc[
     ],
     hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationT,
-    condition_path: ConditionT,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,
     config: ParticleMCMCConfig,
     tracker: typing.Any = None,
@@ -117,7 +177,9 @@ def run_particle_mcmc[
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
     estimate_log_joint = _make_log_joint_estimator(
-        target_posterior, hyperparameters, observation_path, condition_path
+        target_posterior,
+        hyperparameters,
+        dataset,
     )
 
     particle_filter = particle_filter_registry._build_filter(
