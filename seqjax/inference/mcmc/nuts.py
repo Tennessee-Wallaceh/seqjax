@@ -19,7 +19,7 @@ from seqjax.model.base import (
 import seqjax.model.typing as seqjtyping
 from seqjax.model import evaluate
 from seqjax.util import pytree_shape
-from seqjax.inference.interface import inference_method
+from seqjax.inference.interface import InferenceDataset, inference_method
 
 import blackjax  # type: ignore
 
@@ -99,8 +99,7 @@ def run_bayesian_nuts[
     ],
     hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
-    observation_path: ObservationT,
-    condition_path: ConditionT,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,
     config: NUTSConfig = NUTSConfig(),
     tracker: Any = None,
@@ -114,14 +113,41 @@ def run_bayesian_nuts[
         evaluate.log_prob_joint,
         target_posterior.target,
     )
+    observations = dataset.observations
+    conditions = dataset.conditions
+    sequence_length = dataset.sequence_length
+    num_sequences = dataset.num_sequences
 
     def logdensity(state):
         latents, params = state
         log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
         model_params = target_posterior.convert_to_model_parameters(params)
-        log_like = log_prob_joint(
-            latents, observation_path, condition_path, model_params
-        )
+
+        latent_shape = pytree_shape(latents)[0]
+        if latent_shape[0] != num_sequences:
+            raise ValueError(
+                "NUTS latent state must include a leading num_sequences axis. "
+                f"Expected {num_sequences}, got {latent_shape[0]}."
+            )
+
+        if isinstance(conditions, seqjtyping.NoCondition):
+            log_like = jax.vmap(
+                lambda latent_path, observation_path: log_prob_joint(
+                    latent_path,
+                    observation_path,
+                    conditions,
+                    model_params,
+                )
+            )(latents, observations).sum()
+        else:
+            log_like = jax.vmap(
+                lambda latent_path, observation_path, condition_path: log_prob_joint(
+                    latent_path,
+                    observation_path,
+                    condition_path,
+                    model_params,
+                )
+            )(latents, observations, conditions).sum()
         return log_like + log_prior
 
     def initial_state(key):
@@ -135,14 +161,36 @@ def run_bayesian_nuts[
 
         if config.initial_latents is not None:
             initial_latents = config.initial_latents
+            latent_shape = pytree_shape(initial_latents)[0]
+            if latent_shape[0] != num_sequences:
+                raise ValueError(
+                    "NUTSConfig.initial_latents must include a leading num_sequences axis "
+                    f"matching dataset.num_sequences={num_sequences}. "
+                    f"Got leading axis {latent_shape[0]}."
+                )
         else:
-            initial_latents, _ = simulate(
-                latent_key,
-                target_posterior.target,
-                target_posterior.convert_to_model_parameters(initial_parameters),
-                pytree_shape(observation_path)[0][0],
-                condition=condition_path,
-            )
+            simulation_keys = jrandom.split(latent_key, num_sequences)
+            model_parameters = target_posterior.convert_to_model_parameters(initial_parameters)
+            if isinstance(conditions, seqjtyping.NoCondition):
+                initial_latents, _ = jax.vmap(
+                    lambda sim_key: simulate(
+                        sim_key,
+                        target_posterior.target,
+                        model_parameters,
+                        sequence_length,
+                        condition=conditions,
+                    )
+                )(simulation_keys)
+            else:
+                initial_latents, _ = jax.vmap(
+                    lambda sim_key, condition_path: simulate(
+                        sim_key,
+                        target_posterior.target,
+                        model_parameters,
+                        sequence_length,
+                        condition=condition_path,
+                    )
+                )(simulation_keys, conditions)
         return (initial_latents, initial_parameters)
 
     warmup_key, init_key, sample_key = jrandom.split(key, 3)

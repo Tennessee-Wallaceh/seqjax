@@ -174,14 +174,14 @@ def run_experiment(
     else:
         data_storage = io.WandbArtifactDataStorage(data_wandb_run)
 
-    x_paths, observations, conditions = data_storage.get_remote_data(
-        data_wandb_run, experiment_config.data_config
+    x_paths, observations, conditions = data_storage.get_data(
+        experiment_config.data_config
     )
     condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
 
     dataset = inference_interface.ObservationDataset(
-        observations=observations,
-        conditions=condition_paths,
+        observations=cast(seqjtyping.Observation, observations),
+        conditions=cast(seqjtyping.Condition, condition_paths),
     )
 
     data_wandb_run.finish()
