@@ -2,34 +2,57 @@
 import json
 import typing
 from dataclasses import asdict, is_dataclass
+
 import typer
 
 from seqjax.cli import codes
 from seqjax.cli import slurm_jobs
-from seqjax.experiment import ExperimentConfig, RuntimeConfig, run_experiment
-from seqjax.inference import registry as inference_registry
-from seqjax.model import registry as model_registry
-from .results import ResultProcessor
+if typing.TYPE_CHECKING:
+    from seqjax.experiment import ExperimentConfig, RuntimeConfig
+    from seqjax.inference import registry as inference_registry
+    from seqjax.model import registry as model_registry
 
 
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
 
 StorageMode = typing.Literal["wandb", "wandb-offline"]
 
-def _resolve_model_label(label: str) -> model_registry.SequentialModelLabel:
+
+def _get_model_registry() -> typing.Any:
+    from seqjax.model import registry as model_registry
+
+    return model_registry
+
+
+def _get_inference_registry() -> typing.Any:
+    from seqjax.inference import registry as inference_registry
+
+    return inference_registry
+
+
+def _get_experiment_runtime() -> tuple[typing.Any, typing.Any, typing.Callable[..., None]]:
+    from seqjax.experiment import ExperimentConfig, RuntimeConfig, run_experiment
+
+    return ExperimentConfig, RuntimeConfig, run_experiment
+
+
+def _resolve_model_label(label: str) -> str:
+    model_registry = _get_model_registry()
     if label not in model_registry.posterior_factories:
         typer.echo(f"Model {label} not found.")
         raise Exception(f"Model {label} not found.")
 
-    return typing.cast(model_registry.SequentialModelLabel, label)
+    return typing.cast(str, label)
 
 
-def _resolve_inference_label(label: str) -> inference_registry.InferenceName:
+def _resolve_inference_label(label: str) -> str:
+    inference_registry = _get_inference_registry()
     if label not in inference_registry.inference_registry:
         typer.echo(f"Inference {label} not found.")
         raise Exception(f"Inference {label} not found.")
 
-    return typing.cast(inference_registry.InferenceName, label)
+    return typing.cast(str, label)
+
 
 def _structure_to_dict(value: typing.Any) -> typing.Any:
     """Recursively convert dataclasses and eqx modules into plain Python types."""
@@ -50,6 +73,7 @@ def _structure_to_dict(value: typing.Any) -> typing.Any:
 
     return value
 
+
 def parse_straight_codes(code_tokens, available_codes):
     dict_config = {}
     parsed_codes = set()
@@ -66,17 +90,16 @@ def parse_straight_codes(code_tokens, available_codes):
 
     return dict_config
 
-def build_inference_config(
-    method: inference_registry.InferenceName, 
-    code_tokens: list[str]
-) ->  inference_registry.InferenceConfig:
+
+def build_inference_config(method: str, code_tokens: list[str]) -> typing.Any:
+    inference_registry = _get_inference_registry()
     try:
-        available_codes = codes.codes[method]
+        available_codes = codes.codes[typing.cast(typing.Any, method)]
     except KeyError:
         raise typer.BadParameter(
             f"Inference method {method} has no configured codes."
         )
-    
+
     # read off the straight forward config
     straight_code_tokens = [token for token in code_tokens if "." not in token]
     dict_config = parse_straight_codes(straight_code_tokens, available_codes)
@@ -92,7 +115,7 @@ def build_inference_config(
             sub_code = None
         else:
             code, group_value, sub_code = nested_code_config
-        
+
         if code not in nested_code_value:
             nested_code_value[code] = group_value
             nested_code_groups[code] = []
@@ -102,7 +125,7 @@ def build_inference_config(
         if sub_code is not None:
             nested_code_groups[code].append(sub_code)
 
-    # then can process them 
+    # then can process them
     parsed_nested_codes = set()
     for code, sub_codes in nested_code_groups.items():
         subconfig = typing.cast(codes.NestedCode, available_codes[code])
@@ -115,7 +138,7 @@ def build_inference_config(
 
     # then build defaults for any nested code not provided
     available_nested_codes = [
-        token for token in available_codes 
+        token for token in available_codes
         if isinstance(available_codes[token], dict) and token not in parsed_nested_codes
     ]
     for code in available_nested_codes:
@@ -126,31 +149,35 @@ def build_inference_config(
             **parse_straight_codes([], selected_option_codes)
         )
 
-    return inference_registry.inference_registry[method].build_config(dict_config)
+    return inference_registry.inference_registry[typing.cast(typing.Any, method)].build_config(dict_config)
+
 
 @app.command("list-models")
 def list_models() -> None:
     """Display registered models and their parameter presets."""
 
+    model_registry = _get_model_registry()
     for label, model in sorted(model_registry.posterior_factories.items()):
         presets = ", ".join(sorted(model_registry.parameter_settings[label].keys()))
         typer.echo(f"{label}: {model.__class__.__name__} (presets: {presets})")
+
 
 @app.command("list-inference")
 def list_inference() -> None:
     """Display registered inference methods."""
 
+    inference_registry = _get_inference_registry()
     typer.echo("Available inference methods:")
     for name in sorted(inference_registry.inference_registry):
         typer.echo(f"  - {name}")
 
+
 @app.command("list-codes")
-def list_codes(method: inference_registry.InferenceName) -> None:
+def list_codes(method: str) -> None:
     try:
-        typer.echo(codes.format_code_options(codes.codes[method]))
+        typer.echo(codes.format_code_options(codes.codes[typing.cast(typing.Any, method)]))
     except KeyError:
         typer.echo(f"Inference method {method} not found.")
-
 
 
 @app.command("generate-slurm-jobs")
@@ -176,6 +203,7 @@ def generate_slurm_jobs_cmd(
 
     for output in outputs:
         typer.echo(f"  - {output}")
+
 
 @app.command()
 def run(
@@ -226,6 +254,9 @@ def run(
 ) -> None:
     """Run an experiment using the configured inference method."""
 
+    model_registry = _get_model_registry()
+    ExperimentConfig, RuntimeConfig, run_experiment = _get_experiment_runtime()
+
     canonical_model = _resolve_model_label(model)
     canonical_method = _resolve_inference_label(inference_method)
 
@@ -262,6 +293,8 @@ def run(
         f"Running experiment '{experiment_name}' with model '{canonical_model}' "
         f"and inference '{inference_method}'."
     )
+    from .results import ResultProcessor
+
     run_experiment(
         experiment_name,
         experiment_config,

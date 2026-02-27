@@ -27,14 +27,27 @@ PLAN = {
             "M-10",
             "B-14",
         ],
+        "sub_grids": {
+            "conv_defaults": [
+                ["EMB.C1D.P-10", "EMB.C1D.PK-avg"],
+                ["EMB.C1D.P-15", "EMB.C1D.PK-max"],
+            ]
+        },
     },
     "studies": [
         {
             "name": "conv1d_capacity",
+            "start_ix": 0,
             "axes": {
                 "embedder": [
-                    ["EMB.C1D", "EMB.C1D.H-2", "EMB.C1D.K-3", "EMB.C1D.D-4"],
-                    ["EMB.C1D", "EMB.C1D.H-4", "EMB.C1D.K-5", "EMB.C1D.D-4"],
+                    {
+                        "codes": ["EMB.C1D", "EMB.C1D.H-2", "EMB.C1D.K-3", "EMB.C1D.D-4"],
+                        "sub_grid": "conv_defaults",
+                    },
+                    {
+                        "codes": ["EMB.C1D", "EMB.C1D.H-4", "EMB.C1D.K-5", "EMB.C1D.D-4"],
+                        "sub_grid": "conv_defaults",
+                    },
                 ],
                 "latent": [
                     ["LAX.MAF", "LAX.MAF.W-20", "LAX.MAF.D-2", "LAX.MAF.FL-1"],
@@ -44,6 +57,7 @@ PLAN = {
         },
         {
             "name": "pooling_ablation",
+            "start_ix": 100,
             "axes": {
                 "pool": [
                     ["EMB.C1D", "EMB.C1D.PK-avg", "EMB.C1D.P-15"],
