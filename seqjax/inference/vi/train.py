@@ -144,7 +144,6 @@ def loss_buffered_neg_elbo(
     static: StaticModuleT,
     dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
-    target_posterior: TargetModelT,
     *,
     sample_kwargs: VISamplingKwargs,
 ) -> jaxtyping.Scalar:
@@ -154,7 +153,6 @@ def loss_buffered_neg_elbo(
         dataset,
         key,
         sample_kwargs,
-        target_posterior,
         None,
     )
 
@@ -164,7 +162,6 @@ def loss_pre_train_neg_elbo(
     static: StaticModuleT,
     dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
-    target_posterior: TargetModelT,
     *,
     sample_kwargs: VISamplingKwargs,
 ) -> jaxtyping.Scalar:
@@ -177,7 +174,6 @@ def loss_pre_train_neg_elbo(
         dataset,
         key,
         sample_kwargs,
-        target_posterior,
         None,
     )
 
@@ -187,7 +183,6 @@ def loss_pre_train_prior(
     static: StaticModuleT,
     dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
-    target_posterior: TargetModelT,
     *,
     sample_kwargs: VISamplingKwargs,
 ) -> jaxtyping.Scalar:
@@ -199,7 +194,6 @@ def loss_pre_train_prior(
         dataset,
         key,
         sample_kwargs,
-        target_posterior,
         None,
     )
 
@@ -367,7 +361,6 @@ def train(
         LossFunction,
         partial(
             base_loss_fn,
-            target_posterior=target,
             sample_kwargs=sample_kwargs,
         ),
     )

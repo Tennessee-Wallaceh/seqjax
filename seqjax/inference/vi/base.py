@@ -490,6 +490,42 @@ class BufferedSSMVI[
     batch_length: int
     buffer_length: int
 
+    def sample_prior_and_latent_log_prob(
+        self,
+        dataset: InferenceDataset[ObservationT, ConditionT],
+        seq_key: jaxtyping.PRNGKeyArray,
+        subseq_key: jaxtyping.PRNGKeyArray,
+        parameter_key: jaxtyping.PRNGKeyArray,
+        latent_key: jaxtyping.PRNGKeyArray,
+    ) -> tuple[
+        InferenceParametersT,
+        LatentT,
+        jaxtyping.Float[jaxtyping.Scalar, ""],
+        typing.Any,
+    ]:
+        observation_sequence, condition_sequence = _sample_sequence_minibatch(dataset, seq_key)
+        approx_start, y_batch, c_batch, theta_mask = sample_batch_and_mask(
+            subseq_key, 
+            sequence_length=dataset.sequence_length,
+            batch_length=self.batch_length,
+            buffer_length=self.buffer_length,
+            observation_path=observation_sequence, 
+            condition=condition_sequence,
+        )
+
+        parameters = self.target_posterior.parameter_prior.sample(parameter_key, None)
+
+        latent_context = self.embedding.embed(y_batch, c_batch, jax.lax.stop_gradient(parameters))
+
+        x_path, log_q_x = self.latent_approximation.sample_and_log_prob(latent_key, latent_context)
+
+        return (
+            parameters,
+            x_path,
+            log_q_x,
+            (approx_start, theta_mask, y_batch, c_batch),
+        )
+    
     def joint_sample_and_log_prob(
         self,
         dataset: InferenceDataset[ObservationT, ConditionT],
@@ -539,15 +575,73 @@ class BufferedSSMVI[
         # next is sub-sequence sample for each sequence sample
         # the outer most is sequence sample
         batched_sample = jax.vmap(self.joint_sample_and_log_prob, in_axes=(None, None, None, 0, 0))
-        batched_sample = jax.vmap(batched_sample, in_axes=(None, None, 0, None, None))
-        batched_sample = jax.vmap(batched_sample, in_axes=(None, 0, None, None, None))
+        batched_sample = jax.vmap(batched_sample, in_axes=(None, None, 0, 0, 0))
+        batched_sample = jax.vmap(batched_sample, in_axes=(None, 0, 0, 0, 0))
         seq_key, subseq_key, param_key, latent_key = jrandom.split(key, 4)
         return batched_sample(
             dataset,
             jrandom.split(seq_key, sample_kwargs['num_sequence_minibatch']),
-            jrandom.split(subseq_key, sample_kwargs['context_samples']),
-            jrandom.split(param_key, sample_kwargs['samples_per_context']),
-            jrandom.split(latent_key, sample_kwargs['samples_per_context']),
+            jrandom.split(
+                subseq_key, 
+                (
+                    sample_kwargs['num_sequence_minibatch'], 
+                    sample_kwargs['context_samples']
+                ),
+            ),
+            jrandom.split(
+                param_key, 
+                (
+                    sample_kwargs['num_sequence_minibatch'], 
+                    sample_kwargs['context_samples'], 
+                    sample_kwargs['samples_per_context']),
+            ),
+            jrandom.split(
+                latent_key, 
+                (
+                    sample_kwargs['num_sequence_minibatch'], 
+                    sample_kwargs['context_samples'], 
+                    sample_kwargs['samples_per_context']),
+            ),
+        )
+
+    def batched_pretrain_sample(
+        self, 
+        dataset: InferenceDataset[ObservationT, ConditionT],
+        key: jaxtyping.PRNGKeyArray,
+        sample_kwargs: VISamplingKwargs,
+    ):
+        # vmaps builds the batch axes from innermost to outermost
+        # so inner is latent+param samples for each (sequence, sub-sequence)
+        # next is sub-sequence sample for each sequence sample
+        # the outer most is sequence sample
+        batched_sample = jax.vmap(self.sample_prior_and_latent_log_prob, in_axes=(None, None, None, 0, 0))
+        batched_sample = jax.vmap(batched_sample, in_axes=(None, None, 0, 0, 0))
+        batched_sample = jax.vmap(batched_sample, in_axes=(None, 0, 0, 0, 0))
+        seq_key, subseq_key, param_key, latent_key = jrandom.split(key, 4)
+        return batched_sample(
+            dataset,
+            jrandom.split(seq_key, sample_kwargs['num_sequence_minibatch']),
+            jrandom.split(
+                subseq_key, 
+                (
+                    sample_kwargs['num_sequence_minibatch'], 
+                    sample_kwargs['context_samples']
+                ),
+            ),
+            jrandom.split(
+                param_key, 
+                (
+                    sample_kwargs['num_sequence_minibatch'], 
+                    sample_kwargs['context_samples'], 
+                    sample_kwargs['samples_per_context']),
+            ),
+            jrandom.split(
+                latent_key, 
+                (
+                    sample_kwargs['num_sequence_minibatch'], 
+                    sample_kwargs['context_samples'], 
+                    sample_kwargs['samples_per_context']),
+            ),
         )
     
     def batched_log_joint(self, *args, **kwargs):
@@ -587,14 +681,6 @@ class BufferedSSMVI[
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-        target_posterior: BayesianSequentialModel[
-            LatentT,
-            ObservationT,
-            ConditionT,
-            ParametersT,
-            InferenceParametersT,
-            HyperParametersT,
-        ],
         hyperparameters: HyperParametersT,
     ) -> typing.Any:
         
@@ -638,7 +724,7 @@ class BufferedSSMVI[
             x_path,
             y_batch,
             c_batch,
-            target_posterior.convert_to_model_parameters(buffered_params),
+            self.target_posterior.convert_to_model_parameters(buffered_params),
         )
         
         neg_elbo = (
@@ -656,99 +742,20 @@ class BufferedSSMVI[
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-        target_posterior: BayesianSequentialModel,
-        hyperparameters: HyperParametersT,
     ) -> typing.Any:
-        context_samples = sample_kwargs["context_samples"]
-        samples_per_context = sample_kwargs["samples_per_context"]
-        num_sequence_minibatch = sample_kwargs["num_sequence_minibatch"]
-
-        key, sequence_minibatch_key, context_key, start_key = jrandom.split(key, 4)
-        sampled_minibatch_observations, sampled_minibatch_conditions, _ = _sample_sequence_minibatch(
+        theta_q, _, x_path, log_q_x, extra_info = self.batched_sample(
             dataset,
-            sequence_minibatch_key,
-            num_sequence_minibatch,
-        )
+            key,
+            sample_kwargs,
 
-        sequence_indices = jrandom.randint(
-            context_key,
-            shape=(context_samples,),
-            minval=0,
-            maxval=num_sequence_minibatch,
         )
-        sampled_observations = jax.tree_util.tree_map(
-            lambda leaf: leaf[sequence_indices],
-            sampled_minibatch_observations,
-        )
-        sampled_conditions = jax.tree_util.tree_map(
-            lambda leaf: leaf[sequence_indices],
-            sampled_minibatch_conditions,
-        )
+        _, _, y_batch, c_batch = extra_info
 
-        path_length = sampled_observations.batch_shape[1]
-        parameter_keys, latent_keys = jnp.split(
-            jrandom.split(key, (context_samples, samples_per_context * 2)), 2, axis=1
-        )
-
-        parameters = jax.vmap(jax.vmap(target_posterior.parameter_prior.sample))(
-            parameter_keys, None
-        )
-
-        _, y_batch, c_batch, theta_mask = jax.vmap(
-            sample_batch_and_mask,
-            in_axes=(0, None, None, None, 0, 0),
-        )(
-            jrandom.split(start_key, context_samples),
-            path_length,
-            self.batch_length,
-            self.buffer_length,
-            sampled_observations,
-            sampled_conditions,
-        )
-
-        buffered_theta = jax.vmap(jax.vmap(self.buffer_params, in_axes=[0, None]))(
-            parameters, theta_mask
-        )
-
-        observation_context = jax.vmap(self.embedding.embed)(
-            y_batch,
-            c_batch,
-            parameters,
-        )
-
-        x_path, log_q_x = jax.vmap(
-            jax.vmap(
-                self.latent_approximation.sample_and_log_prob,
-                in_axes=[
-                    0,
-                    typing.cast(
-                        typing.Any,
-                        LatentContext(
-                            observation_context=None,
-                            condition_context=None,
-                            parameter_context=0,
-                            embedded_context=typing.cast(jaxtyping.Array, None),
-                            sequence_embedded_context=typing.cast(jaxtyping.Array, None),
-                        ),
-                    ),
-                ],
-            ),
-        )(
-            latent_keys,
-            observation_context,
-        )
-
-        batched_log_p_joint = jax.vmap(
-            partial(log_prob_joint, target_posterior.target),
-            in_axes=[0, 0, 0, 0],
-        )
-        batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
-
-        log_p_y_x = batched_log_p_joint(
+        log_p_y_x = self.batched_log_joint(
             x_path,
             y_batch,
             c_batch,
-            target_posterior.convert_to_model_parameters(buffered_theta),
+            self.target_posterior.convert_to_model_parameters(theta_q),
         )
 
         neg_elbo = log_q_x - log_p_y_x
@@ -760,7 +767,6 @@ class BufferedSSMVI[
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-        target_posterior: BayesianSequentialModel,
         hyperparameters: HyperParametersT,
     ) -> typing.Any:
         context_samples = sample_kwargs["context_samples"]
@@ -772,7 +778,7 @@ class BufferedSSMVI[
         )(parameter_keys, None)
         log_p_theta = jax.vmap(
             jax.vmap(
-                lambda x: target_posterior.parameter_prior.log_prob(x, hyperparameters)
+                lambda x: self.target_posterior.parameter_prior.log_prob(x, hyperparameters)
             )
         )(theta_q)
         prior_elbo = log_q_theta - log_p_theta
