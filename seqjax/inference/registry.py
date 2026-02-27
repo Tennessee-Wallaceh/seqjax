@@ -82,7 +82,6 @@ register_inference(
         #     f"-{param}_{bijector_label}"
         #     for param, bijector_label in config.parameter_field_bijections.items()
         # )
-        # + ("-cv" if config.control_variate else "")
         + f"-{str(config.optimization)}"
         + f"-E_{config.embedder.label}"
     ),

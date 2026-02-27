@@ -369,7 +369,6 @@ class BufferedVIConfig(VISampleConfig):
     samples_per_context: int
     embedder: EmbedderConfig
     num_sequence_minibatch: int = 1
-    control_variate: bool = False
     pre_training_optimization: None | optimization_registry.OptConfig = None
     parameter_approximation: ParameterApproximation = field(
         default_factory=MeanFieldParameterApproximation
@@ -479,6 +478,7 @@ def build_approximation(
             latent_approximation,
             parameter_approximation,
             embed,
+            target_posterior,
         )
 
     elif isinstance(config, BufferedVIConfig):
@@ -526,8 +526,8 @@ def build_approximation(
             latent_approximation,
             parameter_approximation,
             embed,
+            target_posterior,
             batch_length=config.batch_length,
             buffer_length=config.buffer_length,
-            control_variate=config.control_variate,
         )
     return approximation

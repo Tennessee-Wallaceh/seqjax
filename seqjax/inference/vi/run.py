@@ -258,11 +258,9 @@ def run_buffered_vi[
         log_q_theta,
         x_q,
         log_q_x_path,
-        (approx_start, theta_mask, y_batch, c_batch, sequence_minibatch_rescaling),
-    ) = fitted_approximation.joint_sample_and_log_prob(
-        dataset,
-        key,
-        eval_sampling_kwargs,
+        (approx_start, theta_mask, y_batch, c_batch),
+    ) = fitted_approximation.batched_sample(
+        dataset, key, eval_sampling_kwargs
     )
 
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)

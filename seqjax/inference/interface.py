@@ -41,30 +41,6 @@ class ObservationDataset[
     observations: ObservationT
     conditions: ConditionT
 
-    def __post_init__(self) -> None:
-        obs_shape = self.observations.batch_shape
-        if len(obs_shape) < 2:
-            raise ValueError(
-                "ObservationDataset expects observations with leading "
-                "(num_sequences, sequence_length, ...) axes."
-            )
-
-        if isinstance(self.conditions, seqjtyping.NoCondition):
-            return
-
-        cond_shape = self.conditions.batch_shape
-        if len(cond_shape) < 2:
-            raise ValueError(
-                "ObservationDataset expects conditions with leading "
-                "(num_sequences, sequence_length, ...) axes when conditions are present."
-            )
-        if obs_shape[:2] != cond_shape[:2]:
-            raise ValueError(
-                "Observation and condition batch shapes must match for "
-                "(num_sequences, sequence_length). "
-                f"Got observations {obs_shape[:2]} and conditions {cond_shape[:2]}."
-            )
-
     @classmethod
     def from_single_sequence(
         cls,
