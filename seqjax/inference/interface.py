@@ -30,7 +30,7 @@ class InferenceDataset[
 
     def sequence(self, idx: int) -> tuple[ObservationT, ConditionT]: ...
 
-
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True, slots=True)
 class ObservationDataset[
     ObservationT: seqjtyping.Observation,

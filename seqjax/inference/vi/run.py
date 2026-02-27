@@ -172,8 +172,7 @@ def run_buffered_vi[
     start_approximation = None
     sync_interval_s = None
 
-    observation_path, _ = dataset.sequence(0)
-    sequence_length = observation_path.batch_shape[0]
+    sequence_length = dataset.sequence_length
 
     if start_approximation is not None:
         approximation = start_approximation
