@@ -495,7 +495,6 @@ inference_methods["NUTS"] = inference_registry.NUTSInference(
 #                         parameter_field_bijections={
 #                             "energy_barrier": "softplus",
 #                         },
-#                         control_variate=cv,
 #                     ),
 #                 )
 #                 inference_methods[buffviconf.name] = buffviconf

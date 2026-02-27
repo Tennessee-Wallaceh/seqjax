@@ -219,7 +219,6 @@ if __name__ == "__main__":
                 "mean_reversion": "softplus",
                 "long_term_vol": "softplus",
             },
-            control_variate=False,
             embedder=embedder,
             pre_training_steps=config["pretrain_steps"],
             observations_per_step=config["minibatch_size"],

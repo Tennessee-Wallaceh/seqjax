@@ -490,7 +490,6 @@ for buffer in [10, 50]:
                             parameter_field_bijections={
                                 "ar": ar_transform,
                             },
-                            control_variate=cv,
                         ),
                     )
                     inference_methods[buffviconf.name] = buffviconf
