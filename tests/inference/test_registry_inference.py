@@ -62,7 +62,6 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
             batch_length=4,
             num_context_per_sequence=1,
             samples_per_context=1,
-            control_variate=False,
             pre_training_optimization=vi.run.AdamOpt(lr=1e-2, total_steps=2),
             latent_approximation=vi.run.AutoregressiveLatentApproximation(
                 nn_width=4,
