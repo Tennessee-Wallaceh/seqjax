@@ -504,11 +504,7 @@ class BufferedSSMVI[
         jaxtyping.Float[jaxtyping.Scalar, ""],
         typing.Any,
     ]:
-
         observation_sequence, condition_sequence = _sample_sequence_minibatch(dataset, seq_key)
-
-        parameters, log_q_theta = self.parameter_approximation.sample_and_log_prob(parameter_key, None)
-
         approx_start, y_batch, c_batch, theta_mask = sample_batch_and_mask(
             subseq_key, 
             sequence_length=dataset.sequence_length,
@@ -518,7 +514,10 @@ class BufferedSSMVI[
             condition=condition_sequence,
         )
 
+        parameters, log_q_theta = self.parameter_approximation.sample_and_log_prob(parameter_key, None)
+
         latent_context = self.embedding.embed(y_batch, c_batch, jax.lax.stop_gradient(parameters))
+
         x_path, log_q_x = self.latent_approximation.sample_and_log_prob(latent_key, latent_context)
 
         return (
@@ -528,7 +527,6 @@ class BufferedSSMVI[
             log_q_x,
             (approx_start, theta_mask, y_batch, c_batch),
         )
-   
     
     def batched_sample(
         self, 
@@ -643,7 +641,6 @@ class BufferedSSMVI[
             target_posterior.convert_to_model_parameters(buffered_params),
         )
         
-
         neg_elbo = (
             (log_q_x - log_p_y_x) 
             + (
