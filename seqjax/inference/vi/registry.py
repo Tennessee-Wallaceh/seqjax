@@ -414,7 +414,7 @@ def build_approximation(
     sequence_length: int,
     target_posterior: BayesianSequentialModel,
     key: jaxtyping.PRNGKeyArray,
-) -> base.SSMVariationalApproximation:
+) -> typing.Any:
     parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
 
     target_param_class = target_posterior.inference_parameter_cls
@@ -444,7 +444,7 @@ def build_approximation(
             embedding_key=embedding_key,
         )
 
-    approximation: base.SSMVariationalApproximation
+    approximation: typing.Any
     latent_approximation: (
         autoregressive.AmortizedUnivariateAutoregressor
         | maf.AmortizedMAF

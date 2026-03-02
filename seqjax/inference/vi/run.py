@@ -259,7 +259,7 @@ def run_buffered_vi[
         x_q,
         log_q_x_path,
         (approx_start, theta_mask, y_batch, c_batch),
-    ) = fitted_approximation.batched_sample(
+    ) = typing.cast(typing.Any, fitted_approximation).batched_sample(
         dataset, key, eval_sampling_kwargs
     )
 
