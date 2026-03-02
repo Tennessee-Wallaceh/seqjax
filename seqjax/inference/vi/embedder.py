@@ -79,6 +79,7 @@ class PositionalEmbedder(Embedder):
             parameters,
         )
 
+
 class WindowEmbedder(Embedder):
     """
     Reshapes observation information to a context of appropriate size for

@@ -770,7 +770,7 @@ class BufferedSSMVI[
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
     ) -> typing.Any:
-        theta_q, _, x_path, log_q_x, extra_info = self.batched_sample(
+        theta_q, x_path, log_q_x, extra_info = self.batched_pretrain_sample(
             dataset,
             key,
             sample_kwargs,
