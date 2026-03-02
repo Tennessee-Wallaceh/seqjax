@@ -11,7 +11,7 @@ import polars as pl  # type: ignore[import-not-found]
 import numpy as np
 import os
 from seqjax.model.typing import Packable
-from seqjax.model.registry import DataConfig, condition_generators
+from seqjax.model.registry import DataConfig, SequentialModelLabel, condition_generators
 from seqjax.model import simulate
 import jax.random as jrandom
 import jax
@@ -50,12 +50,28 @@ class DatasetReference(Protocol):
     expected_num_sequences: int | None
 
 
+class PreparedDataRequest(Protocol):
+    """Request contract for loading a prepared dataset for a target model."""
+
+    @property
+    def dataset_name(self) -> str: ...
+
+    @property
+    def target_model_label(self) -> SequentialModelLabel: ...
+
+
 @dataclass
 class NamedDatasetReference:
     dataset_name: str
     expected_model_label: str | None = None
     expected_sequence_length: int | None = None
     expected_num_sequences: int | None = None
+
+
+@dataclass(frozen=True)
+class NamedPreparedDataRequest:
+    dataset_name: str
+    target_model_label: SequentialModelLabel
 
 
 def dataset_reference_from_data_config(
@@ -671,9 +687,10 @@ class LocalPreparedDataStorage:
     def _file_path(self, dataset_name: str, file_name: str) -> str:
         return os.path.join(self._dataset_dir(dataset_name), f"{file_name}.parquet")
 
-    def _validate_dataset_files(self, dataset_name: str, data_config: DataConfig) -> None:
+    def _validate_dataset_files(self, prepared_data_request: PreparedDataRequest) -> None:
+        dataset_name = prepared_data_request.dataset_name
         required = ["x_path", "observation_path"]
-        if data_config.target_model_label in condition_generators:
+        if prepared_data_request.target_model_label in condition_generators:
             required.append("condition")
 
         missing = [
@@ -690,11 +707,17 @@ class LocalPreparedDataStorage:
     def get_data(
         self,
         data_config: DataConfig,
-        dataset_reference: DatasetReference,
+        prepared_data_request: PreparedDataRequest,
     ) -> tuple[Packable, Packable, Packable | None]:
-        dataset_name = dataset_reference.dataset_name
-        self._validate_dataset_files(dataset_name, data_config)
-        _validate_dataset_manifest(self._dataset_dir(dataset_name), dataset_reference)
+        dataset_name = prepared_data_request.dataset_name
+        self._validate_dataset_files(prepared_data_request)
+        _validate_dataset_manifest(
+            self._dataset_dir(dataset_name),
+            NamedDatasetReference(
+                dataset_name=dataset_name,
+                expected_model_label=prepared_data_request.target_model_label,
+            ),
+        )
 
         x_path = _read_packable_parquet(
             self._file_path(dataset_name, "x_path"),
@@ -706,7 +729,7 @@ class LocalPreparedDataStorage:
         )
 
         condition: Packable | None = None
-        if data_config.target_model_label in condition_generators:
+        if prepared_data_request.target_model_label in condition_generators:
             condition = _read_packable_parquet(
                 self._file_path(dataset_name, "condition"),
                 data_config.target.condition_cls,

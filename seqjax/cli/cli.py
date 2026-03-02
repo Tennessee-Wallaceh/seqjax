@@ -232,7 +232,7 @@ def run(
     prepared_dataset_name: str | None = typer.Option(
         None,
         "--prepared-dataset-name",
-        help="Optional prepared dataset name override when --data-source=prepared-local.",
+        help="Prepared dataset name to load when --data-source=prepared-local.",
     ),
 ) -> None:
     """Run an experiment using the configured inference method."""
@@ -260,6 +260,10 @@ def run(
     if data_source != "prepared-local" and prepared_dataset_name is not None:
         raise typer.BadParameter(
             "--prepared-dataset-name can only be used with --data-source=prepared-local."
+        )
+    if data_source == "prepared-local" and prepared_dataset_name is None:
+        raise typer.BadParameter(
+            "--prepared-dataset-name is required when --data-source=prepared-local."
         )
 
     if dry_run:
