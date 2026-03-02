@@ -15,6 +15,7 @@ from .results import ResultProcessor
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
 
 StorageMode = typing.Literal["wandb", "wandb-offline"]
+DataSource = typing.Literal["simulated", "prepared-local"]
 
 def _resolve_model_label(label: str) -> model_registry.SequentialModelLabel:
     if label not in model_registry.posterior_factories:
@@ -221,7 +222,17 @@ def run(
     local_root: str = typer.Option(
         "./wandb",
         "--local-root",
-        help="Local directory used by W&B offline mode.",
+        help="Local directory used by W&B offline mode and local prepared datasets.",
+    ),
+    data_source: DataSource = typer.Option(
+        "simulated",
+        "--data-source",
+        help="Data loading mode: simulated (default) or prepared-local.",
+    ),
+    prepared_dataset_name: str | None = typer.Option(
+        None,
+        "--prepared-dataset-name",
+        help="Optional prepared dataset name override when --data-source=prepared-local.",
     ),
 ) -> None:
     """Run an experiment using the configured inference method."""
@@ -246,6 +257,11 @@ def run(
         inference=inference_config,
     )
 
+    if data_source != "prepared-local" and prepared_dataset_name is not None:
+        raise typer.BadParameter(
+            "--prepared-dataset-name can only be used with --data-source=prepared-local."
+        )
+
     if dry_run:
         payload = {
             "experiment_name": experiment_name,
@@ -253,6 +269,8 @@ def run(
             "runtime": {
                 "storage_mode": storage_mode,
                 "local_root": local_root,
+                "data_source": data_source,
+                "prepared_dataset_name": prepared_dataset_name,
             },
         }
         typer.echo(json.dumps(payload, indent=2))
@@ -266,7 +284,7 @@ def run(
         experiment_name,
         experiment_config,
         ResultProcessor(),
-        runtime_config=RuntimeConfig(storage_mode=storage_mode, local_root=local_root),
+        runtime_config=RuntimeConfig(storage_mode=storage_mode, local_root=local_root, data_source=data_source, prepared_dataset_name=prepared_dataset_name),
     )
 
 
