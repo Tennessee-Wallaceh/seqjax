@@ -1,6 +1,8 @@
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol
 import typing
+import json
 import pickle
 
 import equinox as eqx
@@ -37,6 +39,45 @@ class DataStorage(Protocol):
     """Storage backend interface used to load or create datasets."""
 
     def get_data(self, data_config: DataConfig) -> tuple[Packable, Packable, Packable | None]: ...
+
+
+class DatasetReference(Protocol):
+    """Reference contract used to locate and validate a prepared dataset."""
+
+    dataset_name: str
+    expected_model_label: str | None
+    expected_sequence_length: int | None
+    expected_num_sequences: int | None
+
+
+@dataclass
+class NamedDatasetReference:
+    dataset_name: str
+    expected_model_label: str | None = None
+    expected_sequence_length: int | None = None
+    expected_num_sequences: int | None = None
+
+
+def dataset_reference_from_data_config(
+    data_config: DataConfig,
+    dataset_name_override: str | None = None,
+) -> NamedDatasetReference:
+    return NamedDatasetReference(
+        dataset_name=data_config.dataset_name if dataset_name_override is None else dataset_name_override,
+        expected_model_label=data_config.target_model_label,
+        expected_sequence_length=data_config.sequence_length,
+        expected_num_sequences=data_config.num_sequences,
+    )
+
+
+class PreparedDataStorage(Protocol):
+    """Storage backend interface for pre-processed, named datasets."""
+
+    def get_data(
+        self,
+        data_config: DataConfig,
+        dataset_reference: DatasetReference,
+    ) -> tuple[Packable, Packable, Packable | None]: ...
 
 
 SEQJAX_DATA_DIR = "../"
@@ -81,6 +122,86 @@ def packable_to_df(packable: Packable) -> pl.DataFrame:
 def df_to_packable(packable_cls: type[Packable], df: pl.DataFrame) -> Packable:
     return packable_cls.unravel(df.to_jax())
 
+
+def _read_packable_parquet(file_path: str, packable_cls: type[Packable]) -> Packable:
+    expected_columns = list(packable_cls.flat_fields())
+    df = pl.read_parquet(file_path)
+    actual_columns = df.columns
+
+    if set(actual_columns) != set(expected_columns):
+        missing = sorted(set(expected_columns) - set(actual_columns))
+        extra = sorted(set(actual_columns) - set(expected_columns))
+        raise ValueError(
+            "Packable parquet schema mismatch for "
+            f"{file_path}. Missing={missing}, extra={extra}."
+        )
+
+    if actual_columns != expected_columns:
+        df = df.select(expected_columns)
+
+    return df_to_packable(packable_cls, df)
+
+
+
+
+PREPARED_DATASET_MANIFEST = "dataset_manifest.json"
+
+
+def _manifest_path(dataset_dir: str) -> str:
+    return os.path.join(dataset_dir, PREPARED_DATASET_MANIFEST)
+
+
+def _write_dataset_manifest(
+    dataset_dir: str,
+    dataset_reference: NamedDatasetReference,
+) -> None:
+    payload = {
+        "dataset_name": dataset_reference.dataset_name,
+        "model_label": dataset_reference.expected_model_label,
+        "sequence_length": dataset_reference.expected_sequence_length,
+        "num_sequences": dataset_reference.expected_num_sequences,
+    }
+    with open(_manifest_path(dataset_dir), "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _read_dataset_manifest(dataset_dir: str) -> dict[str, Any]:
+    manifest_path = _manifest_path(dataset_dir)
+    if not os.path.isfile(manifest_path):
+        raise FileNotFoundError(
+            f"Prepared dataset manifest not found: {manifest_path}. "
+            "Re-process data with save_named_packable_dataset to include safety metadata."
+        )
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        return typing.cast(dict[str, Any], json.load(f))
+
+
+def _validate_dataset_manifest(
+    dataset_dir: str,
+    dataset_reference: DatasetReference,
+) -> None:
+    manifest = _read_dataset_manifest(dataset_dir)
+
+    if manifest.get("dataset_name") != dataset_reference.dataset_name:
+        raise ValueError(
+            "Prepared dataset manifest mismatch: "
+            f"expected dataset_name={dataset_reference.dataset_name}, "
+            f"found {manifest.get('dataset_name')}."
+        )
+
+    checks = [
+        ("model_label", dataset_reference.expected_model_label),
+        ("sequence_length", dataset_reference.expected_sequence_length),
+        ("num_sequences", dataset_reference.expected_num_sequences),
+    ]
+    for field_name, expected in checks:
+        if expected is None:
+            continue
+        if manifest.get(field_name) != expected:
+            raise ValueError(
+                "Prepared dataset is incompatible with requested configuration: "
+                f"{field_name} expected {expected}, found {manifest.get(field_name)}."
+            )
 
 def download_artifact(artifact: wandb.Artifact) -> str:
     artifact_dir = artifact.download()
@@ -496,6 +617,103 @@ class LocalFilesystemDataStorage:
         return self._load_data(data_config)
 
 
+def save_named_packable_dataset(
+    local_root: str,
+    dataset_name: str,
+    x_path: Packable,
+    observation_path: Packable,
+    condition: Packable | None,
+    *,
+    model_label: str | None = None,
+    sequence_length: int | None = None,
+    num_sequences: int | None = None,
+    overwrite: bool = False,
+) -> None:
+    """Persist a pre-processed dataset under ``local_root/datasets/<dataset_name>``."""
+
+    dataset_dir = os.path.join(local_root, "datasets", dataset_name)
+    if os.path.isdir(dataset_dir) and not overwrite:
+        raise FileExistsError(
+            f"Dataset directory already exists: {dataset_dir}. "
+            "Pass overwrite=True to replace it."
+        )
+
+    os.makedirs(dataset_dir, exist_ok=True)
+    packable_to_df(x_path).write_parquet(os.path.join(dataset_dir, "x_path.parquet"))
+    packable_to_df(observation_path).write_parquet(
+        os.path.join(dataset_dir, "observation_path.parquet")
+    )
+    if condition is not None:
+        packable_to_df(condition).write_parquet(
+            os.path.join(dataset_dir, "condition.parquet")
+        )
+
+    _write_dataset_manifest(
+        dataset_dir,
+        NamedDatasetReference(
+            dataset_name=dataset_name,
+            expected_model_label=model_label,
+            expected_sequence_length=sequence_length,
+            expected_num_sequences=num_sequences,
+        ),
+    )
+
+
+class LocalPreparedDataStorage:
+    """Named dataset backend that only loads pre-processed local datasets."""
+
+    def __init__(self, local_root: str):
+        self._base_dir = os.path.join(local_root, "datasets")
+
+    def _dataset_dir(self, dataset_name: str) -> str:
+        return os.path.join(self._base_dir, dataset_name)
+
+    def _file_path(self, dataset_name: str, file_name: str) -> str:
+        return os.path.join(self._dataset_dir(dataset_name), f"{file_name}.parquet")
+
+    def _validate_dataset_files(self, dataset_name: str, data_config: DataConfig) -> None:
+        required = ["x_path", "observation_path"]
+        if data_config.target_model_label in condition_generators:
+            required.append("condition")
+
+        missing = [
+            name
+            for name in required
+            if not os.path.isfile(self._file_path(dataset_name, name))
+        ]
+        if missing:
+            raise FileNotFoundError(
+                f"Prepared dataset '{dataset_name}' is missing required files: {missing}. "
+                f"Expected directory: {self._dataset_dir(dataset_name)}"
+            )
+
+    def get_data(
+        self,
+        data_config: DataConfig,
+        dataset_reference: DatasetReference,
+    ) -> tuple[Packable, Packable, Packable | None]:
+        dataset_name = dataset_reference.dataset_name
+        self._validate_dataset_files(dataset_name, data_config)
+        _validate_dataset_manifest(self._dataset_dir(dataset_name), dataset_reference)
+
+        x_path = _read_packable_parquet(
+            self._file_path(dataset_name, "x_path"),
+            data_config.target.latent_cls,
+        )
+        observation_path = _read_packable_parquet(
+            self._file_path(dataset_name, "observation_path"),
+            data_config.target.observation_cls,
+        )
+
+        condition: Packable | None = None
+        if data_config.target_model_label in condition_generators:
+            condition = _read_packable_parquet(
+                self._file_path(dataset_name, "condition"),
+                data_config.target.condition_cls,
+            )
+
+        return x_path, observation_path, condition
+
+
 def get_remote_data(run: WandbRun, data_config: DataConfig):
     return WandbArtifactDataStorage(run).get_data(data_config)
-

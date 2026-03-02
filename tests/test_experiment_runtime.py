@@ -23,3 +23,8 @@ def test_configure_wandb_runtime_online_clears_environment() -> None:
 
     assert "WANDB_MODE" not in os.environ
     assert "WANDB_DIR" not in os.environ
+
+
+def test_runtime_config_prepared_local_data_flag() -> None:
+    config = RuntimeConfig(data_source="prepared-local")
+    assert config.prepared_local_data is True

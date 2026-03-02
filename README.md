@@ -73,3 +73,43 @@ wandb sync <local-root>/wandb/offline-run-*
 ```
 
 Use the normal W&B login flow before syncing if you want those runs uploaded to a remote project.
+
+
+## Supported data usage patterns
+
+SeqJAX currently supports multiple data loading workflows from the CLI.
+
+### 1) Simulated data + online W\&B artifacts (default)
+
+This is the default pattern. Data is generated or fetched through W\&B artifacts and inference logs online.
+
+```bash
+seqjax run my-project   --model ar   --parameters base   --sequence-length 256   --num-sequences 1   --data-seed 0   --fit-seed 1   --inference buffer-vi
+```
+
+### 2) Simulated data + local/offline storage
+
+Use offline mode to keep data and run outputs local.
+
+```bash
+seqjax run my-project   --storage-mode wandb-offline   --local-root ./wandb   --model ar   --parameters base   --sequence-length 256   --num-sequences 1   --data-seed 0   --fit-seed 1   --inference buffer-vi
+```
+
+### 3) Prepared local dataset by explicit dataset reference
+
+First, preprocess and save data under a dataset name in `local_root/datasets/<dataset_name>/`.
+The helper script in `experiments/process_prepared_dataset.py` demonstrates this end-to-end.
+
+Then run with `--data-source prepared-local` and optionally set `--prepared-dataset-name` to override
+`DataConfig.dataset_name`.
+
+```bash
+seqjax run my-project   --data-source prepared-local   --local-root ./wandb   --prepared-dataset-name aicher_stochastic_vol-real-v1   --model aicher_stochastic_vol   --parameters base   --sequence-length 256   --num-sequences 1   --data-seed 0   --fit-seed 1   --inference buffer-vi
+```
+
+Prepared datasets include a manifest (`dataset_manifest.json`) that is validated before loading.
+This adds safety checks for:
+- model label compatibility,
+- sequence length,
+- number of sequences,
+- and expected dataset name.

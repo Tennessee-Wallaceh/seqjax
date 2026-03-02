@@ -58,6 +58,7 @@ class ExperimentConfig:
 
 
 StorageMode = Literal["wandb", "wandb-offline"]
+DataSource = Literal["simulated", "prepared-local"]
 
 
 @dataclass(frozen=True)
@@ -66,10 +67,16 @@ class RuntimeConfig:
 
     storage_mode: StorageMode = "wandb"
     local_root: str = "./wandb"
+    data_source: DataSource = "simulated"
+    prepared_dataset_name: str | None = None
 
     @property
     def wandb_offline(self) -> bool:
         return self.storage_mode == "wandb-offline"
+
+    @property
+    def prepared_local_data(self) -> bool:
+        return self.data_source == "prepared-local"
 
 
 def configure_wandb_runtime(runtime_config: RuntimeConfig) -> None:
@@ -162,21 +169,33 @@ def run_experiment(
 
     config_dict = asdict(experiment_config)
 
-    data_wandb_run = cast(io.WandbRun, wandb.init(project=experiment_name))
+    data_wandb_run: io.WandbRun | None = None
 
     target_params = experiment_config.data_config.generative_parameters
     model = experiment_config.posterior_factory(target_params)
 
-    
-    data_storage: io.DataStorage
-    if resolved_runtime_config.wandb_offline:
-        data_storage = io.LocalFilesystemDataStorage(resolved_runtime_config.local_root)
+    if resolved_runtime_config.prepared_local_data:
+        prepared_storage = io.LocalPreparedDataStorage(resolved_runtime_config.local_root)
+        dataset_reference = io.dataset_reference_from_data_config(
+            experiment_config.data_config,
+            dataset_name_override=resolved_runtime_config.prepared_dataset_name,
+        )
+        x_paths, observations, conditions = prepared_storage.get_data(
+            experiment_config.data_config,
+            dataset_reference,
+        )
     else:
-        data_storage = io.WandbArtifactDataStorage(data_wandb_run)
+        simulated_storage: io.DataStorage
+        if resolved_runtime_config.wandb_offline:
+            simulated_storage = io.LocalFilesystemDataStorage(resolved_runtime_config.local_root)
+        else:
+            data_wandb_run = cast(io.WandbRun, wandb.init(project=experiment_name))
+            simulated_storage = io.WandbArtifactDataStorage(data_wandb_run)
 
-    x_paths, observations, conditions = data_storage.get_data(
-        experiment_config.data_config
-    )
+        x_paths, observations, conditions = simulated_storage.get_data(
+            experiment_config.data_config
+        )
+
     condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
 
     dataset = inference_interface.ObservationDataset(
@@ -184,7 +203,8 @@ def run_experiment(
         conditions=cast(seqjtyping.Condition, condition_paths),
     )
 
-    data_wandb_run.finish()
+    if data_wandb_run is not None:
+        data_wandb_run.finish()
 
     inference = experiment_config.inference.run
     wandb_run = cast(
