@@ -35,7 +35,6 @@ SequentialModelLabel = typing.Literal[
     "double_well",
     "simple_stochastic_vol",
     "aicher_stochastic_vol",
-    "skew_stochastic_vol",
     "full_svol",
 ]
 
@@ -48,7 +47,6 @@ sequential_models: dict[SequentialModelLabel, AllSequentialModels] = {
     "double_well": double_well.DoubleWellTarget(),
     "simple_stochastic_vol": stochastic_vol.SimpleStochasticVol(),
     "aicher_stochastic_vol": stochastic_vol.SimpleStochasticVar(),
-    "skew_stochastic_vol": stochastic_vol.SkewStochasticVol(),
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model
@@ -60,10 +58,6 @@ posterior_factories: dict[SequentialModelLabel, PosteriorFactory] = {
     "simple_stochastic_vol": typing.cast(
         PosteriorFactory,
         lambda _ref_params: stochastic_vol.SimpleStochasticVolBayesian(),
-    ),
-    "skew_stochastic_vol": typing.cast(
-        PosteriorFactory,
-        lambda _ref_params: stochastic_vol.SkewStochasticVolBayesian(),
     ),
     "aicher_stochastic_vol": typing.cast(
         PosteriorFactory,
@@ -115,14 +109,6 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
             skew=jnp.array(0.0),
         ),
     },
-    "skew_stochastic_vol": {
-        "base": stochastic_vol.LogVolWithSkew(
-            std_log_vol=jnp.array(3.2),
-            mean_reversion=jnp.array(12.0),
-            long_term_vol=jnp.array(0.16),
-            skew=jnp.array(0.0),
-        ),
-    },
 }
 
 ConditionGenerator = typing.Callable[[int], typing.Any]
@@ -134,11 +120,6 @@ condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
     "simple_stochastic_vol": partial(
         stochastic_vol.make_constant_time_increments,
         dt=1.0 / (256 * 8),
-    ),
-    "skew_stochastic_vol": partial(
-        stochastic_vol.make_constant_time_increments,
-        dt=1.0 / (256 * 8),
-        prior_order=stochastic_vol.SkewStochasticVol.prior.order,
     ),
 }
 

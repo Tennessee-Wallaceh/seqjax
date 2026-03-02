@@ -33,7 +33,6 @@ class InferenceMethod[
             InferenceParametersT,
             HyperParametersT,
         ],
-        hyperparameters: HyperParametersT,
         key: jaxtyping.PRNGKeyArray,
         observation_path: ObservationT,
         condition_path: ConditionT,

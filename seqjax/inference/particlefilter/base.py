@@ -130,11 +130,6 @@ class TransitionProposal[
             ParametersT,
             InferenceParametersT,
             HyperParametersT,
-            PriorLatentT,
-            PriorConditionT,
-            TransitionLatentHistoryT,
-            EmissionLatentHistoryT,
-            ObservationHistoryT,
         ],
     ):
         self.transition = model.target.transition
@@ -322,8 +317,8 @@ def run_filter[
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
 
-    initial_conditions = slice_prior_conditions(condition_path, smc.target.prior)
-    observation_history = slice_emission_observation_history(
+    initial_conditions: tuple[typing.Any, ...] = slice_prior_conditions(condition_path, smc.target.prior)
+    observation_history: tuple[typing.Any, ...] = slice_emission_observation_history(
         observation_path,
         smc.target.emission,
     )

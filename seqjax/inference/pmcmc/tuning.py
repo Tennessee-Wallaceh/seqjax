@@ -42,7 +42,6 @@ def tune_particle_filter_variance[
     estimate_log_joint: LogJointEstimator,
     base_filter: SMCSampler,
     target_posterior: BayesianSequentialModel,
-    hyperparameters: HyperParametersT,
     config: ParticleFilterTuningConfig,
     key: jaxtyping.PRNGKeyArray,
 ) -> tuple[SMCSampler, dict[str, list[jax.Array]]]:
@@ -63,8 +62,6 @@ def tune_particle_filter_variance[
         The particle filter instance that will be cloned and tuned.
     target_posterior
         The sequential model describing the posterior of interest.
-    hyperparameters
-        Hyperparameters used when sampling parameters from the prior.
     config
         Tuning hyperparameters controlling the variance threshold, maximum
         number of particles, number of replications per parameter draw, and the
@@ -91,8 +88,8 @@ def tune_particle_filter_variance[
     key, parameter_key = jrandom.split(key)
     parameter_keys = jrandom.split(parameter_key, parameter_draws)
     parameter_samples = jax.vmap(
-        target_posterior.parameter_prior.sample, in_axes=[0, None]
-    )(parameter_keys, hyperparameters)
+        target_posterior.sample_inference_parameters, in_axes=0
+    )(parameter_keys)
 
     parameter_leaves = jax.tree_util.tree_leaves(parameter_samples)
     if not parameter_leaves:
@@ -125,8 +122,8 @@ def tune_particle_filter_variance[
             for _ in range(config.replications):
                 key, subkey = jrandom.split(key)
                 log_joint = estimate_log_joint(candidate_filter, params, subkey)
-                log_prior = target_posterior.parameter_prior.log_prob(
-                    params, hyperparameters
+                log_prior = target_posterior.log_prob_inference_parameters(
+                    params
                 )
                 log_marginal = log_joint - log_prior
                 replicate_logs.append(log_marginal)

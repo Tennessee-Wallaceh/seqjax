@@ -97,7 +97,6 @@ def run_bayesian_nuts[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
     condition_path: ConditionT,
@@ -117,7 +116,7 @@ def run_bayesian_nuts[
 
     def logdensity(state):
         latents, params = state
-        log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
+        log_prior = target_posterior.log_prob_inference_parameters(params)
         model_params = target_posterior.convert_to_model_parameters(params)
         log_like = log_prob_joint(
             latents, observation_path, condition_path, model_params
@@ -129,8 +128,8 @@ def run_bayesian_nuts[
         if config.initial_params is not None:
             initial_parameters = typing.cast(InferenceParametersT, config.initial_params)
         else:
-            initial_parameters = target_posterior.parameter_prior.sample(
-                param_key, hyperparameters
+            initial_parameters = target_posterior.sample_inference_parameters(
+                param_key
             )
 
         if config.initial_latents is not None:

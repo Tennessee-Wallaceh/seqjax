@@ -4,6 +4,7 @@ from dataclasses import field
 from typing import ClassVar
 from functools import partial
 from collections import OrderedDict
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -12,13 +13,12 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.base import (
-    Emission,
     ParameterPrior,
-    Prior,
-    Transition,
-    SequentialModel,
     BayesianSequentialModel,
-    GaussianLocScaleTransition,
+    SequentialModelBase,
+    LatentContext,
+    ObservationContext,
+    ConditionContext,
 )
 from seqjax.model.typing import (
     HyperParameters,
@@ -115,119 +115,123 @@ class AROnlyPrior(ParameterPrior[AROnlyParameters, HyperParameters]):
         return log_p_theta
 
 
-def iv_sample(
-    key: PRNGKeyArray,
-    conditions: tuple[NoCondition],
-    parameters: ARParameters,
-) -> tuple[LatentValue]:
-    """Sample the initial latent value."""
-    stationary_scale = jnp.sqrt(
-        jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
-    )
-    x0 = stationary_scale * jrandom.normal(
-        key,
-    )
-    return (LatentValue(x=x0),)
-
-
-def iv_log_prob(
-    latent: tuple[LatentValue],
-    conditions: tuple[NoCondition],
-    parameters: ARParameters,
-) -> Scalar:
-    """Evaluate the prior log-density."""
-    stationary_scale = jnp.sqrt(
-        jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
-    )
-    return jstats.norm.logpdf(latent[0].x, scale=stationary_scale)
-
-
-initial_value = Prior[tuple[LatentValue], tuple[NoCondition], ARParameters](
-    order=1,
-    sample=iv_sample,
-    log_prob=iv_log_prob,
-)
-
-
-def ar_loc_scale(
-    latent_history: tuple[LatentValue],
-    condition: NoCondition,
-    parameters: ARParameters,
-) -> tuple[jax.Array, jax.Array]:
-    (last_latent,) = latent_history
-    loc_x = parameters.ar * last_latent.x
-    scale_x = parameters.transition_std
-    return loc_x, scale_x
-
-
-ar_random_walk: Transition[
-    tuple[LatentValue],
-    LatentValue,
-    NoCondition,
-    ARParameters,
-] = GaussianLocScaleTransition(
-    loc_scale=ar_loc_scale,
-    latent_t=LatentValue,
-)
-
-
-def ar_emission_sample(
-    key: PRNGKeyArray,
-    latent: tuple[LatentValue],
-    observation_history: tuple[()],
-    condition: NoCondition,
-    parameters: ARParameters,
-) -> NoisyEmission:
-    """Sample an observation."""
-    (current_latent,) = latent
-    y = current_latent.x + jrandom.normal(key) * parameters.observation_std
-    return NoisyEmission(y=y)
-
-
-def ar_emission_log_prob(
-    latent: tuple[LatentValue],
-    observation: NoisyEmission,
-    observation_history: tuple[()],
-    condition: NoCondition,
-    parameters: ARParameters,
-) -> Scalar:
-    """Return the emission log-density."""
-    (current_latent,) = latent
-    return jstats.norm.logpdf(
-        observation.y,
-        loc=current_latent.x,
-        scale=parameters.observation_std,
-    )
-
-
-ar_emission = Emission[
-    tuple[LatentValue],
-    NoCondition,
-    NoisyEmission,
-    ARParameters,
-](
-    sample=ar_emission_sample,
-    log_prob=ar_emission_log_prob,
-    order=1,
-)
-
-
 class AR1Target(
-    SequentialModel[
+    SequentialModelBase[
         LatentValue,
         NoisyEmission,
         NoCondition,
         ARParameters,
     ]
 ):
+    """Method-based AR(1) target model."""
+
     latent_cls = LatentValue
     observation_cls = NoisyEmission
     parameter_cls = ARParameters
     condition_cls = NoCondition
 
-    prior = initial_value
-    transition = ar_random_walk
-    emission = ar_emission
+    prior_order = 1
+    transition_order = 1
+    emission_order = 1
+    observation_dependency = 0
+
+    prior = SimpleNamespace(order=prior_order)
+    transition = SimpleNamespace(order=transition_order)
+    emission = SimpleNamespace(
+        order=emission_order,
+        observation_dependency=observation_dependency,
+    )
+
+    @staticmethod
+    def _stationary_scale(parameters: ARParameters) -> Scalar:
+        return jnp.sqrt(
+            jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
+        )
+
+    @staticmethod
+    def _transition_loc_scale(
+        previous_latent: LatentValue,
+        parameters: ARParameters,
+    ) -> tuple[Scalar, Scalar]:
+        loc_x = parameters.ar * previous_latent.x
+        scale_x = parameters.transition_std
+        return loc_x, scale_x
+
+    @staticmethod
+    def _emission_loc_scale(
+        current_latent: LatentValue,
+        parameters: ARParameters,
+    ) -> tuple[Scalar, Scalar]:
+        return current_latent.x, parameters.observation_std
+
+    def prior_sample(
+        self,
+        key: PRNGKeyArray,
+        conditions: ConditionContext[NoCondition],
+        parameters: ARParameters,
+    ) -> LatentContext[LatentValue]:
+        del conditions
+        stationary_scale = self._stationary_scale(parameters)
+        x0 = stationary_scale * jrandom.normal(key)
+        return self.make_latent_context(LatentValue(x=x0))
+
+    def prior_log_prob(
+        self,
+        latent: LatentContext[LatentValue],
+        conditions: ConditionContext[NoCondition],
+        parameters: ARParameters,
+    ) -> Scalar:
+        del conditions
+        stationary_scale = self._stationary_scale(parameters)
+        return jstats.norm.logpdf(latent[-1].x, scale=stationary_scale)
+
+    def transition_sample(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentContext[LatentValue],
+        condition: NoCondition,
+        parameters: ARParameters,
+    ) -> LatentValue:
+        del condition
+        loc_x, scale_x = self._transition_loc_scale(latent_history[-1], parameters)
+        x_next = loc_x + jrandom.normal(key) * scale_x
+        return LatentValue(x=x_next)
+
+    def transition_log_prob(
+        self,
+        latent_history: LatentContext[LatentValue],
+        latent: LatentValue,
+        condition: NoCondition,
+        parameters: ARParameters,
+    ) -> Scalar:
+        del condition
+        loc_x, scale_x = self._transition_loc_scale(latent_history[-1], parameters)
+        return jstats.norm.logpdf(latent.x, loc=loc_x, scale=scale_x)
+
+    def emission_sample(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentContext[LatentValue],
+        observation_history: ObservationContext[NoisyEmission],
+        condition: NoCondition,
+        parameters: ARParameters,
+    ) -> NoisyEmission:
+        del observation_history, condition
+        loc_y, scale_y = self._emission_loc_scale(latent_history[-1], parameters)
+        y = loc_y + jrandom.normal(key) * scale_y
+        return NoisyEmission(y=y)
+
+    def emission_log_prob(
+        self,
+        latent_history: LatentContext[LatentValue],
+        observation: NoisyEmission,
+        observation_history: ObservationContext[NoisyEmission],
+        condition: NoCondition,
+        parameters: ARParameters,
+    ) -> Scalar:
+        del observation_history, condition
+        loc_y, scale_y = self._emission_loc_scale(latent_history[-1], parameters)
+        return jstats.norm.logpdf(observation.y, loc=loc_y, scale=scale_y)
 
 
 def fill_parameter(ar_only: AROnlyParameters, ref_params: ARParameters) -> ARParameters:
@@ -248,11 +252,13 @@ class AR1Bayesian(
         HyperParameters,
     ]
 ):
-    def __init__(self, ref_params: ARParameters):
+    def __init__(self, ref_params: ARParameters, hyperparameters: HyperParameters | None = None):
+        super().__init__(hyperparameters=hyperparameters)
         self.convert_to_model_parameters = staticmethod(
             partial(fill_parameter, ref_params=ref_params)
         )
 
     inference_parameter_cls = AROnlyParameters
-    target = AR1Target()  # defind for ARParameters
-    parameter_prior = AROnlyPrior()  # defined for the partial parameters
+    target = AR1Target()
+    def parameter_prior(self) -> AROnlyPrior:
+        return AROnlyPrior()

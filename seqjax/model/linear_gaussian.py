@@ -13,9 +13,17 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
-from seqjax.model.base import BayesianSequentialModel, ParameterPrior, Emission, Prior, SequentialModel, Transition
-from seqjax.model.typing import Observation, Parameters, Latent, NoCondition, HyperParameters
 import jax.scipy.special as jspecial
+from seqjax.model.base import (
+    BayesianSequentialModel,
+    ParameterPrior,
+    SequentialModelBase,
+    LatentContext,
+    ObservationContext,
+    ConditionContext,
+)
+from seqjax.model.typing import Observation, Parameters, Latent, NoCondition, HyperParameters
+
 
 class VectorState50D(Latent):
     """Multivariate latent state."""
@@ -36,6 +44,7 @@ class VectorObservation50D(Observation):
         y=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
     )
 
+
 def wishart_logpdf(precision_matrix, df, wishart_rate):
     L = jnp.linalg.cholesky(precision_matrix)
     dim = precision_matrix.shape[0]
@@ -44,7 +53,7 @@ def wishart_logpdf(precision_matrix, df, wishart_rate):
     trace_term = wishart_rate * jnp.trace(precision_matrix)
 
     return (
-        0.5 * (df - dim - 1) * log_det_x 
+        0.5 * (df - dim - 1) * log_det_x
         - 0.5 * trace_term
         - 0.5 * dim * df * jnp.log(2)
         - 0.5 * df * log_det_scale
@@ -53,19 +62,9 @@ def wishart_logpdf(precision_matrix, df, wishart_rate):
 
 
 class LGSSMParameters50D(Parameters):
-    """Parameters of a linear Gaussian state space model (50D).
-
-    Transition noise covariance: Q = D R D, with
-      - D = diag(transition_noise_scale), transition_noise_scale > 0 elementwise
-      - R = transition_noise_corr_cholesky @ transition_noise_corr_cholesky.T
-        is a correlation matrix (SPD, diag == 1)
-
-    Emission noise covariance: same structure.
-    """
+    """Parameters of a linear Gaussian state space model (50D)."""
 
     transition_matrix: Array = field(default_factory=lambda: jnp.eye(50))
-
-    # Target-space (constrained) noise parameterisation
     transition_noise_scale: Array = field(default_factory=lambda: jnp.ones(50))
     transition_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(50))
 
@@ -84,7 +83,6 @@ class LGSSMParameters50D(Parameters):
 
     @property
     def transition_noise_cholesky(self) -> Array:
-        # L_Q = D L_R  => Q = L_Q L_Q^T
         return jnp.diag(self.transition_noise_scale) @ self.transition_noise_corr_cholesky
 
     @property
@@ -109,11 +107,11 @@ VectorObservation = VectorObservation50D
 
 class LGSSMParameterPrior(ParameterPrior[LGSSMParameters, HyperParameters]):
     """Prior over the parameters of the linear Gaussian SSM."""
+
     @staticmethod
     def sample(
         key: PRNGKeyArray,
         hypers: HyperParameters,
-
     ) -> LGSSMParameters:
         raise NotImplementedError
 
@@ -125,128 +123,8 @@ class LGSSMParameterPrior(ParameterPrior[LGSSMParameters, HyperParameters]):
         raise NotImplementedError
 
 
-class GaussianPrior:
-    """Gaussian prior over the initial state."""
-
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        conditions: tuple[NoCondition],
-        parameters: LGSSMParameters,
-    ) -> tuple[VectorState]:
-        mean = jnp.zeros_like(parameters.transition_noise_scale)
-        scale = parameters.transition_noise_scale
-        x0 = mean + scale * jrandom.normal(key, shape=scale.shape)
-        return (VectorState(x=x0),)
-
-    @staticmethod
-    def log_prob(
-        latent: tuple[VectorState],
-        conditions: tuple[NoCondition],
-        parameters: LGSSMParameters,
-    ) -> Scalar:
-        scale = parameters.transition_noise_scale
-        logp = jstats.norm.logpdf(latent[0].x, loc=0.0, scale=scale)
-        return logp.sum()
-
-
-guassian_prior: Prior[
-    tuple[VectorState],
-    tuple[NoCondition],
-    LGSSMParameters,
-] = Prior(sample=GaussianPrior.sample, log_prob=GaussianPrior.log_prob, order=1)
-
-
-class GaussianTransition:
-    """Linear Gaussian state transition."""
-
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        latent_history: tuple[VectorState],
-        condition: NoCondition,
-        parameters: LGSSMParameters,
-    ) -> VectorState:
-        (last_state,) = latent_history
-        mean = parameters.transition_matrix @ last_state.x
-        noise = parameters.transition_noise_scale * jrandom.normal(
-            key, shape=parameters.transition_noise_scale.shape
-        )
-        return VectorState(x=mean + noise)
-
-    @staticmethod
-    def log_prob(
-        latent_history: tuple[VectorState],
-        latent: VectorState,
-        condition: NoCondition,
-        parameters: LGSSMParameters,
-    ) -> Scalar:
-        (last_state,) = latent_history
-        mean = parameters.transition_matrix @ last_state.x
-        logp = jstats.norm.logpdf(
-            latent.x, loc=mean, scale=parameters.transition_noise_scale
-        )
-        return logp.sum()
-
-
-gaussian_transition: Transition[
-    tuple[VectorState],
-    VectorState,
-    NoCondition,
-    LGSSMParameters,
-] = Transition(
-    sample=GaussianTransition.sample, log_prob=GaussianTransition.log_prob, order=1
-)
-
-
-class GaussianEmission:
-    """Gaussian emission from the latent state."""
-
-    @staticmethod
-    def sample(
-        key: PRNGKeyArray,
-        latent: tuple[VectorState],
-        observation_history: tuple[()],
-        condition: NoCondition,
-        parameters: LGSSMParameters,
-    ) -> VectorObservation:
-        (state,) = latent
-        mean = parameters.emission_matrix @ state.x
-        noise = parameters.emission_noise_scale * jrandom.normal(
-            key, shape=parameters.emission_noise_scale.shape
-        )
-        return VectorObservation(y=mean + noise)
-
-    @staticmethod
-    def log_prob(
-        latent: tuple[VectorState],
-        observation: VectorObservation,
-        observation_history: tuple[()],
-        condition: NoCondition,
-        parameters: LGSSMParameters,
-    ) -> Scalar:
-        (state,) = latent
-        mean = parameters.emission_matrix @ state.x
-        logp = jstats.norm.logpdf(
-            observation.y, loc=mean, scale=parameters.emission_noise_scale
-        )
-        return logp.sum()
-
-
-guassian_emission: Emission[
-    tuple[VectorState],
-    NoCondition,
-    VectorObservation,
-    LGSSMParameters,
-] = Emission(
-    sample=GaussianEmission.sample,
-    log_prob=GaussianEmission.log_prob,
-    order=1,
-)
-
-
 class LinearGaussianSSM(
-    SequentialModel[
+    SequentialModelBase[
         VectorState,
         VectorObservation,
         NoCondition,
@@ -256,9 +134,96 @@ class LinearGaussianSSM(
     latent_cls = VectorState
     observation_cls = VectorObservation
     parameter_cls = LGSSMParameters
-    prior = guassian_prior
-    transition = gaussian_transition
-    emission = guassian_emission
+    condition_cls = NoCondition
+
+    prior_order = 1
+    transition_order = 1
+    emission_order = 1
+    observation_dependency = 0
+
+    def prior_sample(
+        self,
+        key: PRNGKeyArray,
+        conditions: ConditionContext[NoCondition],
+        parameters: LGSSMParameters,
+    ) -> LatentContext[VectorState]:
+        del conditions
+        mean = jnp.zeros_like(parameters.transition_noise_scale)
+        scale = parameters.transition_noise_scale
+        x0 = mean + scale * jrandom.normal(key, shape=scale.shape)
+        return self.make_latent_context(VectorState(x=x0))
+
+    def prior_log_prob(
+        self,
+        latent: LatentContext[VectorState],
+        conditions: ConditionContext[NoCondition],
+        parameters: LGSSMParameters,
+    ) -> Scalar:
+        del conditions
+        scale = parameters.transition_noise_scale
+        logp = jstats.norm.logpdf(latent[-1].x, loc=0.0, scale=scale)
+        return logp.sum()
+
+    def transition_sample(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentContext[VectorState],
+        condition: NoCondition,
+        parameters: LGSSMParameters,
+    ) -> VectorState:
+        del condition
+        mean = parameters.transition_matrix @ latent_history[-1].x
+        noise = parameters.transition_noise_scale * jrandom.normal(
+            key, shape=parameters.transition_noise_scale.shape
+        )
+        return VectorState(x=mean + noise)
+
+    def transition_log_prob(
+        self,
+        latent_history: LatentContext[VectorState],
+        latent: VectorState,
+        condition: NoCondition,
+        parameters: LGSSMParameters,
+    ) -> Scalar:
+        del condition
+        mean = parameters.transition_matrix @ latent_history[-1].x
+        logp = jstats.norm.logpdf(
+            latent.x, loc=mean, scale=parameters.transition_noise_scale
+        )
+        return logp.sum()
+
+    def emission_sample(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentContext[VectorState],
+        observation_history: ObservationContext[VectorObservation],
+        condition: NoCondition,
+        parameters: LGSSMParameters,
+    ) -> VectorObservation:
+        del observation_history, condition
+        mean = parameters.emission_matrix @ latent_history[-1].x
+        noise = parameters.emission_noise_scale * jrandom.normal(
+            key, shape=parameters.emission_noise_scale.shape
+        )
+        return VectorObservation(y=mean + noise)
+
+    def emission_log_prob(
+        self,
+        latent_history: LatentContext[VectorState],
+        observation: VectorObservation,
+        observation_history: ObservationContext[VectorObservation],
+        condition: NoCondition,
+        parameters: LGSSMParameters,
+    ) -> Scalar:
+        del observation_history, condition
+        mean = parameters.emission_matrix @ latent_history[-1].x
+        logp = jstats.norm.logpdf(
+            observation.y,
+            loc=mean,
+            scale=parameters.emission_noise_scale,
+        )
+        return logp.sum()
+
 
 class BayesianLinearGaussianSSM(
     BayesianSequentialModel[
@@ -270,7 +235,11 @@ class BayesianLinearGaussianSSM(
         HyperParameters,
     ]
 ):
+    def __init__(self, hyperparameters: HyperParameters | None = None):
+        super().__init__(hyperparameters=hyperparameters)
+
     inference_parameter_cls = LGSSMParameters
     target = LinearGaussianSSM()
-    parameter_prior = LGSSMParameterPrior()
+    def parameter_prior(self) -> LGSSMParameterPrior:
+        return LGSSMParameterPrior()
     convert_to_model_parameters = staticmethod(lambda parameters: parameters)

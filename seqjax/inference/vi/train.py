@@ -73,7 +73,6 @@ class SupportsPretrainLoss(Protocol):
         context_samples: int,
         samples_per_context: int,
         target_posterior: "TargetModelT",
-        hyperparameters: HyperParametersT | None,
     ) -> jaxtyping.Scalar: ...
 
 
@@ -86,7 +85,6 @@ class SupportsPriorFitLoss(Protocol):
         context_samples: int,
         samples_per_context: int,
         target_posterior: "TargetModelT",
-        hyperparameters: HyperParametersT | None,
     ) -> jaxtyping.Scalar: ...
 
 
@@ -163,7 +161,6 @@ def loss_buffered_neg_elbo(
         num_context,
         samples_per_context,
         target_posterior,
-        None,
     )
 
 
@@ -189,7 +186,6 @@ def loss_pre_train_neg_elbo(
         num_context,
         samples_per_context,
         target_posterior,
-        None,
     )
 
 
@@ -214,7 +210,6 @@ def loss_pre_train_prior(
         num_context,
         samples_per_context,
         target_posterior,
-        None,
     )
 
 

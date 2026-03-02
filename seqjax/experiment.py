@@ -191,7 +191,6 @@ def run_experiment(
     )
     param_samples, extra_data = inference(
         model,
-        hyperparameters=None,
         key=jrandom.key(experiment_config.fit_seed),
         observation_path=observation_path,
         condition_path=condition,

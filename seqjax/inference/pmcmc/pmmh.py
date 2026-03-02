@@ -60,7 +60,6 @@ def _make_log_joint_estimator[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     observation_path: ObservationT,
     condition_path: ConditionT | None,
 ):
@@ -83,7 +82,7 @@ def _make_log_joint_estimator[
             condition_path=seqjtyping.NoCondition(),
             recorders=(log_marginal_increment,),
         )
-        log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
+        log_prior = target_posterior.log_prob_inference_parameters(params)
         return jnp.sum(log_marginal_increments) + log_prior
 
     return estimate_log_joint
@@ -106,7 +105,6 @@ def run_particle_mcmc[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
     condition_path: ConditionT,
@@ -117,7 +115,7 @@ def run_particle_mcmc[
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
     estimate_log_joint = _make_log_joint_estimator(
-        target_posterior, hyperparameters, observation_path, condition_path
+        target_posterior, observation_path, condition_path
     )
 
     particle_filter = particle_filter_registry._build_filter(
@@ -126,7 +124,7 @@ def run_particle_mcmc[
     )
     
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.sample_inference_parameters(init_key)
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size

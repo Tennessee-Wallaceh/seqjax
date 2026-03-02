@@ -215,7 +215,6 @@ def run_full_sgld_mcmc[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
     condition_path: ConditionT,
@@ -263,7 +262,7 @@ def run_full_sgld_mcmc[
             partial(masked_score_for_leaf, ancestor_ix, norm_weights),
             score_increments
         )
-        log_prior_score = jax.grad(model.parameter_prior.log_prob, argnums=0)(params, hyperparameters)
+        log_prior_score = jax.grad(model.log_prob_inference_parameters, argnums=0)(params)
 
         return jax.tree_util.tree_map(
             lambda *x: sum(x),  log_prior_score, final_score
@@ -271,7 +270,7 @@ def run_full_sgld_mcmc[
 
     inference_time_start = time.time()
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.sample_inference_parameters(init_key)
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size
@@ -331,7 +330,6 @@ def run_buffer_sgld_mcmc[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     observation_path: ObservationT,
     condition_path: ConditionT,
@@ -401,7 +399,7 @@ def run_buffer_sgld_mcmc[
             partial(masked_score_for_leaf, ancestor_ix, norm_weights, mask=theta_mask),
             score_increments
         )
-        log_prior_score = jax.grad(model.parameter_prior.log_prob, argnums=0)(params, hyperparameters)
+        log_prior_score = jax.grad(model.log_prob_inference_parameters, argnums=0)(params)
         # use rescaling in Aicher code
         return jax.tree_util.tree_map(
             lambda *x: sum(x) / sequence_length,  log_prior_score, final_score
@@ -418,7 +416,7 @@ def run_buffer_sgld_mcmc[
 
     inference_time_start = time.time()
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.sample_inference_parameters(init_key)
 
     num_samples = config.sample_block_size
     sample_blocks = [

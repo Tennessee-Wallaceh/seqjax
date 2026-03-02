@@ -146,7 +146,6 @@ class SSMVariationalApproximation[
             InferenceParametersT,
             HyperParametersT,
         ],
-        hyperparameters: HyperParametersT,
     ) -> typing.Any: ...
 
 
@@ -242,7 +241,6 @@ class FullVI[
             InferenceParametersT,
             HyperParametersT,
         ],
-        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
             self.joint_sample_and_log_prob(
@@ -252,7 +250,7 @@ class FullVI[
 
         log_p_theta = jax.vmap(
             jax.vmap(
-                lambda x: target_posterior.parameter_prior.log_prob(x, hyperparameters)
+                lambda x: target_posterior.log_prob_inference_parameters(x)
             )
         )(theta_q)
 
@@ -285,7 +283,6 @@ class FullVI[
         context_samples: int,
         samples_per_context: int,
         target_posterior: BayesianSequentialModel,
-        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         # split keys for sampling
         parameter_keys, latent_keys = jnp.split(
@@ -293,8 +290,8 @@ class FullVI[
         )
 
         # sample parameter contexts from the target prior
-        parameters = jax.vmap(jax.vmap(target_posterior.parameter_prior.sample))(
-            parameter_keys, None
+        parameters = jax.vmap(jax.vmap(target_posterior.sample_inference_parameters))(
+            parameter_keys
         )
 
         latent_context = jax.vmap(self.embedding.embed, in_axes=(None, None, 0))(
@@ -350,7 +347,6 @@ class FullVI[
         context_samples: int,
         samples_per_context: int,
         target_posterior: BayesianSequentialModel,
-        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         # split keys for sampling
         parameter_keys = jrandom.split(key, (context_samples, samples_per_context))
@@ -359,7 +355,7 @@ class FullVI[
         )(parameter_keys, None)
         log_p_theta = jax.vmap(
             jax.vmap(
-                lambda x: target_posterior.parameter_prior.log_prob(x, hyperparameters)
+                lambda x: target_posterior.log_prob_inference_parameters(x)
             )
         )(theta_q)
         prior_elbo = log_q_theta - log_p_theta
@@ -539,7 +535,6 @@ class BufferedSSMVI[
             InferenceParametersT,
             HyperParametersT,
         ],
-        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         # each index appears in max(batch length) batches
         # batches are sampled uniformly, so scale by
@@ -556,7 +551,7 @@ class BufferedSSMVI[
 
         log_p_theta = jax.vmap(
             jax.vmap(
-                lambda x: target_posterior.parameter_prior.log_prob(x, hyperparameters)
+                lambda x: target_posterior.log_prob_inference_parameters(x)
             )
         )(theta_q)
 
@@ -606,7 +601,6 @@ class BufferedSSMVI[
         context_samples: int,
         samples_per_context: int,
         target_posterior: BayesianSequentialModel,
-        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         # read off configuration
         path_length = observations.batch_shape[0]
@@ -618,8 +612,8 @@ class BufferedSSMVI[
         )
 
         # vmap down both axes
-        parameters = jax.vmap(jax.vmap(target_posterior.parameter_prior.sample))(
-            parameter_keys, None
+        parameters = jax.vmap(jax.vmap(target_posterior.sample_inference_parameters))(
+            parameter_keys
         )
 
         # sample batches and masks
@@ -687,7 +681,6 @@ class BufferedSSMVI[
         context_samples: int,
         samples_per_context: int,
         target_posterior: BayesianSequentialModel,
-        hyperparameters: HyperParametersT,
     ) -> typing.Any:
         # split keys for sampling
         parameter_keys = jrandom.split(key, (context_samples, samples_per_context))
@@ -696,7 +689,7 @@ class BufferedSSMVI[
         )(parameter_keys, None)
         log_p_theta = jax.vmap(
             jax.vmap(
-                lambda x: target_posterior.parameter_prior.log_prob(x, hyperparameters)
+                lambda x: target_posterior.log_prob_inference_parameters(x)
             )
         )(theta_q)
         prior_elbo = log_q_theta - log_p_theta

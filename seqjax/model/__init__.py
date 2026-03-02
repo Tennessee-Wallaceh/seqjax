@@ -26,7 +26,7 @@ log_prob_x = _evaluate_module.log_prob_x
 log_prob_y_given_x = _evaluate_module.log_prob_y_given_x
 log_prob_joint = _evaluate_module.log_prob_joint
 simulate_sequence = _simulate_module.simulate
-simulate_step = _simulate_module.step
+simulate_step = None
 
 __all__ = [
     "evaluate",
@@ -41,5 +41,4 @@ __all__ = [
     "log_prob_y_given_x",
     "log_prob_joint",
     "simulate_sequence",
-    "simulate_step",
 ]

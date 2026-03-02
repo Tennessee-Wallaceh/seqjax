@@ -4,6 +4,7 @@ from dataclasses import field
 from typing import ClassVar
 from functools import partial
 from collections import OrderedDict
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -14,12 +15,12 @@ import jaxtyping
 
 import seqjax.model.typing as seqjtyping
 from seqjax.model.base import (
-    Emission,
     ParameterPrior,
-    Prior,
-    SequentialModel,
     BayesianSequentialModel,
-    Transition,
+    SequentialModelBase,
+    LatentContext,
+    ObservationContext,
+    ConditionContext,
 )
 
 
@@ -60,7 +61,7 @@ class EBOnlyParameters(seqjtyping.Parameters):
 class TimeIncrement(seqjtyping.Condition):
     """Time step between observations."""
 
-    dt: jaxtyping.Scalar  # time since last observation
+    dt: jaxtyping.Scalar
 
     _shape_template: ClassVar = OrderedDict(
         dt=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
@@ -97,43 +98,33 @@ class EBOnlyPrior(ParameterPrior[EBOnlyParameters, seqjtyping.HyperParameters]):
         return log_p_theta
 
 
-class InitialValue:
-    """Gaussian prior over the initial latent state."""
+class DoubleWellTarget(
+    SequentialModelBase[
+        LatentValue,
+        NoisyObservation,
+        TimeIncrement,
+        DoubleWellParams,
+    ]
+):
+    latent_cls = LatentValue
+    observation_cls = NoisyObservation
+    parameter_cls = DoubleWellParams
+    condition_cls = TimeIncrement
+
+    prior_order = 1
+    transition_order = 1
+    emission_order = 1
+    observation_dependency = 0
+
+    prior = SimpleNamespace(order=prior_order)
+    transition = SimpleNamespace(order=transition_order)
+    emission = SimpleNamespace(
+        order=emission_order,
+        observation_dependency=observation_dependency,
+    )
 
     @staticmethod
-    def sample(
-        key: jaxtyping.PRNGKeyArray,
-        conditions: tuple[TimeIncrement],
-        parameters: DoubleWellParams,
-    ) -> tuple[LatentValue]:
-        """Sample the initial latent value."""
-        scale = jnp.array(1.0)
-        x0 = scale * jrandom.normal(
-            key,
-        )
-        return (LatentValue(latent_state=x0),)
-
-    @staticmethod
-    def log_prob(
-        latent: tuple[LatentValue],
-        conditions: tuple[TimeIncrement],
-        parameters: DoubleWellParams,
-    ) -> jaxtyping.Scalar:
-        """Evaluate the prior log-density."""
-        scale = jnp.array(1.0)
-        return jstats.norm.logpdf(latent[0].latent_state, scale=scale)
-
-
-dw_initial = Prior[tuple[LatentValue], tuple[TimeIncrement], DoubleWellParams](
-    order=1,
-    sample=InitialValue.sample,
-    log_prob=InitialValue.log_prob,
-)
-
-
-class DoubleWellWalk:
-    @staticmethod
-    def mean_fn(
+    def _transition_mean(
         last_latent: LatentValue,
         condition: TimeIncrement,
         parameters: DoubleWellParams,
@@ -144,30 +135,47 @@ class DoubleWellWalk:
             jnp.sqrt(parameters.energy_barrier) - last_latent_state * last_latent_state
         )
 
-    @staticmethod
-    def sample(
+    def prior_sample(
+        self,
         key: jaxtyping.PRNGKeyArray,
-        latent_history: tuple[LatentValue],
+        conditions: ConditionContext[TimeIncrement],
+        parameters: DoubleWellParams,
+    ) -> LatentContext[LatentValue]:
+        del conditions, parameters
+        x0 = jrandom.normal(key)
+        return self.make_latent_context(LatentValue(latent_state=x0))
+
+    def prior_log_prob(
+        self,
+        latent: LatentContext[LatentValue],
+        conditions: ConditionContext[TimeIncrement],
+        parameters: DoubleWellParams,
+    ) -> jaxtyping.Scalar:
+        del conditions, parameters
+        return jstats.norm.logpdf(latent[-1].latent_state, scale=jnp.array(1.0))
+
+    def transition_sample(
+        self,
+        key: jaxtyping.PRNGKeyArray,
+        latent_history: LatentContext[LatentValue],
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> LatentValue:
-        (last_latent,) = latent_history
-        mean = DoubleWellWalk.mean_fn(last_latent, condition, parameters)
+        mean = self._transition_mean(latent_history[-1], condition, parameters)
         dt = condition.dt
         return LatentValue(
             latent_state=mean
             + jrandom.normal(key) * parameters.transition_std * jnp.sqrt(dt)
         )
 
-    @staticmethod
-    def log_prob(
-        latent_history: tuple[LatentValue],
+    def transition_log_prob(
+        self,
+        latent_history: LatentContext[LatentValue],
         latent: LatentValue,
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
-        (last_latent,) = latent_history
-        mean = DoubleWellWalk.mean_fn(last_latent, condition, parameters)
+        mean = self._transition_mean(latent_history[-1], condition, parameters)
         dt = condition.dt
         return jstats.norm.logpdf(
             latent.latent_state,
@@ -175,78 +183,35 @@ class DoubleWellWalk:
             scale=parameters.transition_std * jnp.sqrt(dt),
         )
 
-
-dw_random_walk = Transition[
-    tuple[LatentValue],
-    LatentValue,
-    TimeIncrement,
-    DoubleWellParams,
-](
-    order=1,
-    sample=DoubleWellWalk.sample,
-    log_prob=DoubleWellWalk.log_prob,
-)
-
-
-class NoisyEmission:
-    """Normal emission from the latent state."""
-
-    @staticmethod
-    def sample(
+    def emission_sample(
+        self,
         key: jaxtyping.PRNGKeyArray,
-        latent: tuple[LatentValue],
-        observation_history: tuple[()],
+        latent_history: LatentContext[LatentValue],
+        observation_history: ObservationContext[NoisyObservation],
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> NoisyObservation:
-        """Sample an observation."""
-        (current_latent,) = latent
+        del observation_history, condition
         y = (
-            current_latent.latent_state
+            latent_history[-1].latent_state
             + jrandom.normal(key) * parameters.observation_std
         )
         return NoisyObservation(observation=y)
 
-    @staticmethod
-    def log_prob(
-        latent: tuple[LatentValue],
+    def emission_log_prob(
+        self,
+        latent_history: LatentContext[LatentValue],
         observation: NoisyObservation,
-        observation_history: tuple[()],
+        observation_history: ObservationContext[NoisyObservation],
         condition: TimeIncrement,
         parameters: DoubleWellParams,
     ) -> jaxtyping.Scalar:
-        """Return the emission log-density."""
-        (current_latent,) = latent
+        del observation_history, condition
         return jstats.norm.logpdf(
             observation.observation,
-            loc=current_latent.latent_state,
+            loc=latent_history[-1].latent_state,
             scale=parameters.observation_std,
         )
-
-
-noisy_emission = Emission[
-    tuple[LatentValue],
-    TimeIncrement,
-    NoisyObservation,
-    DoubleWellParams,
-](sample=NoisyEmission.sample, log_prob=NoisyEmission.log_prob, order=1)
-
-
-class DoubleWellTarget(
-    SequentialModel[
-        LatentValue,  # latent
-        NoisyObservation,  # observation
-        TimeIncrement,  # condition
-        DoubleWellParams,  # parameters
-    ]
-):
-    latent_cls = LatentValue
-    observation_cls = NoisyObservation
-    parameter_cls = DoubleWellParams
-    condition_cls = TimeIncrement
-    prior = dw_initial
-    transition = dw_random_walk
-    emission = noisy_emission
 
 
 def make_unit_time_increments(
@@ -261,7 +226,7 @@ def make_unit_time_increments(
             f"sequence_length must be >= 1, got {sequence_length}",
         )
 
-    required_length = sequence_length + DoubleWellTarget.prior.order - 1
+    required_length = sequence_length + DoubleWellTarget.prior_order - 1
     dt_value = jnp.asarray(dt, dtype=jnp.float32)
     increments = jnp.full((required_length,), dt_value, dtype=dt_value.dtype)
     return TimeIncrement(dt=increments)
@@ -281,19 +246,25 @@ def fill_parameter(
 
 class DoubleWellBayesian(
     BayesianSequentialModel[
-        LatentValue,  # latent
-        NoisyObservation,  # observation
-        TimeIncrement,  # condition
-        DoubleWellParams,  # parameters
+        LatentValue,
+        NoisyObservation,
+        TimeIncrement,
+        DoubleWellParams,
         EBOnlyParameters,
         seqjtyping.HyperParameters,
     ]
 ):
-    def __init__(self, ref_params: DoubleWellParams):
+    def __init__(
+        self,
+        ref_params: DoubleWellParams,
+        hyperparameters: seqjtyping.HyperParameters | None = None,
+    ):
+        super().__init__(hyperparameters=hyperparameters)
         self.convert_to_model_parameters = staticmethod(
             partial(fill_parameter, ref_params=ref_params)
         )
 
     inference_parameter_cls = EBOnlyParameters
-    target = DoubleWellTarget()  # defind for full parameters
-    parameter_prior = EBOnlyPrior()  # defined for the partial parameters
+    target = DoubleWellTarget()
+    def parameter_prior(self) -> EBOnlyPrior:
+        return EBOnlyPrior()

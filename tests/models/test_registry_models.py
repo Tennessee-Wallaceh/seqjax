@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 import jax.numpy as jnp
 import jax.random as jrandom
@@ -53,10 +55,22 @@ def test_registered_models_can_simulate_and_evaluate(
         sequence_length=sequence_length,
     )
 
-    assert latents.batch_shape[0] == sequence_length + target.prior.order - 1, case_id
+    if hasattr(target, "prior"):
+        prior = target.prior
+    else:
+        prior = SimpleNamespace(order=target.prior_order)
+
+    if hasattr(target, "emission"):
+        emission = target.emission
+    else:
+        emission = SimpleNamespace(
+            observation_dependency=target.observation_dependency
+        )
+
+    assert latents.batch_shape[0] == sequence_length + prior.order - 1, case_id
     assert (
         observation_path.batch_shape[0]
-        == sequence_length + target.emission.observation_dependency
+        == sequence_length + emission.observation_dependency
     ), case_id
 
     log_p_x = evaluate.log_prob_x(

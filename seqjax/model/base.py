@@ -25,7 +25,10 @@ Alternatives:
 """
 
 from typing import Callable
+from functools import partial
+from abc import ABC, abstractmethod
 import typing
+from types import SimpleNamespace
 from dataclasses import dataclass, field
 
 import jax.random as jrandom
@@ -35,6 +38,78 @@ import jax.numpy as jnp
 
 import seqjax.model.typing as seqjtyping
 
+
+class FixedLengthHistoryContext[ItemT]:
+    """Concrete lag-only history context with bounded length.
+
+    ``__getitem__`` accepts only negative integer indices to enforce lag semantics.
+    """
+
+    values: tuple[ItemT, ...]
+    max_length: int
+
+    def __init__(self, *values: ItemT, max_length: int):
+        if len(values) == 1 and isinstance(values[0], tuple):
+            values = typing.cast(tuple[ItemT, ...], values[0])
+        self.values = tuple(values)
+        self.max_length = max_length
+
+        if self.max_length < 0:
+            raise ValueError("max_length must be >= 0")
+        if len(self.values) > self.max_length:
+            raise ValueError(
+                "values length cannot exceed max_length: "
+                f"len(values)={len(self.values)} max_length={self.max_length}"
+            )
+
+    def __getitem__(self, lag_index: int) -> ItemT:
+        if not isinstance(lag_index, int):
+            raise TypeError("History indices must be integers")
+        if lag_index >= 0:
+            raise IndexError("History access is lag-only; use negative indices")
+        if -lag_index > len(self.values):
+            raise IndexError(
+                f"Invalid lag {-lag_index} for history length {len(self.values)}"
+            )
+        return self.values[lag_index]
+
+    @property
+    def current_length(self) -> int:
+        return len(self.values)
+
+    def append(self, item: ItemT) -> typing.Self:
+        if self.max_length == 0:
+            return type(self)(max_length=0)
+        next_values = (*self.values, item)
+        next_values = next_values[-self.max_length :]
+        return type(self)(*next_values, max_length=self.max_length)
+
+    def to_tuple(self) -> tuple[ItemT, ...]:
+        return self.values
+
+
+class LatentContext[LatentT: seqjtyping.Latent](
+    FixedLengthHistoryContext[LatentT],
+):
+    """Concrete latent history context."""
+
+
+class ObservationContext[ObservationT: seqjtyping.Observation](
+    FixedLengthHistoryContext[ObservationT],
+):
+    """Concrete observation history context."""
+
+
+class ConditionContext[ConditionT: seqjtyping.Condition](
+    FixedLengthHistoryContext[ConditionT],
+):
+    """Concrete condition history context."""
+
+
+
+LatentContextType = LatentContext
+ObservationContextType = ObservationContext
+ConditionContextType = ConditionContext
 
 class ParameterPrior[
     ParametersT: seqjtyping.Parameters,
@@ -330,28 +405,117 @@ class SequentialModel[
         )
 
 
-# Specify a version of SequentialModel with 2nd order transitions
-class SequentialModel_TO2_EO2[
+class SequentialModelBase[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-](
-    SequentialModel[
-        LatentT,
-        ObservationT,
-        ConditionT,
-        ParametersT,
-        tuple[LatentT, LatentT],
-        tuple[ConditionT, ConditionT],
-        tuple[LatentT, LatentT],
-        tuple[LatentT, LatentT],
-        tuple[()],
-    ]
-): ...
+](ABC):
+    """Method-based sequential model base class."""
+
+    latent_cls: type[LatentT]
+    observation_cls: type[ObservationT]
+    parameter_cls: type[ParametersT]
+    condition_cls: type[ConditionT]
+
+    prior_order: int
+    transition_order: int
+    emission_order: int
+    observation_dependency: int
+
+    make_latent_context: typing.Callable[..., LatentContextType[LatentT]]
+    make_observation_context: typing.Callable[..., ObservationContextType[ObservationT]]
+    make_condition_context: typing.Callable[..., ConditionContextType[ConditionT]]
+
+    def __init__(self):
+        if self.prior_order < max(self.transition_order, self.emission_order):
+            raise ValueError(
+                "prior_order must be >= max(transition_order, emission_order), got "
+                f"prior_order={self.prior_order} transition_order={self.transition_order} "
+                f"emission_order={self.emission_order}"
+            )
+        self.make_latent_context = partial(LatentContext, max_length=self.prior_order)
+        self.make_observation_context = partial(
+            ObservationContext, max_length=self.observation_dependency
+        )
+        self.make_condition_context = partial(
+            ConditionContext, max_length=self.prior_order
+        )
 
 
-AllSequentialModels = SequentialModel | SequentialModel_TO2_EO2
+
+    @property
+    def prior(self):
+        return SimpleNamespace(order=self.prior_order)
+
+    @property
+    def transition(self):
+        return SimpleNamespace(order=self.transition_order)
+
+    @property
+    def emission(self):
+        return SimpleNamespace(
+            order=self.emission_order,
+            observation_dependency=self.observation_dependency,
+        )
+
+    def prior_sample(
+        self,
+        key: PRNGKeyArray,
+        conditions: ConditionContextType[ConditionT],
+        parameters: ParametersT,
+    ) -> LatentContextType[LatentT]:
+        raise NotImplementedError
+
+    def prior_log_prob(
+        self,
+        latent: LatentContextType[LatentT],
+        conditions: ConditionContextType[ConditionT],
+        parameters: ParametersT,
+    ) -> Scalar:
+        raise NotImplementedError
+
+    def transition_sample(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentContext[LatentT],
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> LatentT:
+        raise NotImplementedError
+
+    def transition_log_prob(
+        self,
+        latent_history: LatentContext[LatentT],
+        latent: LatentT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> Scalar:
+        raise NotImplementedError
+
+    def emission_sample(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentContext[LatentT],
+        observation_history: ObservationContext[ObservationT],
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> ObservationT:
+        raise NotImplementedError
+
+    def emission_log_prob(
+        self,
+        latent_history: LatentContext[LatentT],
+        observation: ObservationT,
+        observation_history: ObservationContext[ObservationT],
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> Scalar:
+        raise NotImplementedError
+
+
+
+AllSequentialModels = SequentialModelBase
 
 
 class BayesianSequentialModel[
@@ -361,48 +525,28 @@ class BayesianSequentialModel[
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
-    # More complex dependency structure typing is handled here
-    PriorLatentT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
-    PriorConditionT: tuple[seqjtyping.Condition, ...] = tuple[ConditionT],  # type: ignore
-    TransitionLatentHistoryT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
-    EmissionLatentHistoryT: tuple[seqjtyping.Latent, ...] = tuple[LatentT],  # type: ignore
-    ObservationHistoryT: tuple[seqjtyping.Observation, ...] = tuple[()],  # type: ignore
-]:
+](ABC):
     inference_parameter_cls: type[InferenceParametersT]
-    target: SequentialModel[
-        LatentT,
-        ObservationT,
-        ConditionT,
-        ParametersT,
-        PriorLatentT,
-        PriorConditionT,
-        TransitionLatentHistoryT,
-        EmissionLatentHistoryT,
-        ObservationHistoryT,
-    ]
-    parameter_prior: ParameterPrior[InferenceParametersT, HyperParametersT]
-    convert_to_model_parameters: Callable[[InferenceParametersT], ParametersT] = staticmethod(lambda x: typing.cast(ParametersT, x))
+    target: SequentialModelBase[LatentT, ObservationT, ConditionT, ParametersT]
+    hyperparameters: HyperParametersT | None
+    convert_to_model_parameters: Callable[[InferenceParametersT], ParametersT] = staticmethod(
+        lambda x: typing.cast(ParametersT, x)
+    )
 
+    def __init__(self, hyperparameters: HyperParametersT | None = None):
+        self.hyperparameters = hyperparameters
 
-class BayesianSequentialModel_TO2_EO2[
-    LatentT: seqjtyping.Latent,
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition,
-    ParametersT: seqjtyping.Parameters,
-    InferenceParametersT: seqjtyping.Parameters,
-    HyperParametersT: seqjtyping.HyperParameters,
-](
-    BayesianSequentialModel[
-        LatentT,
-        ObservationT,
-        ConditionT,
-        ParametersT,
-        InferenceParametersT,
-        HyperParametersT,
-        tuple[LatentT, LatentT],
-        tuple[ConditionT, ConditionT],
-        tuple[LatentT, LatentT],
-        tuple[LatentT, LatentT],
-        tuple[()],
-    ]
-): ...
+    @abstractmethod
+    def parameter_prior(self) -> ParameterPrior[InferenceParametersT, HyperParametersT]:
+        """Return the parameter prior object for this Bayesian model specialization."""
+
+    def _bound_hyperparameters(self) -> HyperParametersT:
+        return typing.cast(HyperParametersT, self.hyperparameters)
+
+    def sample_inference_parameters(self, key: PRNGKeyArray) -> InferenceParametersT:
+        return self.parameter_prior().sample(key, self._bound_hyperparameters())
+
+    def log_prob_inference_parameters(self, parameters: InferenceParametersT) -> Scalar:
+        return self.parameter_prior().log_prob(
+            parameters, self._bound_hyperparameters()
+        )

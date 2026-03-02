@@ -8,7 +8,7 @@ from typing import Iterable, Union, get_args, get_origin
 
 from graphviz import Digraph  # type: ignore
 
-from .base import SequentialModel
+from .base import SequentialModel, SequentialModelBase
 
 
 _UNION_TYPES = tuple(
@@ -72,7 +72,7 @@ def _resolve_packable_type(annotation: object) -> type | None:
 
 
 def graph_model(
-    model: SequentialModel,
+    model: SequentialModel | SequentialModelBase,
     *,
     legend: bool = False,
     render: bool | str | None = None,
@@ -115,7 +115,7 @@ def graph_model(
         if len(seq_args) >= 9:
             parameter_cls = _resolve_packable_type(seq_args[8]) or parameter_cls
 
-    if condition_cls is None:
+    if condition_cls is None and hasattr(model, "transition"):
         transition_bases = getattr(model.transition.__class__, "__orig_bases__", ())
         if transition_bases:
             cond_args = get_args(transition_bases[0])
@@ -126,7 +126,18 @@ def graph_model(
     observation_cls = observation_cls or model.observation_cls
     parameter_cls = parameter_cls or model.parameter_cls
 
-    start = -model.prior.order + 1
+    if isinstance(model, SequentialModelBase):
+        prior_order = model.prior_order
+        transition_order = model.transition_order
+        emission_order = model.emission_order
+        observation_dependency = model.observation_dependency
+    else:
+        prior_order = model.prior.order
+        transition_order = model.transition.order
+        emission_order = model.emission.order
+        observation_dependency = model.emission.observation_dependency
+
+    start = -prior_order + 1
 
     latent_fields = (
         [f.name for f in fields(latent_cls)] if is_dataclass(latent_cls) else ["x"]
@@ -184,7 +195,7 @@ def graph_model(
     for fld_dest in latent_fields:
         trans_sources = [
             f"x{1 - i}_{fld_src}"
-            for i in range(1, model.transition.order + 1)
+            for i in range(1, transition_order + 1)
             for fld_src in latent_fields
         ]
         _add_edges(g, trans_sources, f"x1_{fld_dest}")
@@ -197,14 +208,14 @@ def graph_model(
         for fld_dest in obs_fields:
             lat_srcs = [
                 f"x{t - i}_{fld_src}"
-                for i in range(model.emission.order)
+                for i in range(emission_order)
                 for fld_src in latent_fields
             ]
             _add_edges(g, lat_srcs, f"y{t}_{fld_dest}")
 
             obs_srcs = [
                 f"y{t - i}_{fld_src}"
-                for i in range(1, model.emission.observation_dependency + 1)
+                for i in range(1, observation_dependency + 1)
                 if t - i >= 0
                 for fld_src in obs_fields
             ]
