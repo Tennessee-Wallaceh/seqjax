@@ -24,21 +24,21 @@ def _build_single_sequence_dataset(sequence_length: int = 8) -> ObservationDatas
     )
 
 
-def test_sequence_minibatch_above_dataset_size_raises_informative_error() -> None:
+def test_sequence_minibatch_above_dataset_size_rejects_third_argument() -> None:
     dataset = _build_single_sequence_dataset()
-    with pytest.raises(ValueError, match="num_sequence_minibatch"):
+    with pytest.raises(TypeError, match="takes 2 positional arguments"):
         _sample_sequence_minibatch(
             dataset,
-            key=jrandom.PRNGKey(1),
-            num_sequence_minibatch=2,
+            jrandom.PRNGKey(1),
+            2,
         )
 
 
-def test_sequence_minibatch_nonpositive_raises_informative_error() -> None:
+def test_sequence_minibatch_nonpositive_rejects_third_argument() -> None:
     dataset = _build_single_sequence_dataset()
-    with pytest.raises(ValueError, match="must be positive"):
+    with pytest.raises(TypeError, match="takes 2 positional arguments"):
         _sample_sequence_minibatch(
             dataset,
-            key=jrandom.PRNGKey(1),
-            num_sequence_minibatch=0,
+            jrandom.PRNGKey(1),
+            0,
         )

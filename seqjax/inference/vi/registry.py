@@ -23,7 +23,7 @@ from seqjax.model.registry import default_parameter_transforms
 Embedding configurations
 """
 EmbedderName = typing.Literal[
-    "short-window", "long-window", "bi-rnn", "passthrough", "conv1d", "transformer"
+    "short-window", "long-window", "bi-rnn", "passthrough", "conv1d", "transformer", "positional"
 ]
 
 
@@ -71,6 +71,12 @@ class TransformerEmbedderConfig:
     pool_dim: None | int = None
 
 
+@dataclass
+class PositionalEmbedderConfig:
+    label: EmbedderName = field(init=False, default="positional")
+    n_pos_embedding: int = 8
+
+
 EmbedderConfig = (
     ShortContextEmbedder 
     | LongContextEmbedder 
@@ -78,6 +84,7 @@ EmbedderConfig = (
     | PassthroughEmbedder
     | Conv1DEmbedderConfig
     | TransformerEmbedderConfig
+    | PositionalEmbedderConfig
 )
 
 embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
@@ -87,6 +94,7 @@ embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
     "passthrough": PassthroughEmbedder,
     "conv1d": Conv1DEmbedderConfig,
     "transformer": TransformerEmbedderConfig,
+    "positional": PositionalEmbedderConfig,
 }
 
 def _build_embedder(
@@ -153,6 +161,13 @@ def _build_embedder(
             mlp_multiplier=embedder_config.mlp_multiplier,
             pool_dim=embedder_config.pool_dim,
             key=embedding_key,
+        )
+    elif isinstance(embedder_config, PositionalEmbedderConfig):
+        embed = embedder.PositionalEmbedder(
+            target_posterior=target_posterior,
+            sample_length=sample_length,
+            sequence_length=sequence_length,
+            n_pos_embedding=embedder_config.n_pos_embedding,
         )
     else:
         raise ValueError(f"Unknown embedder type: {embedder_config.label}")

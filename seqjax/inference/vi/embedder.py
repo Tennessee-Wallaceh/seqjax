@@ -2,6 +2,7 @@ import equinox as eqx
 from jaxtyping import Array, Int
 import jax.numpy as jnp
 import jax
+import typing
 from dataclasses import field
 
 from seqjax.model.base import BayesianSequentialModel
@@ -9,27 +10,74 @@ from .api import LatentContext, Embedder, SequenceAggregator
 from .aggregation import AggregationKind, build_sequence_aggregator
 
 
-# class PositionalEmbedder(Embedder):
-#     """
-#     Reshapes observation information to a context of appropriate size for
-#     each step in the batch
-#     """
-#     sample_length: int
-#     pos_context: int 
+class PositionalBasis(typing.Protocol):
+    def __call__(
+        self,
+        positions: Array,
+        n_pos_embedding: int,
+    ) -> Array: ...
 
-#     def __init__():
-#         seq_length = sequence_embedded_context.shape[0]
-#         pos = (jnp.arange(seq_length) + 0.5) / seq_length
-                                                    
-#         freqs = (2.0 ** jnp.arange(self.n_pos_embedding)) * jnp.pi 
 
-#         x = pos[:, None] * freqs[None, :]
-#         self.pos_context = jnp.concatenate(
-#             [pos[:, None], jnp.sin(x), jnp.cos(x)],
-#             axis=-1
-#         )
+def _fourier_positional_basis(
+    positions: Array,
+    n_pos_embedding: int,
+) -> Array:
+    freqs = (2.0 ** jnp.arange(n_pos_embedding)) * jnp.pi
+    phase = positions[:, None] * freqs[None, :]
+    return jnp.concatenate(
+        [positions[:, None], jnp.sin(phase), jnp.cos(phase)],
+        axis=-1,
+    )
 
-#     def embed():
+
+class PositionalEmbedder(Embedder):
+    """Produces pure positional sequence features from sample-step indices."""
+
+    n_pos_embedding: int = eqx.field(static=True)
+    positional_basis: PositionalBasis = eqx.field(static=True)
+    pos_context: Array
+
+    def __init__(
+        self,
+        target_posterior: BayesianSequentialModel,
+        sample_length: int,
+        sequence_length: int,
+        n_pos_embedding: int = 8,
+        positional_basis: PositionalBasis = _fourier_positional_basis,
+    ):
+        if sample_length < 1:
+            raise ValueError(f"sample_length must be >= 1, got {sample_length}")
+        if n_pos_embedding < 1:
+            raise ValueError(f"n_pos_embedding must be >= 1, got {n_pos_embedding}")
+
+        self.n_pos_embedding = n_pos_embedding
+        self.positional_basis = positional_basis
+
+        positions = (jnp.arange(sample_length) + 0.5) / sample_length
+        self.pos_context = self.positional_basis(positions, n_pos_embedding)
+
+        self.sequence_embedded_context_dim = self.pos_context.shape[-1]
+        (
+            self.observation_context_dim,
+            self.condition_context_dim,
+            self.parameter_context_dim,
+            self.embedded_context_dim,
+        ) = LatentContext.from_sequence_context_dims(target_posterior, sample_length)
+
+        super().__init__(target_posterior, sample_length, sequence_length)
+
+    def embed(
+        self,
+        observations,
+        conditions,
+        parameters,
+    ):
+        return LatentContext.build_from_sequence_context(
+            self.pos_context,
+            observations,
+            conditions,
+            parameters,
+        )
 
 class WindowEmbedder(Embedder):
     """
