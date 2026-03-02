@@ -512,6 +512,86 @@ def _simulate_data(data_config: DataConfig) -> tuple[Packable, Packable, Packabl
     return x_path, observation_path, condition
 
 
+def _simulate_sequence_data(
+    data_config: DataConfig,
+) -> tuple[list[Packable], list[Packable], list[Packable | None]]:
+    data_key = jrandom.PRNGKey(data_config.seed)
+    sequence_keys = jrandom.split(data_key, data_config.num_sequences)
+
+    x_paths: list[Packable] = []
+    observation_paths: list[Packable] = []
+    condition_paths: list[Packable | None] = []
+
+    for sequence_key in sequence_keys:
+        condition: Packable | None = None
+        if data_config.target_model_label in condition_generators:
+            condition = condition_generators[data_config.target_model_label](
+                data_config.sequence_length
+            )
+
+        x_path, observation_path = simulate.simulate(
+            sequence_key,
+            data_config.target,
+            data_config.generative_parameters,
+            sequence_length=data_config.sequence_length,
+            condition=condition,
+        )
+        x_paths.append(x_path)
+        observation_paths.append(observation_path)
+        condition_paths.append(condition)
+
+    return x_paths, observation_paths, condition_paths
+
+
+def _sequence_file_stem(base_name: str, sequence_idx: int) -> str:
+    return f"{base_name}_s{sequence_idx}"
+
+
+def _assert_all_required_shards_present(
+    *,
+    data_config: DataConfig,
+    present_file_stems: set[str],
+) -> None:
+    expected_file_stems: set[str] = set()
+    for sequence_idx in range(data_config.num_sequences):
+        expected_file_stems.add(_sequence_file_stem("x_path", sequence_idx))
+        expected_file_stems.add(_sequence_file_stem("observation_path", sequence_idx))
+        if data_config.target_model_label in condition_generators:
+            expected_file_stems.add(_sequence_file_stem("condition", sequence_idx))
+
+    missing = sorted(expected_file_stems - present_file_stems)
+    extra = sorted(present_file_stems - expected_file_stems)
+    if missing or extra:
+        raise FileNotFoundError(
+            "Dataset shard mismatch for "
+            f"'{data_config.dataset_name}'. Missing shards={missing}, extra shards={extra}. "
+            f"Expected sequence indices: 0..{data_config.num_sequences - 1}."
+        )
+
+
+def _stack_sequence_packables(
+    x_paths: list[Packable],
+    observation_paths: list[Packable],
+    condition_paths: list[Packable | None],
+) -> tuple[Packable, Packable, Packable | None]:
+    if len(x_paths) == 1:
+        if len(condition_paths) == 0:
+            return x_paths[0], observation_paths[0], None
+        return x_paths[0], observation_paths[0], condition_paths[0]
+
+    x_stacked = _stack_packables(x_paths)
+    observation_stacked = _stack_packables(observation_paths)
+    if len(condition_paths) == 0 or all(c is None for c in condition_paths):
+        return x_stacked, observation_stacked, None
+    if not all(c is not None for c in condition_paths):
+        raise ValueError(
+            "Condition shard mismatch: some sequences have condition data and others do not."
+        )
+    return x_stacked, observation_stacked, _stack_packables(
+        typing.cast(list[Packable], condition_paths)
+    )
+
+
 class WandbArtifactDataStorage:
     """Dataset storage backend backed by W&B artifacts."""
 
@@ -523,38 +603,116 @@ class WandbArtifactDataStorage:
         data_config: DataConfig,
     ) -> tuple[Packable, Packable, Packable | None]:
         artifact_name = data_config.dataset_name
-        condition: Packable | None = None
 
         if not packable_artifact_present(self._run, artifact_name):
             print(f"{artifact_name} not present on remote, generating...")
-            x_path, observation_path, condition = _simulate_data(data_config)
+            x_paths, observation_paths, condition_paths = _simulate_sequence_data(data_config)
 
             print(f"saving {artifact_name} on remote...")
-            to_save: typing.Any = [
-                ("x_path", x_path, {}),
-                ("observation_path", observation_path, {}),
-            ]
-            if condition is not None:
-                to_save.append(("condition", condition, {}))
+            to_save: list[tuple[str, Packable, dict[str, int]]] = []
+            for sequence_idx, (x_path, observation_path) in enumerate(
+                zip(x_paths, observation_paths, strict=True)
+            ):
+                to_save.extend(
+                    [
+                        (
+                            _sequence_file_stem("x_path", sequence_idx),
+                            x_path,
+                            {"sequence_idx": sequence_idx},
+                        ),
+                        (
+                            _sequence_file_stem("observation_path", sequence_idx),
+                            observation_path,
+                            {"sequence_idx": sequence_idx},
+                        ),
+                    ]
+                )
+                condition = condition_paths[sequence_idx]
+                if condition is not None:
+                    to_save.append(
+                        (
+                            _sequence_file_stem("condition", sequence_idx),
+                            condition,
+                            {"sequence_idx": sequence_idx},
+                        )
+                    )
             save_packable_artifact(self._run, artifact_name, "dataset", to_save)
-            return x_path, observation_path, condition
+            return _stack_sequence_packables(x_paths, observation_paths, condition_paths)
 
         print(f"{artifact_name} present on remote, downloading...")
-        to_load = [
-            ("x_path", data_config.target.latent_cls),
-            ("observation_path", data_config.target.observation_cls),
-        ]
-        if data_config.target_model_label in condition_generators:
-            to_load.append(("condition", data_config.target.condition_cls))
+        artifact = self._run.use_artifact(f"{artifact_name}:latest")
+        artifact_dir = download_artifact(artifact)
+        present_file_stems = {
+            os.path.splitext(e.name)[0]
+            for e in os.scandir(artifact_dir)
+            if e.is_file() and e.name.endswith(".parquet")
+        }
 
-        loaded = load_packable_artifact(self._run, artifact_name, to_load)
+        if data_config.num_sequences == 1 and {
+            "x_path",
+            "observation_path",
+        }.issubset(present_file_stems):
+            to_load = [
+                ("x_path", data_config.target.latent_cls),
+                ("observation_path", data_config.target.observation_cls),
+            ]
+            if data_config.target_model_label in condition_generators:
+                to_load.append(("condition", data_config.target.condition_cls))
+            loaded = load_packable_artifact(self._run, artifact_name, to_load)
+            if data_config.target_model_label in condition_generators:
+                (x_path, _), (observation_path, _), (condition, _) = loaded
+                legacy_condition_paths: list[Packable | None] = [condition]
+            else:
+                (x_path, _), (observation_path, _) = loaded
+                legacy_condition_paths = [None]
+            return _stack_sequence_packables([x_path], [observation_path], legacy_condition_paths)
 
-        if data_config.target_model_label in condition_generators:
-            (x_path, _), (observation_path, _), (condition, _) = loaded
-        else:
-            (x_path, _), (observation_path, _) = loaded
+        _assert_all_required_shards_present(
+            data_config=data_config,
+            present_file_stems=present_file_stems,
+        )
 
-        return x_path, observation_path, condition
+        to_load_shards: list[tuple[str, type[Packable]]] = []
+        for sequence_idx in range(data_config.num_sequences):
+            to_load_shards.extend(
+                [
+                    (_sequence_file_stem("x_path", sequence_idx), data_config.target.latent_cls),
+                    (
+                        _sequence_file_stem("observation_path", sequence_idx),
+                        data_config.target.observation_cls,
+                    ),
+                ]
+            )
+            if data_config.target_model_label in condition_generators:
+                to_load_shards.append(
+                    (
+                        _sequence_file_stem("condition", sequence_idx),
+                        data_config.target.condition_cls,
+                    )
+                )
+
+        loaded = load_packable_artifact(self._run, artifact_name, to_load_shards)
+        loaded_x_paths: list[Packable] = []
+        loaded_observation_paths: list[Packable] = []
+        loaded_condition_paths: list[Packable | None] = []
+        idx = 0
+        for _ in range(data_config.num_sequences):
+            (x_path, _), (observation_path, _) = loaded[idx], loaded[idx + 1]
+            idx += 2
+            loaded_x_paths.append(x_path)
+            loaded_observation_paths.append(observation_path)
+            if data_config.target_model_label in condition_generators:
+                (condition, _) = loaded[idx]
+                idx += 1
+                loaded_condition_paths.append(condition)
+            else:
+                loaded_condition_paths.append(None)
+
+        return _stack_sequence_packables(
+            loaded_x_paths,
+            loaded_observation_paths,
+            loaded_condition_paths,
+        )
 
 
 class LocalFilesystemDataStorage:
@@ -571,50 +729,142 @@ class LocalFilesystemDataStorage:
 
     def _dataset_present(self, data_config: DataConfig) -> bool:
         artifact_name = data_config.dataset_name
-        required = ["x_path", "observation_path"]
-        if data_config.target_model_label in condition_generators:
-            required.append("condition")
+        if data_config.num_sequences == 1:
+            legacy_required = ["x_path", "observation_path"]
+            if data_config.target_model_label in condition_generators:
+                legacy_required.append("condition")
+            if all(os.path.isfile(self._file_path(artifact_name, name)) for name in legacy_required):
+                return True
 
-        return all(os.path.isfile(self._file_path(artifact_name, name)) for name in required)
+        for sequence_idx in range(data_config.num_sequences):
+            required = [
+                _sequence_file_stem("x_path", sequence_idx),
+                _sequence_file_stem("observation_path", sequence_idx),
+            ]
+            if data_config.target_model_label in condition_generators:
+                required.append(_sequence_file_stem("condition", sequence_idx))
+            if not all(os.path.isfile(self._file_path(artifact_name, name)) for name in required):
+                return False
+        return True
+
+    def _dataset_has_any_parquet_files(self, artifact_name: str) -> bool:
+        dataset_dir = self._dataset_dir(artifact_name)
+        if not os.path.isdir(dataset_dir):
+            return False
+        return any(
+            entry.is_file() and entry.name.endswith(".parquet")
+            for entry in os.scandir(dataset_dir)
+        )
 
     def _save_data(
         self,
         artifact_name: str,
-        x_path: Packable,
-        observation_path: Packable,
-        condition: Packable | None,
+        x_paths: list[Packable],
+        observation_paths: list[Packable],
+        condition_paths: list[Packable | None],
     ) -> None:
         dataset_dir = self._dataset_dir(artifact_name)
         os.makedirs(dataset_dir, exist_ok=True)
-        packable_to_df(x_path).write_parquet(self._file_path(artifact_name, "x_path"))
-        packable_to_df(observation_path).write_parquet(
-            self._file_path(artifact_name, "observation_path")
-        )
-        if condition is not None:
-            packable_to_df(condition).write_parquet(
-                self._file_path(artifact_name, "condition")
+        for sequence_idx, (x_path, observation_path) in enumerate(
+            zip(x_paths, observation_paths, strict=True)
+        ):
+            packable_to_df(x_path).write_parquet(
+                self._file_path(artifact_name, _sequence_file_stem("x_path", sequence_idx))
             )
+            packable_to_df(observation_path).write_parquet(
+                self._file_path(
+                    artifact_name,
+                    _sequence_file_stem("observation_path", sequence_idx),
+                )
+            )
+            condition = condition_paths[sequence_idx]
+            if condition is not None:
+                packable_to_df(condition).write_parquet(
+                    self._file_path(
+                        artifact_name,
+                        _sequence_file_stem("condition", sequence_idx),
+                    )
+                )
 
     def _load_data(
         self, data_config: DataConfig
     ) -> tuple[Packable, Packable, Packable | None]:
         artifact_name = data_config.dataset_name
-        x_path = df_to_packable(
-            data_config.target.latent_cls,
-            pl.read_parquet(self._file_path(artifact_name, "x_path")),
-        )
-        observation_path = df_to_packable(
-            data_config.target.observation_cls,
-            pl.read_parquet(self._file_path(artifact_name, "observation_path")),
+        present_file_stems = {
+            os.path.splitext(e.name)[0]
+            for e in os.scandir(self._dataset_dir(artifact_name))
+            if e.is_file() and e.name.endswith(".parquet")
+        }
+
+        if data_config.num_sequences == 1 and {
+            "x_path",
+            "observation_path",
+        }.issubset(present_file_stems):
+            x_path = df_to_packable(
+                data_config.target.latent_cls,
+                pl.read_parquet(self._file_path(artifact_name, "x_path")),
+            )
+            observation_path = df_to_packable(
+                data_config.target.observation_cls,
+                pl.read_parquet(self._file_path(artifact_name, "observation_path")),
+            )
+            legacy_condition_paths: list[Packable | None] = [None]
+            if data_config.target_model_label in condition_generators:
+                legacy_condition_paths = [
+                    df_to_packable(
+                        data_config.target.condition_cls,
+                        pl.read_parquet(self._file_path(artifact_name, "condition")),
+                    )
+                ]
+            return _stack_sequence_packables([x_path], [observation_path], legacy_condition_paths)
+
+        _assert_all_required_shards_present(
+            data_config=data_config,
+            present_file_stems=present_file_stems,
         )
 
-        condition: Packable | None = None
-        if data_config.target_model_label in condition_generators:
-            condition = df_to_packable(
-                data_config.target.condition_cls,
-                pl.read_parquet(self._file_path(artifact_name, "condition")),
+        x_paths: list[Packable] = []
+        observation_paths: list[Packable] = []
+        loaded_condition_paths: list[Packable | None] = []
+
+        for sequence_idx in range(data_config.num_sequences):
+            x_paths.append(
+                df_to_packable(
+                    data_config.target.latent_cls,
+                    pl.read_parquet(
+                        self._file_path(
+                            artifact_name,
+                            _sequence_file_stem("x_path", sequence_idx),
+                        )
+                    ),
+                )
             )
-        return x_path, observation_path, condition
+            observation_paths.append(
+                df_to_packable(
+                    data_config.target.observation_cls,
+                    pl.read_parquet(
+                        self._file_path(
+                            artifact_name,
+                            _sequence_file_stem("observation_path", sequence_idx),
+                        )
+                    ),
+                )
+            )
+            if data_config.target_model_label in condition_generators:
+                loaded_condition_paths.append(
+                    df_to_packable(
+                        data_config.target.condition_cls,
+                        pl.read_parquet(
+                            self._file_path(
+                                artifact_name,
+                                _sequence_file_stem("condition", sequence_idx),
+                            )
+                        ),
+                    )
+                )
+            else:
+                loaded_condition_paths.append(None)
+        return _stack_sequence_packables(x_paths, observation_paths, loaded_condition_paths)
 
     def get_data(
         self,
@@ -623,11 +873,16 @@ class LocalFilesystemDataStorage:
         artifact_name = data_config.dataset_name
 
         if not self._dataset_present(data_config):
+            if self._dataset_has_any_parquet_files(artifact_name):
+                raise FileNotFoundError(
+                    f"Dataset '{artifact_name}' exists but does not satisfy strict shard layout "
+                    f"for num_sequences={data_config.num_sequences}."
+                )
             print(f"{artifact_name} not present locally, generating...")
-            x_path, observation_path, condition = _simulate_data(data_config)
+            x_paths, observation_paths, condition_paths = _simulate_sequence_data(data_config)
             print(f"saving {artifact_name} locally...")
-            self._save_data(artifact_name, x_path, observation_path, condition)
-            return x_path, observation_path, condition
+            self._save_data(artifact_name, x_paths, observation_paths, condition_paths)
+            return _stack_sequence_packables(x_paths, observation_paths, condition_paths)
 
         print(f"{artifact_name} present locally, loading...")
         return self._load_data(data_config)

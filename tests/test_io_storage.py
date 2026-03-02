@@ -30,6 +30,49 @@ def test_local_filesystem_data_storage_roundtrips_dataset(tmp_path) -> None:
         np.testing.assert_allclose(np.asarray(generated_item.ravel()), np.asarray(loaded_item.ravel()))
 
 
+def test_local_filesystem_data_storage_roundtrips_multi_sequence_dataset(tmp_path) -> None:
+    data_config = DataConfig(
+        target_model_label="aicher_stochastic_vol",
+        generative_parameter_label="base",
+        sequence_length=16,
+        seed=0,
+        num_sequences=3,
+    )
+    storage = LocalFilesystemDataStorage(str(tmp_path))
+
+    generated = storage.get_data(data_config)
+    loaded = storage.get_data(data_config)
+
+    assert generated[1].batch_shape[0] == 3
+    assert loaded[1].batch_shape[0] == 3
+    for generated_item, loaded_item in zip(generated, loaded, strict=True):
+        if generated_item is None:
+            assert loaded_item is None
+            continue
+        assert loaded_item is not None
+        np.testing.assert_allclose(np.asarray(generated_item.ravel()), np.asarray(loaded_item.ravel()))
+
+
+def test_local_filesystem_data_storage_raises_on_partial_multi_sequence_shards(tmp_path) -> None:
+    data_config = DataConfig(
+        target_model_label="aicher_stochastic_vol",
+        generative_parameter_label="base",
+        sequence_length=10,
+        seed=5,
+        num_sequences=2,
+    )
+    storage = LocalFilesystemDataStorage(str(tmp_path))
+    generated = storage.get_data(data_config)
+    assert generated[1].batch_shape[0] == 2
+
+    dataset_dir = tmp_path / "datasets" / data_config.dataset_name
+    shard_to_remove = dataset_dir / "observation_path_s1.parquet"
+    shard_to_remove.unlink()
+
+    with pytest.raises(FileNotFoundError, match="strict shard layout"):
+        storage.get_data(data_config)
+
+
 def test_local_prepared_data_storage_loads_named_dataset(tmp_path) -> None:
     data_config = DataConfig(
         target_model_label="aicher_stochastic_vol",
