@@ -4,7 +4,7 @@ import pytest
 from seqjax.io import (
     LocalFilesystemDataStorage,
     LocalPreparedDataStorage,
-    dataset_reference_from_data_config,
+    NamedPreparedDataRequest,
     save_named_packable_dataset,
 )
 from seqjax.model.registry import DataConfig
@@ -54,7 +54,10 @@ def test_local_prepared_data_storage_loads_named_dataset(tmp_path) -> None:
 
     loaded = LocalPreparedDataStorage(str(tmp_path)).get_data(
         data_config,
-        dataset_reference_from_data_config(data_config),
+        NamedPreparedDataRequest(
+            dataset_name=data_config.dataset_name,
+            target_model_label=data_config.target_model_label,
+        ),
     )
 
     for generated_item, loaded_item in zip(generated, loaded, strict=True):
@@ -76,7 +79,10 @@ def test_local_prepared_data_storage_raises_if_missing_dataset(tmp_path) -> None
     with pytest.raises(FileNotFoundError, match="missing required files"):
         LocalPreparedDataStorage(str(tmp_path)).get_data(
             data_config,
-            dataset_reference_from_data_config(data_config),
+            NamedPreparedDataRequest(
+                dataset_name=data_config.dataset_name,
+                target_model_label=data_config.target_model_label,
+            ),
         )
 
 
@@ -105,5 +111,52 @@ def test_local_prepared_data_storage_raises_on_manifest_mismatch(tmp_path) -> No
     with pytest.raises(ValueError, match="incompatible"):
         LocalPreparedDataStorage(str(tmp_path)).get_data(
             data_config,
-            dataset_reference_from_data_config(data_config),
+            NamedPreparedDataRequest(
+                dataset_name=data_config.dataset_name,
+                target_model_label=data_config.target_model_label,
+            ),
         )
+
+
+def test_local_prepared_data_storage_does_not_require_matching_sequence_length(tmp_path) -> None:
+    write_config = DataConfig(
+        target_model_label="aicher_stochastic_vol",
+        generative_parameter_label="base",
+        sequence_length=16,
+        seed=3,
+    )
+    generating_storage = LocalFilesystemDataStorage(str(tmp_path))
+    generated = generating_storage.get_data(write_config)
+
+    save_named_packable_dataset(
+        str(tmp_path),
+        write_config.dataset_name,
+        generated[0],
+        generated[1],
+        generated[2],
+        model_label=write_config.target_model_label,
+        sequence_length=write_config.sequence_length,
+        num_sequences=write_config.num_sequences,
+        overwrite=True,
+    )
+
+    read_config = DataConfig(
+        target_model_label="aicher_stochastic_vol",
+        generative_parameter_label="base",
+        sequence_length=32,
+        seed=999,
+    )
+    loaded = LocalPreparedDataStorage(str(tmp_path)).get_data(
+        read_config,
+        NamedPreparedDataRequest(
+            dataset_name=write_config.dataset_name,
+            target_model_label=read_config.target_model_label,
+        ),
+    )
+
+    for generated_item, loaded_item in zip(generated, loaded, strict=True):
+        if generated_item is None:
+            assert loaded_item is None
+            continue
+        assert loaded_item is not None
+        np.testing.assert_allclose(np.asarray(generated_item.ravel()), np.asarray(loaded_item.ravel()))

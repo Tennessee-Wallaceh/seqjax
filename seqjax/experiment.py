@@ -175,14 +175,19 @@ def run_experiment(
     model = experiment_config.posterior_factory(target_params)
 
     if resolved_runtime_config.prepared_local_data:
+        if resolved_runtime_config.prepared_dataset_name is None:
+            raise ValueError(
+                "RuntimeConfig.prepared_dataset_name is required when "
+                "data_source='prepared-local'."
+            )
         prepared_storage = io.LocalPreparedDataStorage(resolved_runtime_config.local_root)
-        dataset_reference = io.dataset_reference_from_data_config(
-            experiment_config.data_config,
-            dataset_name_override=resolved_runtime_config.prepared_dataset_name,
+        prepared_data_request = io.NamedPreparedDataRequest(
+            dataset_name=resolved_runtime_config.prepared_dataset_name,
+            target_model_label=experiment_config.data_config.target_model_label,
         )
         x_paths, observations, conditions = prepared_storage.get_data(
             experiment_config.data_config,
-            dataset_reference,
+            prepared_data_request,
         )
     else:
         simulated_storage: io.DataStorage
