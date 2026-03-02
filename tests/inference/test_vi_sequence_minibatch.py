@@ -26,7 +26,10 @@ def _build_single_sequence_dataset(sequence_length: int = 8) -> ObservationDatas
 
 def test_sequence_minibatch_above_dataset_size_rejects_third_argument() -> None:
     dataset = _build_single_sequence_dataset()
-    with pytest.raises(TypeError, match="takes 2 positional arguments"):
+    with pytest.raises(
+        ValueError,
+        match="num_sequence_minibatch cannot exceed dataset.num_sequences",
+    ):
         _sample_sequence_minibatch(
             dataset,
             jrandom.PRNGKey(1),
@@ -36,7 +39,7 @@ def test_sequence_minibatch_above_dataset_size_rejects_third_argument() -> None:
 
 def test_sequence_minibatch_nonpositive_rejects_third_argument() -> None:
     dataset = _build_single_sequence_dataset()
-    with pytest.raises(TypeError, match="takes 2 positional arguments"):
+    with pytest.raises(ValueError, match="num_sequence_minibatch must be positive"):
         _sample_sequence_minibatch(
             dataset,
             jrandom.PRNGKey(1),

@@ -25,10 +25,7 @@ from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
 from seqjax.model.base import BayesianSequentialModel
 from seqjax.inference.interface import InferenceDataset
-from seqjax.inference.vi.base import (
-    SSMVariationalApproximation,
-    BufferedSSMVI,
-)
+from seqjax.inference.vi.base import SSMVariationalApproximation
 from seqjax.inference.vi.sampling import VISamplingKwargs
 import seqjax.model.typing as seqjtyping
 
@@ -56,14 +53,16 @@ SSMApproximationT = SSMVariationalApproximation[
     InferenceParametersT,
     HyperParametersT,
 ]
-BufferedApproximationT = BufferedSSMVI[
-    ParticleT,
-    ObservationT,
-    ConditionT,
-    ParametersT,
-    InferenceParametersT,
-    HyperParametersT,
-]
+
+
+class SupportsELBOLoss(Protocol):
+    def estimate_loss(
+        self,
+        dataset: InferenceDataset[ObservationT, ConditionT],
+        key: jaxtyping.PRNGKeyArray,
+        sample_kwargs: VISamplingKwargs,
+        hyperparameters: HyperParametersT | None,
+    ) -> jaxtyping.Scalar: ...
 
 
 class SupportsPretrainLoss(Protocol):
@@ -72,8 +71,6 @@ class SupportsPretrainLoss(Protocol):
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-        target_posterior: "TargetModelT",
-        hyperparameters: HyperParametersT | None,
     ) -> jaxtyping.Scalar: ...
 
 
@@ -83,7 +80,6 @@ class SupportsPriorFitLoss(Protocol):
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-        target_posterior: "TargetModelT",
         hyperparameters: HyperParametersT | None,
     ) -> jaxtyping.Scalar: ...
 
@@ -139,7 +135,7 @@ LossAndGradFn = Callable[
 ]
 
 
-def loss_buffered_neg_elbo(
+def loss_neg_elbo(
     trainable: TrainableModuleT,
     static: StaticModuleT,
     dataset: InferenceDataset[ObservationT, ConditionT],
@@ -147,7 +143,7 @@ def loss_buffered_neg_elbo(
     *,
     sample_kwargs: VISamplingKwargs,
 ) -> jaxtyping.Scalar:
-    approximation = typing.cast(SSMApproximationT, eqx.combine(trainable, static))
+    approximation = typing.cast(SupportsELBOLoss, eqx.combine(trainable, static))
 
     return approximation.estimate_loss(
         dataset,
@@ -157,7 +153,7 @@ def loss_buffered_neg_elbo(
     )
 
 
-def loss_pre_train_neg_elbo(
+def loss_pretrain_neg_elbo(
     trainable: TrainableModuleT,
     static: StaticModuleT,
     dataset: InferenceDataset[ObservationT, ConditionT],
@@ -174,7 +170,6 @@ def loss_pre_train_neg_elbo(
         dataset,
         key,
         sample_kwargs,
-        None,
     )
 
 
@@ -200,8 +195,8 @@ def loss_pre_train_prior(
 
 LossLables = typing.Literal["elbo", "pretrain", "param-prior"]
 losses: dict[LossLables, Callable] = {
-    "elbo": loss_buffered_neg_elbo,
-    "pretrain": loss_pre_train_neg_elbo,
+    "elbo": loss_neg_elbo,
+    "pretrain": loss_pretrain_neg_elbo,
     "param-prior": loss_pre_train_prior,
 }
 
