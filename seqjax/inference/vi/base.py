@@ -503,6 +503,7 @@ class BufferedSSMVI[
         jaxtyping.Float[jaxtyping.Scalar, ""],
         typing.Any,
     ]:
+        
         observation_sequence, condition_sequence = _sample_sequence_minibatch(dataset, seq_key)
         approx_start, y_batch, c_batch, theta_mask = sample_batch_and_mask(
             subseq_key, 
@@ -644,19 +645,24 @@ class BufferedSSMVI[
             ),
         )
     
-    def batched_log_joint(self, *args, **kwargs):
+    def batched_log_joint(self, x_path, y_batch, c_batch, buffered_params):
         # input to the joint has leading batch axes 
         # [n_seq, n_subseq, n_mc]
         # in the inner we map down the MC param+latent samples that are for fixed
         # (sequence, sub-sequence)
         # then down the outer two axes
+
+        # x_path [n_seq, n_subseq, n_mc, sample_length]
+        # y_batch [n_seq, n_subseq, sample_length]
+        # c_batch [n_seq, n_subseq, sample_length]
+        # buffered_params [n_seq, n_subseq, n_mc, sample_length]
+        
         batched_log_joint = jax.vmap(
             partial(log_prob_joint, self.target_posterior.target),
-            in_axes=(0, None, None, 0) 
+            in_axes=(0, 0, 0, 0) 
         )
-        batched_log_joint = jax.vmap(batched_log_joint)
-        batched_log_joint = jax.vmap(batched_log_joint)
-        return batched_log_joint(*args, **kwargs)
+        batched_log_joint = jax.vmap(jax.vmap(batched_log_joint))
+        return batched_log_joint(x_path, y_batch, c_batch, buffered_params)
     
     def batched_parameter_prior(self, *args, **kwargs):
         # parameter prior batches down each [n_seq, n_subseq, n_mc] batch axes

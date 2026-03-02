@@ -256,9 +256,9 @@ def log_prob_y_given_x[
     y_0.
     """
     x_length = x_path.batch_shape[0]
-
     x_sequence_start = target.prior.order - 1
     y_sequence_start = target.emission.observation_dependency
+
 
     # this is the length of the observation sequence
     # should == y_sequence_length - y_sequence_start

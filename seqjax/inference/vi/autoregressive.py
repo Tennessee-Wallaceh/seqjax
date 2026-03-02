@@ -125,7 +125,6 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     """Base class for autoregressive variational samplers."""
 
     target_struct_cls: Type[seqjax.model.typing.Packable]
-    embedder: Embedder
     context_dim: int
     condition_dim: int
     parameter_dim: int
@@ -144,7 +143,6 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
             (sample_length, target_struct_cls.flat_dim),
             sample_length,
         )
-        self.embedder = embedder
         self.context_dim = embedder.sequence_embedded_context_dim
         self.parameter_dim = embedder.parameter_context_dim
         self.condition_dim = embedder.condition_context_dim

@@ -19,19 +19,13 @@ import typing
 from .api import Embedder, LatentContext, VariationalApproximationFactory, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
 
 
-def _ensure_legacy_key(key: jaxtyping.PRNGKeyArray) -> jaxtyping.PRNGKeyArray:
-    """Convert legacy uint32 keys to typed JAX keys for FlowJax."""
-    return jrandom.wrap_key_data(jnp.asarray(key, dtype=jnp.uint32))
-
 class MaskedAutoregressiveFlow[
     TargetStructT: seqjtyping.Packable,
 ](UnconditionalVariationalApproximation[TargetStructT]):
     """Masked autoregressive flow over the flattened parameter space."""
 
     target_struct_cls: type[TargetStructT]
-    base_distribution: FlowjaxNormal
-    flow: FlowjaxMAF
-    distribution: FlowjaxTransformed
+    flow: FlowjaxTransformed
 
     def __init__(
         self,
@@ -40,6 +34,7 @@ class MaskedAutoregressiveFlow[
         key: jaxtyping.PRNGKeyArray,
         nn_width: int,
         nn_depth: int,
+        flow_layers: int = 2,
         base_loc: jaxtyping.Array | float = 0.0,
         base_scale: jaxtyping.Array | float = 1.0,
         transformer: AbstractBijection | None = None,
@@ -50,27 +45,23 @@ class MaskedAutoregressiveFlow[
 
         loc = jnp.broadcast_to(jnp.asarray(base_loc), (dim,))
         scale = jnp.broadcast_to(jnp.asarray(base_scale), (dim,))
-        self.base_distribution = FlowjaxNormal(loc, scale)
 
         if transformer is None:
             transformer = Affine()
 
-        self.flow = FlowjaxMAF(
+        self.flow = masked_autoregressive_flow(
             key,
+            base_dist=FlowjaxNormal(loc, scale),
+            flow_layers=flow_layers,
             transformer=transformer,
-            dim=dim,
             nn_width=nn_width,
             nn_depth=nn_depth,
+            invert=False
         )
-        distribution = typing.cast(
-            FlowjaxTransformed,
-            FlowjaxTransformed(self.base_distribution, self.flow),  # type: ignore[arg-type, call-arg]
-        )
-        self.distribution = distribution
+        
 
     def sample_and_log_prob(self, key, condition=None):
-        flat_sample = self.distribution.sample(key)
-        log_q = self.distribution.log_prob(flat_sample)
+        flat_sample, log_q = self.flow.sample_and_log_prob(key)
         return self.target_struct_cls.unravel(flat_sample), log_q
 
 
