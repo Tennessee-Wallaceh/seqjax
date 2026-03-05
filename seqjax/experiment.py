@@ -52,31 +52,20 @@ class ExperimentConfig:
     fit_seed: int
     inference: inference_registry.InferenceConfig
 
-    @property
-    def posterior_factory(self) -> model_registry.PosteriorFactory:
-        return self.data_config.posterior_factory
 
-
-StorageMode = Literal["wandb", "wandb-offline"]
-DataSource = Literal["simulated", "prepared-local"]
+WandBStorageMode = Literal["wandb", "wandb-offline"]
 
 
 @dataclass(frozen=True)
 class RuntimeConfig:
     """Runtime-only settings for experiment execution and tracking."""
-
-    storage_mode: StorageMode = "wandb"
+    storage_mode: WandBStorageMode = "wandb"
     local_root: str = "./wandb"
-    data_source: DataSource = "simulated"
     prepared_dataset_name: str | None = None
 
     @property
     def wandb_offline(self) -> bool:
         return self.storage_mode == "wandb-offline"
-
-    @property
-    def prepared_local_data(self) -> bool:
-        return self.data_source == "prepared-local"
 
 
 def configure_wandb_runtime(runtime_config: RuntimeConfig) -> None:
@@ -167,39 +156,35 @@ def run_experiment(
     resolved_runtime_config = runtime_config or RuntimeConfig()
     configure_wandb_runtime(resolved_runtime_config)
 
-    config_dict = asdict(experiment_config)
-
     data_wandb_run: io.WandbRun | None = None
 
-    target_params = experiment_config.data_config.generative_parameters
-    model = experiment_config.posterior_factory(target_params)
+    model = experiment_config.data_config.posterior
 
-    if resolved_runtime_config.prepared_local_data:
-        if resolved_runtime_config.prepared_dataset_name is None:
-            raise ValueError(
-                "RuntimeConfig.prepared_dataset_name is required when "
-                "data_source='prepared-local'."
-            )
+    """
+    There are 3 ways to load data.
+    1. Local via RealData
+    2. Local via WandB artifacts (for offline mode)
+    3. Remote via WandB artifacts (for online mode)
+    """
+    if isinstance(experiment_config.data_config, model_registry.RealDataConfig):
         prepared_storage = io.LocalPreparedDataStorage(resolved_runtime_config.local_root)
-        prepared_data_request = io.NamedPreparedDataRequest(
-            dataset_name=resolved_runtime_config.prepared_dataset_name,
-            target_model_label=experiment_config.data_config.target_model_label,
-        )
         x_paths, observations, conditions = prepared_storage.get_data(
             experiment_config.data_config,
-            prepared_data_request,
+            experiment_config.data_config,
         )
-    else:
-        simulated_storage: io.DataStorage
+    elif isinstance(experiment_config.data_config, model_registry.RealDataConfig):
+        remote_storage: io.DataStorage
         if resolved_runtime_config.wandb_offline:
-            simulated_storage = io.LocalFilesystemDataStorage(resolved_runtime_config.local_root)
+            remote_storage = io.LocalFilesystemDataStorage(resolved_runtime_config.local_root)
         else:
             data_wandb_run = cast(io.WandbRun, wandb.init(project=experiment_name))
-            simulated_storage = io.WandbArtifactDataStorage(data_wandb_run)
+            remote_storage = io.WandbArtifactDataStorage(data_wandb_run)
 
-        x_paths, observations, conditions = simulated_storage.get_data(
+        x_paths, observations, conditions = remote_storage.get_data(
             experiment_config.data_config
         )
+    else:
+        raise Exception(f"Unsupported data config type {experiment_config.data_config}")
 
     condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
 
@@ -211,6 +196,7 @@ def run_experiment(
     if data_wandb_run is not None:
         data_wandb_run.finish()
 
+    config_dict = asdict(experiment_config)
     inference = experiment_config.inference.run
     wandb_run = cast(
         io.WandbRun,

@@ -171,7 +171,30 @@ default_parameter_transforms: dict[type[Parameters], dict[str, typing.Any]] = {
 
 
 @dataclass(kw_only=True, frozen=True, slots=True)
-class DataConfig:
+class RealDataConfig:
+    target_model_label: SequentialModelLabel
+    sequence_length: int
+    num_sequences: int = 1
+
+    @property
+    def dataset_name(self):
+        dataset_name = self.target_model_label
+        dataset_name += f"-l{self.sequence_length}"
+        dataset_name += f"-n{self.num_sequences}"
+        return dataset_name
+
+    @property
+    def target(self):
+        return sequential_models[self.target_model_label]
+
+    @property
+    def posterior(self) -> BayesianSequentialModel:
+        return posterior_factories[self.target_model_label](
+            parameter_settings[self.target_model_label]["base"]
+        )
+    
+@dataclass(kw_only=True, frozen=True, slots=True)
+class SyntheticDataConfig:
     target_model_label: SequentialModelLabel
     generative_parameter_label: str
     sequence_length: int
@@ -198,10 +221,9 @@ class DataConfig:
         ]
 
     @property
-    def posterior_factory(self) -> PosteriorFactory:
-        return posterior_factories[self.target_model_label]
-
-
-@dataclass(kw_only=True, frozen=True, slots=True)
-class ARDataConfig(DataConfig):
-    target_model_label: SequentialModelLabel = field(default="ar", init=False)
+    def posterior(self) -> BayesianSequentialModel:
+        return posterior_factories[self.target_model_label](
+            parameter_settings[self.target_model_label][self.generative_parameter_label]
+        )
+    
+DataConfig = RealDataConfig | SyntheticDataConfig
