@@ -63,3 +63,33 @@ def test_conv1d_embedder_rejects_unknown_pool_kind() -> None:
             sample_length=sample_length,
             embedding_key=jax.random.PRNGKey(0),
         )
+
+
+def test_conv1d_embedder_supports_positional_augmentation() -> None:
+    sample_length = 6
+    sequence_length = 8
+
+    generative_parameters = model_registry.parameter_settings["ar"]["base"]
+    target_posterior = model_registry.posterior_factories["ar"](generative_parameters)
+
+    config = vi.registry.Conv1DEmbedderConfig(
+        hidden_dim=4,
+        depth=1,
+        kernel_size=3,
+        pool_dim=3,
+        pool_kind="avg",
+        position_mode="sample",
+        n_pos_embedding=2,
+    )
+
+    embedding = vi.registry._build_embedder(
+        config,
+        target_posterior=target_posterior,
+        sequence_length=sequence_length,
+        sample_length=sample_length,
+        embedding_key=jax.random.PRNGKey(0),
+    )
+
+    context = _make_context(embedding, target_posterior, sample_length)
+    assert context.sequence_embedded_context.shape == (sample_length, config.hidden_dim + 5)
+    assert context.embedded_context.shape == ((config.hidden_dim + 5) * config.pool_dim,)

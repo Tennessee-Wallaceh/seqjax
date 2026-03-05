@@ -537,7 +537,12 @@ class BufferedSSMVI[
 
         parameters = self.target_posterior.parameter_prior.sample(parameter_key, typing.cast(typing.Any, None))
 
-        latent_context = self.embedding.embed(y_batch, c_batch, typing.cast(typing.Any, jax.lax.stop_gradient(parameters)))
+        latent_context = self.embedding.embed(
+            y_batch,
+            c_batch,
+            typing.cast(typing.Any, jax.lax.stop_gradient(parameters)),
+            sequence_start=approx_start,
+        )
 
         x_path, log_q_x = self.latent_approximation.sample_and_log_prob(latent_key, latent_context)
 
@@ -574,7 +579,12 @@ class BufferedSSMVI[
 
         parameters, log_q_theta = self.parameter_approximation.sample_and_log_prob(parameter_key, None)
 
-        latent_context = self.embedding.embed(y_batch, c_batch, typing.cast(typing.Any, jax.lax.stop_gradient(parameters)))
+        latent_context = self.embedding.embed(
+            y_batch,
+            c_batch,
+            typing.cast(typing.Any, jax.lax.stop_gradient(parameters)),
+            sequence_start=approx_start,
+        )
 
         x_path, log_q_x = self.latent_approximation.sample_and_log_prob(latent_key, latent_context)
 

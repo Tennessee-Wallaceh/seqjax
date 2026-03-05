@@ -77,3 +77,29 @@ def test_birnn_embedder_rejects_none_aggregation() -> None:
             sample_length=sample_length,
             embedding_key=jax.random.PRNGKey(0),
         )
+
+
+def test_birnn_embedder_supports_positional_augmentation() -> None:
+    sample_length = 6
+    sequence_length = 8
+
+    generative_parameters = model_registry.parameter_settings["ar"]["base"]
+    target_posterior = model_registry.posterior_factories["ar"](generative_parameters)
+
+    embedding = vi.registry._build_embedder(
+        vi.registry.BiRNNEmbedder(
+            hidden_dim=4,
+            aggregation_kind="sequence-flatten",
+            position_mode="sample",
+            n_pos_embedding=2,
+        ),
+        target_posterior=target_posterior,
+        sequence_length=sequence_length,
+        sample_length=sample_length,
+        embedding_key=jax.random.PRNGKey(0),
+    )
+
+    context = _build_context(embedding, target_posterior, sample_length)
+
+    assert context.sequence_embedded_context.shape == (sample_length, 13)
+    assert context.embedded_context.shape == (sample_length * 13,)

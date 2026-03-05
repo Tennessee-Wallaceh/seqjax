@@ -22,6 +22,9 @@ from seqjax.model.registry import default_parameter_transforms
 """
 Embedding configurations
 """
+PositionMode = typing.Literal["sample", "sequence"]
+
+
 EmbedderName = typing.Literal[
     "short-window", "long-window", "bi-rnn", "passthrough", "conv1d", "transformer", "positional"
 ]
@@ -32,18 +35,24 @@ class PassthroughEmbedder:
     label: EmbedderName = field(init=False, default="passthrough")
     prev_window: int = field(init=False, default=0)
     post_window: int = field(init=False, default=0)
+    position_mode: None | PositionMode = None
+    n_pos_embedding: int = 8
 
 @dataclass
 class ShortContextEmbedder:
     label: EmbedderName = field(init=False, default="short-window")
     prev_window: int = field(init=False, default=2)
     post_window: int = field(init=False, default=2)
+    position_mode: None | PositionMode = None
+    n_pos_embedding: int = 8
     
 @dataclass
 class LongContextEmbedder:
     label: EmbedderName = field(init=False, default="long-window")
     prev_window: int = 10
     post_window: int = 10
+    position_mode: None | PositionMode = None
+    n_pos_embedding: int = 8
 
 @dataclass
 class Conv1DEmbedderConfig:
@@ -53,12 +62,16 @@ class Conv1DEmbedderConfig:
     depth: int = 2
     pool_dim: None | int = None
     pool_kind: str = "avg"
+    position_mode: None | PositionMode = None
+    n_pos_embedding: int = 8
 
 @dataclass
 class BiRNNEmbedder:
     label: EmbedderName = field(init=False, default="bi-rnn")
     hidden_dim: int = 10
     aggregation_kind: aggregation.AggregationKind = "observation-flatten"
+    position_mode: None | PositionMode = None
+    n_pos_embedding: int = 8
 
 
 @dataclass
@@ -69,12 +82,15 @@ class TransformerEmbedderConfig:
     num_heads: int = 2
     mlp_multiplier: int = 4
     pool_dim: None | int = None
+    position_mode: None | PositionMode = None
+    n_pos_embedding: int = 8
 
 
 @dataclass
 class PositionalEmbedderConfig:
     label: EmbedderName = field(init=False, default="positional")
     n_pos_embedding: int = 8
+    position_mode: PositionMode = "sample"
 
 
 EmbedderConfig = (
@@ -112,6 +128,8 @@ def _build_embedder(
             sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
             post_window=embedder_config.post_window,
+            position_mode=embedder_config.position_mode,
+            n_pos_embedding=embedder_config.n_pos_embedding,
         )
     elif isinstance(embedder_config, PassthroughEmbedder):
         embed = embedder.WindowEmbedder(
@@ -120,6 +138,8 @@ def _build_embedder(
             sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
             post_window=embedder_config.post_window,
+            position_mode=embedder_config.position_mode,
+            n_pos_embedding=embedder_config.n_pos_embedding,
         )
     elif isinstance(embedder_config, LongContextEmbedder):
         embed = embedder.WindowEmbedder(
@@ -128,6 +148,8 @@ def _build_embedder(
             sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
             post_window=embedder_config.post_window,
+            position_mode=embedder_config.position_mode,
+            n_pos_embedding=embedder_config.n_pos_embedding,
         )
     elif isinstance(embedder_config, Conv1DEmbedderConfig):
         embed = embedder.Conv1DEmbedder(
@@ -140,6 +162,8 @@ def _build_embedder(
             key=embedding_key,
             pool_dim=embedder_config.pool_dim,
             pool_kind=embedder_config.pool_kind,
+            position_mode=embedder_config.position_mode,
+            n_pos_embedding=embedder_config.n_pos_embedding,
         )
     elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
@@ -148,6 +172,8 @@ def _build_embedder(
             sequence_length=sequence_length,
             hidden=embedder_config.hidden_dim,
             aggregation_kind=embedder_config.aggregation_kind,
+            position_mode=embedder_config.position_mode,
+            n_pos_embedding=embedder_config.n_pos_embedding,
             key=embedding_key,
         )
     elif isinstance(embedder_config, TransformerEmbedderConfig):
@@ -160,6 +186,8 @@ def _build_embedder(
             num_heads=embedder_config.num_heads,
             mlp_multiplier=embedder_config.mlp_multiplier,
             pool_dim=embedder_config.pool_dim,
+            position_mode=embedder_config.position_mode,
+            n_pos_embedding=embedder_config.n_pos_embedding,
             key=embedding_key,
         )
     elif isinstance(embedder_config, PositionalEmbedderConfig):
@@ -168,6 +196,7 @@ def _build_embedder(
             sample_length=sample_length,
             sequence_length=sequence_length,
             n_pos_embedding=embedder_config.n_pos_embedding,
+            position_mode=embedder_config.position_mode,
         )
     else:
         raise ValueError(f"Unknown embedder type: {embedder_config.label}")
