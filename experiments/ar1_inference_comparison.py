@@ -514,7 +514,8 @@ if __name__ == "__main__":
         for data_seed in range(data_repeats):
             for _label, inference_config in inference_methods.items():
                 experiment_config = ExperimentConfig(
-                    data_config=model_registry.ARDataConfig(
+                    data_config=model_registry.DataConfig(
+                        target_model_label="ar",
                         generative_parameter_label="base",
                         sequence_length=1000,
                         seed=data_seed,
