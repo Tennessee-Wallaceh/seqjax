@@ -12,6 +12,7 @@ datasets/*
 
 # gen experiments
 experiments/jobs/*
+notebooks/*
 
 # Distribution / packaging
 .Python
