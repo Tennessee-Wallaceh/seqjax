@@ -43,6 +43,42 @@ def _cartesian_code_grid(axes: dict[str, list[list[str]]]) -> list[tuple[str, ..
     return combinations
 
 
+def _validate_code_tokens(code_tokens: list[str]) -> None:
+    nested_code_value: dict[str, str] = {}
+    for code_token in code_tokens:
+        if not code_token:
+            raise ValueError("Encountered empty code token")
+
+        if "." not in code_token:
+            if "-" not in code_token:
+                raise ValueError(
+                    f"Invalid flat code token {code_token!r}; expected CODE-OPTION format"
+                )
+            code, option = code_token.split("-", 1)
+            if not code or not option:
+                raise ValueError(
+                    f"Invalid flat code token {code_token!r}; expected CODE-OPTION format"
+                )
+            continue
+
+        nested_parts = code_token.split(".")
+        if len(nested_parts) not in (2, 3):
+            raise ValueError(
+                f"Invalid nested code token {code_token!r}; expected CODE.GROUP or CODE.GROUP.SUBCODE"
+            )
+
+        if any(part == "" for part in nested_parts):
+            raise ValueError(f"Invalid nested code token {code_token!r}; empty segments are not allowed")
+
+        code, group_value = nested_parts[0], nested_parts[1]
+        previous_group = nested_code_value.get(code)
+        if previous_group is not None and previous_group != group_value:
+            raise ValueError(
+                f"Mismatched nested code group for {code!r}: {previous_group!r} vs {group_value!r}"
+            )
+        nested_code_value[code] = group_value
+
+
 def _render_script(
     *,
     experiment_name: str,
@@ -203,6 +239,14 @@ def generate_slurm_jobs(
         repeat_count = fit_seed_repeats * data_seed_repeats
 
         for job_ix, combination in enumerate(combinations):
+            all_codes = [*fixed_codes, *combination]
+            try:
+                _validate_code_tokens(all_codes)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid codes for study {study_name!r} job index {job_ix}: {exc}"
+                ) from exc
+
             script_text = _render_script(
                 experiment_name=experiment_name,
                 study_name=str(study.get("job_name", study_dir_name)),

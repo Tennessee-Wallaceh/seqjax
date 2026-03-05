@@ -4,34 +4,35 @@ import typing
 from dataclasses import asdict, is_dataclass
 import typer
 
-from seqjax.cli import codes
-from seqjax import io
 from seqjax.cli import slurm_jobs
-from seqjax.experiment import ExperimentConfig, RuntimeConfig, run_experiment
-from seqjax.inference import registry as inference_registry
-from seqjax.model import registry as model_registry
-from .results import ResultProcessor
 
+if typing.TYPE_CHECKING:
+    from seqjax.inference import registry as inference_registry
+    from seqjax.model import registry as model_registry
 
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
 
 StorageMode = typing.Literal["wandb", "wandb-offline"]
 DataSource = typing.Literal["synthetic", "real"]
 
-def _resolve_model_label(label: str) -> model_registry.SequentialModelLabel:
+def _resolve_model_label(label: str) -> "model_registry.SequentialModelLabel":
+    from seqjax.model import registry as model_registry
+
     if label not in model_registry.posterior_factories:
         typer.echo(f"Model {label} not found.")
         raise Exception(f"Model {label} not found.")
 
-    return typing.cast(model_registry.SequentialModelLabel, label)
+    return typing.cast("model_registry.SequentialModelLabel", label)
 
 
-def _resolve_inference_label(label: str) -> inference_registry.InferenceName:
+def _resolve_inference_label(label: str) -> str:
+    from seqjax.inference import registry as inference_registry
+
     if label not in inference_registry.inference_registry:
         typer.echo(f"Inference {label} not found.")
         raise Exception(f"Inference {label} not found.")
 
-    return typing.cast(inference_registry.InferenceName, label)
+    return label
 
 def _structure_to_dict(value: typing.Any) -> typing.Any:
     """Recursively convert dataclasses and eqx modules into plain Python types."""
@@ -69,11 +70,16 @@ def parse_straight_codes(code_tokens, available_codes):
     return dict_config
 
 def build_inference_config(
-    method: inference_registry.InferenceName, 
+    method: str,
     code_tokens: list[str]
-) ->  inference_registry.InferenceConfig:
+) -> typing.Any:
+    from seqjax.cli import codes
+    from seqjax.inference import registry as inference_registry
+
+    canonical_method = typing.cast("inference_registry.InferenceName", method)
+
     try:
-        available_codes = codes.codes[method]
+        available_codes = codes.codes[canonical_method]
     except KeyError:
         raise typer.BadParameter(
             f"Inference method {method} has no configured codes."
@@ -128,11 +134,12 @@ def build_inference_config(
             **parse_straight_codes([], selected_option_codes)
         )
 
-    return inference_registry.inference_registry[method].build_config(dict_config)
+    return inference_registry.inference_registry[canonical_method].build_config(dict_config)
 
 @app.command("list-models")
 def list_models() -> None:
     """Display registered models and their parameter presets."""
+    from seqjax.model import registry as model_registry
 
     for label, model in sorted(model_registry.posterior_factories.items()):
         presets = ", ".join(sorted(model_registry.parameter_settings[label].keys()))
@@ -141,15 +148,19 @@ def list_models() -> None:
 @app.command("list-inference")
 def list_inference() -> None:
     """Display registered inference methods."""
+    from seqjax.inference import registry as inference_registry
 
     typer.echo("Available inference methods:")
     for name in sorted(inference_registry.inference_registry):
         typer.echo(f"  - {name}")
 
 @app.command("list-codes")
-def list_codes(method: inference_registry.InferenceName) -> None:
+def list_codes(method: str) -> None:
+    from seqjax.cli import codes
+
     try:
-        typer.echo(codes.format_code_options(codes.codes[method]))
+        canonical_method = typing.cast("inference_registry.InferenceName", method)
+        typer.echo(codes.format_code_options(codes.codes[canonical_method]))
     except KeyError:
         typer.echo(f"Inference method {method} not found.")
 
@@ -242,7 +253,14 @@ def run(
     ),
 ) -> None:
     """Run an experiment using the configured inference method."""
+    from seqjax import io
+    from seqjax.experiment import ExperimentConfig, RuntimeConfig, run_experiment
+    from seqjax.model import registry as model_registry
+    from .results import ResultProcessor
+
     canonical_method = _resolve_inference_label(inference_method)
+    canonical_model: typing.Any
+    data_config: typing.Any
 
     if data_source == "synthetic":
         if dataset_name is not None:

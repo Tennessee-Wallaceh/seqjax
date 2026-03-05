@@ -103,3 +103,73 @@ PLAN = {
 
     script = outputs[0].read_text(encoding="utf-8")
     assert "#SBATCH --array=0-3" in script
+
+
+def test_generate_slurm_jobs_invalid_flat_code_raises(tmp_path: Path) -> None:
+    plan_file = tmp_path / "plan.py"
+    plan_file.write_text(
+        """
+PLAN = {
+    "experiment_name": "demo",
+    "shared": {
+        "model": "aicher_stochastic_vol",
+        "inference": "buffer-vi",
+        "sequence_length": 25,
+        "fixed_codes": ["BROKEN"],
+    },
+    "studies": [
+        {
+            "name": "study_one",
+            "axes": {"a": [["A.1"]]},
+        }
+    ],
+}
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        slurm_jobs.generate_slurm_jobs(
+            plan_file=str(plan_file),
+            output_root_override=str(tmp_path / "out"),
+            dry_run=True,
+        )
+    except ValueError as exc:
+        assert "Invalid flat code token" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for invalid flat code token")
+
+
+def test_generate_slurm_jobs_mismatched_nested_group_raises(tmp_path: Path) -> None:
+    plan_file = tmp_path / "plan.py"
+    plan_file.write_text(
+        """
+PLAN = {
+    "experiment_name": "demo",
+    "shared": {
+        "model": "aicher_stochastic_vol",
+        "inference": "buffer-vi",
+        "sequence_length": 25,
+    },
+    "studies": [
+        {
+            "name": "study_one",
+            "fixed_codes": ["OPT.ADAM", "OPT.COS.WARM-20"],
+            "axes": {"a": [["A.1"]]},
+        }
+    ],
+}
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        slurm_jobs.generate_slurm_jobs(
+            plan_file=str(plan_file),
+            output_root_override=str(tmp_path / "out"),
+            dry_run=True,
+        )
+    except ValueError as exc:
+        assert "Mismatched nested code group" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for mismatched nested code groups")
