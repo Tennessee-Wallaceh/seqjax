@@ -10,6 +10,9 @@ __pycache__/
 # data
 datasets/*
 
+# gen experiments
+experiments/jobs/*
+
 # Distribution / packaging
 .Python
 build/
