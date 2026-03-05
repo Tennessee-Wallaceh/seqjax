@@ -141,6 +141,8 @@ class Embedder[
         observations: ObservationT,
         conditions: ConditionT,
         parameters: InferenceParameterT,
+        *,
+        sequence_start: None | int = None,
     ) -> LatentContext[
         ObservationT,
         ConditionT,

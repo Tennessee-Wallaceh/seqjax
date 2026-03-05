@@ -37,11 +37,29 @@ def parse_time_optional(x: str) -> int | None:
         raise ValueError(f"Expected whole seconds, got {x!r} -> {secs}")
     return int(secs)
 
+
+def parse_position_mode_optional(x: str) -> None | str:
+    value = x.strip().lower()
+    if value == "no":
+        return None
+    if value in ("sample", "sequence"):
+        return value
+    raise ValueError(f"Expected one of NO|sample|sequence, got {x!r}")
+
+
+def parse_position_mode_required(x: str) -> str:
+    value = x.strip().lower()
+    if value in ("sample", "sequence"):
+        return value
+    raise ValueError(f"Expected one of sample|sequence, got {x!r}")
+
 PARSER_TYPE_LABEL: dict[Parser, str] = {
     parse_float: "float",
     parse_int_required: "integer",
     parse_int_optional: "integer | NO",
     parse_time_optional: "duration | NO",
+    parse_position_mode_optional: "sample | sequence | NO",
+    parse_position_mode_required: "sample | sequence",
 }
 
 PARSER_EXAMPLES: dict[Parser, list[str]] = {
@@ -49,6 +67,8 @@ PARSER_EXAMPLES: dict[Parser, list[str]] = {
     parse_int_required: ["500", "1k", "1_000_000"],
     parse_int_optional: ["1k", "NO", "1_000_000"],
     parse_time_optional: ["30m", "2h", "1h30m", "NO"],
+    parse_position_mode_optional: ["sample", "sequence", "NO"],
+    parse_position_mode_required: ["sample", "sequence"],
 }
 
 def format_code_options(
@@ -221,19 +241,38 @@ embedder_config: NestedCode = {
             "D": ("depth", parse_int_required, "2"),
             "P": ("pool_dim", parse_int_optional, "NO"),
             "PK": ("pool_kind", lambda x: x, "avg"),
+            "PM": ("position_mode", parse_position_mode_optional, "NO"),
+            "NP": ("n_pos_embedding", parse_int_required, "8"),
         }),
         "BiRNN": ("bi-rnn", {
             "H": ("hidden_dim", parse_int_required, "10"),
             "AG": ("aggregation_kind", lambda x: x, "observation-flatten"),
+            "PM": ("position_mode", parse_position_mode_optional, "NO"),
+            "NP": ("n_pos_embedding", parse_int_required, "8"),
         }),
-        "LC": ("long-window", {}),
-        "SC": ("short-window", {}),
-        "PS": ("passthrough", {}),
+        "LC": ("long-window", {
+            "PM": ("position_mode", parse_position_mode_optional, "NO"),
+            "NP": ("n_pos_embedding", parse_int_required, "8"),
+        }),
+        "SC": ("short-window", {
+            "PM": ("position_mode", parse_position_mode_optional, "NO"),
+            "NP": ("n_pos_embedding", parse_int_required, "8"),
+        }),
+        "PS": ("passthrough", {
+            "PM": ("position_mode", parse_position_mode_optional, "NO"),
+            "NP": ("n_pos_embedding", parse_int_required, "8"),
+        }),
         "TX": ("transformer", {
             "H": ("hidden_dim", parse_int_required, "32"),
             "D": ("depth", parse_int_required, "2"),
             "NH": ("num_heads", parse_int_required, "2"),
             "MLP": ("mlp_multiplier", parse_int_required, "4"),
+            "PM": ("position_mode", parse_position_mode_optional, "NO"),
+            "NP": ("n_pos_embedding", parse_int_required, "8"),
+        }),
+        "POS": ("positional", {
+            "PM": ("position_mode", parse_position_mode_required, "sample"),
+            "NP": ("n_pos_embedding", parse_int_required, "8"),
         }),
     }
 }
