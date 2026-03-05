@@ -115,6 +115,8 @@ def normalize_parquet_metadata(md: Mapping[str, Any]) -> dict[str, Any]:
             # this is not brilliant encoding, but the quantity does not
             # need massive precision
             out[k] = str(v)
+        elif k == "sequence_idx":
+            out[k] = str(v)
         else:
             out[k] = v
     return out
@@ -125,6 +127,8 @@ def process_parquet_metadata(md: Mapping[str, Any]) -> dict[str, Any]:
     for k, v in md.items():
         if k == "elapsed_time_s":
             out[k] = float(v)
+        elif k == "sequence_idx":
+            out[k] = int(v)
         else:
             out[k] = v
     return out
