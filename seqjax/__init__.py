@@ -1,19 +1,9 @@
 """Utilities for sequential probabilistic models built on JAX."""
 
-# Re-export frequently used modules and classes from the package root for
-# convenience.  Users can simply ``import seqjax`` and access these components
-# without needing to know the underlying module structure.
+from __future__ import annotations
 
-# simulation and evaluation helpers
-from .model import evaluate, simulate
-from .model.visualise import graph_model
-
-# base model interfaces
-from .model.base import Emission, Prior, SequentialModel, Transition
-from .inference.particlefilter import Proposal
-
-from .inference.interface import InferenceMethod
-
+from importlib import import_module
+from typing import Any
 
 __all__ = [
     "simulate",
@@ -26,3 +16,27 @@ __all__ = [
     "SequentialModel",
     "InferenceMethod",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in {"simulate", "evaluate"}:
+        model_module = import_module("seqjax.model")
+        return getattr(model_module, name)
+
+    if name == "graph_model":
+        visualise_module = import_module("seqjax.model.visualise")
+        return visualise_module.graph_model
+
+    if name in {"Emission", "Prior", "SequentialModel", "Transition"}:
+        base_module = import_module("seqjax.model.base")
+        return getattr(base_module, name)
+
+    if name == "Proposal":
+        particle_filter_module = import_module("seqjax.inference.particlefilter")
+        return particle_filter_module.Proposal
+
+    if name == "InferenceMethod":
+        interface_module = import_module("seqjax.inference.interface")
+        return interface_module.InferenceMethod
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
