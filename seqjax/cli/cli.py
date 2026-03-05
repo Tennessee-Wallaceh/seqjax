@@ -5,6 +5,7 @@ from dataclasses import asdict, is_dataclass
 import typer
 
 from seqjax.cli import codes
+from seqjax import io
 from seqjax.cli import slurm_jobs
 from seqjax.experiment import ExperimentConfig, RuntimeConfig, run_experiment
 from seqjax.inference import registry as inference_registry
@@ -15,7 +16,7 @@ from .results import ResultProcessor
 app = typer.Typer(help="Utilities for inspecting and running seqjax experiments.")
 
 StorageMode = typing.Literal["wandb", "wandb-offline"]
-DataSource = typing.Literal["simulated", "prepared-local"]
+DataSource = typing.Literal["synthetic", "real"]
 
 def _resolve_model_label(label: str) -> model_registry.SequentialModelLabel:
     if label not in model_registry.posterior_factories:
@@ -181,20 +182,20 @@ def generate_slurm_jobs_cmd(
 @app.command()
 def run(
     experiment_name: str = typer.Argument(..., help="W&B project name for the run."),
-    model: str = typer.Option(..., "--model", help="Target model label."),
-    generative_parameters: str = typer.Option(
+    model: str | None = typer.Option(None, "--model", help="Target model label."),
+    generative_parameters: str | None = typer.Option(
         "base", "--parameters", "--params", help="Parameter preset to use."
     ),
-    sequence_length: int = typer.Option(
+    sequence_length: int | None = typer.Option(
         1000, "--sequence-length", min=1, help="Number of observations to simulate."
     ),
-    num_sequences: int = typer.Option(
+    num_sequences: int | None = typer.Option(
         1,
         "--num-sequences",
         min=1,
         help="Number of independent observation sequences to simulate.",
     ),
-    data_seed: int = typer.Option(..., "--data-seed", help="Seed for data simulation."),
+    data_seed: int | None = typer.Option(None, "--data-seed", help="Seed for data simulation."),
     fit_seed: int = typer.Option(..., "--fit-seed", help="Seed for inference."),
     inference_method: str = typer.Option(..., "--inference", help="Inference method."),
     test_samples: int = typer.Option(
@@ -222,31 +223,76 @@ def run(
     local_root: str = typer.Option(
         "./wandb",
         "--local-root",
-        help="Local directory used by W&B offline mode and local prepared datasets.",
+        help="Local directory used by W&B offline mode.",
     ),
     data_source: DataSource = typer.Option(
-        "simulated",
+        "synthetic",
         "--data-source",
-        help="Data loading mode: simulated (default) or prepared-local.",
+        help="Data loading mode: synthetic (default) or real.",
     ),
-    prepared_dataset_name: str | None = typer.Option(
+    dataset_name: str | None = typer.Option(
         None,
-        "--prepared-dataset-name",
-        help="Prepared dataset name to load when --data-source=prepared-local.",
+        "--dataset-name",
+        help="Prepared dataset name to load when --data-source=real.",
+    ),
+    data_root: str = typer.Option(
+        "./",
+        "--data-root",
+        help="Root directory for prepared datasets when --data-source=real.",
     ),
 ) -> None:
     """Run an experiment using the configured inference method."""
-
-    canonical_model = _resolve_model_label(model)
     canonical_method = _resolve_inference_label(inference_method)
 
-    data_config = model_registry.DataConfig(
-        target_model_label=canonical_model,
-        generative_parameter_label=generative_parameters,
-        sequence_length=sequence_length,
-        num_sequences=num_sequences,
-        seed=data_seed,
-    )
+    if data_source == "synthetic":
+        if dataset_name is not None:
+            raise typer.BadParameter(
+                "--dataset-name can only be used with --data-source=real."
+            )
+        if model is None:
+            raise typer.BadParameter("--model is required when --data-source=synthetic.")
+
+        if generative_parameters is None:
+            raise typer.BadParameter(
+                "--parameters is required when --data-source=synthetic."
+            )
+        
+        if sequence_length is None:
+            raise typer.BadParameter(
+                "--sequence-length is required when --data-source=synthetic."
+            )
+        if data_seed is None:
+            raise typer.BadParameter(
+                "--data-seed is required when --data-source=synthetic."
+            )
+        if num_sequences is None:
+            num_sequences = 1
+
+        canonical_model = _resolve_model_label(model)
+
+        data_config = model_registry.SyntheticDataConfig(
+            target_model_label=canonical_model,
+            generative_parameter_label=generative_parameters,
+            sequence_length=sequence_length,
+            num_sequences=num_sequences,
+            seed=data_seed,
+        )
+
+
+    elif data_source == "real":
+        if dataset_name is None:
+            raise typer.BadParameter(
+                "--dataset-name is required when --data-source=real."
+            )
+        storage_backend = io.LocalFilesystemDataStorage(data_root)
+        manifest = storage_backend.load_manifest(dataset_name) 
+        canonical_model = _resolve_model_label(manifest['model_label'])
+        data_config = model_registry.RealDataConfig(
+            dataset_name=dataset_name,
+            target_model_label=canonical_model,
+            sequence_length=manifest['sequence_length'],
+            num_sequences=manifest['num_sequences'],
+        )
 
     inference_config = build_inference_config(canonical_method, code_tokens)
 
@@ -257,15 +303,6 @@ def run(
         inference=inference_config,
     )
 
-    if data_source != "prepared-local" and prepared_dataset_name is not None:
-        raise typer.BadParameter(
-            "--prepared-dataset-name can only be used with --data-source=prepared-local."
-        )
-    if data_source == "prepared-local" and prepared_dataset_name is None:
-        raise typer.BadParameter(
-            "--prepared-dataset-name is required when --data-source=prepared-local."
-        )
-
     if dry_run:
         payload = {
             "experiment_name": experiment_name,
@@ -274,7 +311,6 @@ def run(
                 "storage_mode": storage_mode,
                 "local_root": local_root,
                 "data_source": data_source,
-                "prepared_dataset_name": prepared_dataset_name,
             },
         }
         typer.echo(json.dumps(payload, indent=2))
@@ -288,7 +324,11 @@ def run(
         experiment_name,
         experiment_config,
         ResultProcessor(),
-        runtime_config=RuntimeConfig(storage_mode=storage_mode, local_root=local_root, data_source=data_source, prepared_dataset_name=prepared_dataset_name),
+        runtime_config=RuntimeConfig(
+            storage_mode=storage_mode, 
+            local_root=local_root, 
+            data_root=data_root if data_source == "real" else None,
+        ),
     )
 
 

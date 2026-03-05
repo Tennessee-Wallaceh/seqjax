@@ -61,7 +61,7 @@ class RuntimeConfig:
     """Runtime-only settings for experiment execution and tracking."""
     storage_mode: WandBStorageMode = "wandb"
     local_root: str = "./wandb"
-    prepared_dataset_name: str | None = None
+    data_root: str | None = None
 
     @property
     def wandb_offline(self) -> bool:
@@ -167,12 +167,13 @@ def run_experiment(
     3. Remote via WandB artifacts (for online mode)
     """
     if isinstance(experiment_config.data_config, model_registry.RealDataConfig):
-        prepared_storage = io.LocalPreparedDataStorage(resolved_runtime_config.local_root)
+        data_folder = resolved_runtime_config.data_root or resolved_runtime_config.local_root
+        prepared_storage = io.LocalPreparedDataStorage(data_folder)
         x_paths, observations, conditions = prepared_storage.get_data(
             experiment_config.data_config,
             experiment_config.data_config,
         )
-    elif isinstance(experiment_config.data_config, model_registry.RealDataConfig):
+    elif isinstance(experiment_config.data_config, model_registry.SyntheticDataConfig):
         remote_storage: io.DataStorage
         if resolved_runtime_config.wandb_offline:
             remote_storage = io.LocalFilesystemDataStorage(resolved_runtime_config.local_root)

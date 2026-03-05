@@ -172,16 +172,10 @@ default_parameter_transforms: dict[type[Parameters], dict[str, typing.Any]] = {
 
 @dataclass(kw_only=True, frozen=True, slots=True)
 class RealDataConfig:
+    dataset_name: str
     target_model_label: SequentialModelLabel
     sequence_length: int
     num_sequences: int = 1
-
-    @property
-    def dataset_name(self):
-        dataset_name = self.target_model_label
-        dataset_name += f"-l{self.sequence_length}"
-        dataset_name += f"-n{self.num_sequences}"
-        return dataset_name
 
     @property
     def target(self):
