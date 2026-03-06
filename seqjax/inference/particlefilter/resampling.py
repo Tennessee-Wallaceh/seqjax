@@ -51,7 +51,7 @@ def multinomial_resample_from_log_weights(
         ancestor_ix,  # type: ignore[arg-type]
         0,
     )
-    resampled_log_w = jnp.zeros((num_resample,), dtype=raw_log_weights.dtype)
+    resampled_log_w = -jnp.log(particles[0].batch_shape[0]) * jnp.ones_like(raw_log_weights)
     return resampled_particles, ancestor_ix, resampled_log_w, 0.0
 
 

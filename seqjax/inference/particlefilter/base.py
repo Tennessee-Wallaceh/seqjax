@@ -8,6 +8,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
+import jax.scipy.special as jsp
 from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
 from seqjax.model.base import (
     SequentialModel,
@@ -23,14 +24,17 @@ from seqjax.model.evaluate import (
 )
 
 
-class FilterData(eqx.Module):
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class FilterData:
     """
     Encapsulates the data arising from a filter step
     """
-
+    step_ix: int
     start_log_w: Array
     resampled_log_w: Array
     log_w: Array
+    log_z_inc: Array
 
     particles: tuple[seqjtyping.Latent, ...]
     ancestor_ix: Array
@@ -39,7 +43,6 @@ class FilterData(eqx.Module):
 
     observation: seqjtyping.Observation
     condition: seqjtyping.Condition
-
     inference_parameters: seqjtyping.Parameters
 
 class Recorder(Protocol):
@@ -210,8 +213,9 @@ class SMCSampler[
 
     def sample_step(
         self,
+        step_ix: int,
         step_key: PRNGKeyArray,
-        log_w: Array,
+        start_log_w: Array,
         particles: tuple[ParticleT, ...],
         observation_history: tuple[ObservationT, ...],
         observation: ObservationT,
@@ -223,7 +227,7 @@ class SMCSampler[
 
         resampled_particles, ancestor_ix, resampled_log_w, _ = self.resampler(
             resample_key,
-            log_w,
+            start_log_w,
             particles,
             self.num_particles,
         )
@@ -256,15 +260,15 @@ class SMCSampler[
             self.transition_log_prob(
                 transition_history,
                 proposed_particles,
-            condition,
-            convert_to_model_parameters(params),
-        )
-        + self.emission_log_prob(
-            emission_particles,
-            observation,
-            obs_history,
-            condition,
-            convert_to_model_parameters(params),
+                condition,
+                convert_to_model_parameters(params),
+            )
+            + self.emission_log_prob(
+                emission_particles,
+                observation,
+                obs_history,
+                condition,
+                convert_to_model_parameters(params),
         )
             - self.proposal_log_prob(
                 proposal_history, observation, proposed_particles, condition, params
@@ -275,10 +279,15 @@ class SMCSampler[
             -max(self.target.transition.order, self.target.emission.order) :
         ]
 
+        log_w_unnorm = resampled_log_w + log_weight_inc
+        log_z_inc = jsp.logsumexp(log_w_unnorm)
+        log_w = log_w_unnorm - log_z_inc
+
         return FilterData(
-            start_log_w=log_w,
+            step_ix=step_ix,
+            start_log_w=start_log_w,
             resampled_log_w=resampled_log_w,
-            log_w=resampled_log_w + log_weight_inc,
+            log_w=log_w,
             particles=particles,
             ancestor_ix=ancestor_ix,
             log_w_inc=log_weight_inc,
@@ -286,6 +295,7 @@ class SMCSampler[
             observation=observation,
             condition=condition,
             inference_parameters=params,
+            log_z_inc=log_z_inc
         )
 
 
@@ -344,33 +354,37 @@ def run_filter[
         initial_conditions,
         convert_to_model_parameters(parameters),
     )
-
+    log_z_inc = jsp.logsumexp(log_weights) - jnp.log(smc.num_particles)
     filter_data = FilterData(
+        step_ix=0,
         start_log_w=log_weights,
         resampled_log_w=log_weights,
-        log_w=log_weights,
+        log_w=log_weights-log_z_inc,
         particles=init_particles,
         resampled_particles=init_particles,
         ancestor_ix=jnp.full((smc.num_particles,), -1, dtype=jnp.int32),
-        log_w_inc=-jnp.ones_like(log_weights) * jnp.log(smc.num_particles),
+        log_w_inc=log_weights,
         observation=util.index_pytree(observation_path, 0),
         condition=util.index_pytree(condition_path, 0),
         inference_parameters=parameters,
+        log_z_inc=log_z_inc
     )
     intial_record = (
-        tuple(r(filter_data) for r in recorders) if recorders is not None else ()
+        tuple(r(filter_data) for r in recorders) 
+        if recorders is not None else ()
     )
 
     # Define the main body
     def body(state, inputs):
         obs_hist = ()  # TODO slice_emission_observation_history(
         if sliced_condition_path is None:
-            step_key, observation = inputs
+            step_ix, step_key, observation = inputs
             condition = None
         else:
-            step_key, observation, condition = inputs
+            step_ix, step_key, observation, condition = inputs
         log_w, particles = state
         step_data = smc.sample_step(
+            step_ix,
             step_key,
             log_w,
             particles,
@@ -382,7 +396,8 @@ def run_filter[
         )
 
         recorder_vals = (
-            tuple(r(step_data) for r in recorders) if recorders is not None else ()
+            tuple(r(step_data) for r in recorders) 
+            if recorders is not None else ()
         )
 
         return (step_data.log_w, step_data.particles), recorder_vals
@@ -395,14 +410,16 @@ def run_filter[
 
     body_inputs: tuple[typing.Any, ...]
     if sliced_condition_path is None:
-        body_inputs = (jnp.array(step_keys), observation_path)
+        body_inputs = (jnp.arange(1, sequence_length), jnp.array(step_keys), observation_path)
     else:
         body_inputs = (
+            jnp.arange(1, sequence_length),
             jnp.array(step_keys),
             observation_path,
             sliced_condition_path,
         )
 
+    print("start scan")
     final_state, recorder_history = jax.lax.scan(
         body,
         (filter_data.log_w, filter_data.particles),

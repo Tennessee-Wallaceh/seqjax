@@ -331,7 +331,7 @@ def run_full_sgld_mcmc[
 
     def _estimate_score(particle_filter, model, params, grad_key):
         minibatch_key, sequence_pf_keys_key = jrandom.split(grad_key)
-        sampled_observations, sampled_conditions, sequence_minibatch_rescaling = (
+        sampled_observations, sampled_conditions = (
             _sample_sequence_minibatch(
                 dataset,
                 minibatch_key,
@@ -367,7 +367,7 @@ def run_full_sgld_mcmc[
             )(sequence_pf_keys, sampled_observations, sampled_conditions)
 
         rescaled_likelihood_score = jax.tree_util.tree_map(
-            lambda score_leaf: sequence_minibatch_rescaling * jnp.sum(score_leaf, axis=0),
+            lambda score_leaf:  jnp.sum(score_leaf, axis=0),
             minibatch_likelihood_score,
         )
 
@@ -473,7 +473,7 @@ def run_buffer_sgld_mcmc[
         grad_key,
     ):
         minibatch_key, start_keys_key, sequence_pf_keys_key = jrandom.split(grad_key, 3)
-        sampled_observations, sampled_conditions, sequence_minibatch_rescaling = (
+        sampled_observations, sampled_conditions = (
             _sample_sequence_minibatch(
                 dataset,
                 minibatch_key,
@@ -580,7 +580,7 @@ def run_buffer_sgld_mcmc[
             score_increments,
         )
         rescaled_likelihood_score = jax.tree_util.tree_map(
-            lambda leaf: sequence_minibatch_rescaling * jnp.sum(leaf, axis=0),
+            lambda leaf: jnp.sum(leaf, axis=0),
             minibatch_likelihood_score,
         )
 
