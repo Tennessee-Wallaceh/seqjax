@@ -146,4 +146,12 @@ def simulate[
         unroll=1
     )
 
-    return latent_scan, obs_scan
+    latent_full = util.concat_pytree(
+        *latent_context.values,
+        latent_scan,
+    )
+    observed_full = util.concat_pytree(
+        initial_obs,
+        obs_scan,
+    )
+    return latent_full, observed_full
