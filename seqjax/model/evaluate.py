@@ -3,7 +3,6 @@
 import typing
 
 import jax
-import jax.numpy as jnp
 from jaxtyping import Scalar
 
 import seqjax.model.typing as seqjtyping
@@ -86,7 +85,7 @@ def _validate_xy_sequence_lengths[
     return sequence_length
 
 
-def _latent_context_at[
+def _batched_latent_history[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
@@ -99,19 +98,22 @@ def _latent_context_at[
         ParametersT,
     ],
     x_path: LatentT,
-    end_index: int,
     order: int,
+    sequence_length: int,
 ) -> model_interface.LatentContext[LatentT]:
-    start_index = end_index - order + 1
     return target.latent_context(
         tuple(
-            util.dynamic_index_pytree_in_dim(x_path, start_index + offset, 0)
-            for offset in range(order)
+            util.slice_pytree(
+                x_path,
+                target.prior_order + lag,
+                target.prior_order + lag + sequence_length,
+            )
+            for lag in range(-order, 0)
         )
     )
 
 
-def _observation_context_at[
+def _batched_observation_history[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
@@ -124,25 +126,19 @@ def _observation_context_at[
         ParametersT,
     ],
     observation_path: ObservationT,
-    end_index: int,
+    sequence_length: int,
 ) -> model_interface.ObservationContext[ObservationT]:
-    order = target.observation_dependency
-    start_index = end_index - order + 1
+    dependency = target.observation_dependency
     return target.observation_context(
         tuple(
-            util.dynamic_index_pytree_in_dim(observation_path, start_index + offset, 0)
-            for offset in range(order)
+            util.slice_pytree(
+                observation_path,
+                dependency + lag,
+                dependency + lag + sequence_length,
+            )
+            for lag in range(-dependency, 0)
         )
     )
-
-
-def _condition_at[ConditionT: seqjtyping.Condition](
-    condition: ConditionT,
-    index: int,
-) -> ConditionT:
-    if isinstance(condition, seqjtyping.NoCondition):
-        return typing.cast(ConditionT, condition)
-    return util.dynamic_index_pytree_in_dim(condition, index, 0)
 
 
 def log_prob_x[
@@ -183,29 +179,45 @@ def log_prob_x[
     if transition_steps == 0:
         return prior_log_p
 
-    def scan_transition(_, step_index: jax.Array) -> tuple[None, Scalar]:
-        target_index = target.prior_order + step_index
-        latent_history = _latent_context_at(
-            target,
-            x_path,
-            end_index=target_index - 1,
-            order=target.transition_order,
-        )
-        latent = util.dynamic_index_pytree_in_dim(x_path, target_index, 0)
-        transition_condition = _condition_at(condition, target_index)
-        step_log_p = target.transition_log_prob(
-            latent_history,
-            latent,
-            transition_condition,
-            util.dynamic_index_pytree_in_dim(parameters_batched, step_index + 1, 0),
-        )
-        return None, step_log_p
-
-    _, transition_log_ps = jax.lax.scan(
-        scan_transition,
-        None,
-        xs=jnp.arange(transition_steps),
+    transition_history = _batched_latent_history(
+        target,
+        x_path,
+        target.transition_order,
+        transition_steps,
     )
+    transition_latent = util.slice_pytree(
+        x_path,
+        target.prior_order,
+        target.prior_order + transition_steps,
+    )
+    transition_parameters = util.slice_pytree(parameters_batched, 1, sequence_length)
+
+    if isinstance(condition, seqjtyping.NoCondition):
+        transition_log_ps = jax.vmap(
+            lambda latent_history_t, latent_t, params_t: target.transition_log_prob(
+                latent_history_t,
+                latent_t,
+                condition,
+                params_t,
+            )
+        )(
+            transition_history,
+            transition_latent,
+            transition_parameters,
+        )
+    else:
+        transition_condition = util.slice_pytree(
+            condition,
+            target.prior_order,
+            target.prior_order + transition_steps,
+        )
+        transition_log_ps = jax.vmap(target.transition_log_prob)(
+            transition_history,
+            transition_latent,
+            transition_condition,
+            transition_parameters,
+        )
+
     return prior_log_p + transition_log_ps.sum()
 
 
@@ -239,38 +251,53 @@ def log_prob_y_given_x[
         leading_axis_len=sequence_length,
     )
 
-    def scan_emission(_, step_index: jax.Array) -> tuple[None, Scalar]:
-        latent_end_index = target.prior_order - 1 + step_index
-        observation_index = target.observation_dependency + step_index
-
-        latent_history = _latent_context_at(
-            target,
-            x_path,
-            end_index=latent_end_index,
-            order=target.emission_order,
-        )
-        observation = util.dynamic_index_pytree_in_dim(observation_path, observation_index, 0)
-        observation_history = _observation_context_at(
-            target,
-            observation_path,
-            end_index=observation_index - 1,
-        )
-        observation_condition = _condition_at(condition, observation_index)
-
-        step_log_p = target.emission_log_prob(
-            latent_history,
-            observation,
-            observation_history,
-            observation_condition,
-            util.dynamic_index_pytree_in_dim(parameters_batched, step_index, 0),
-        )
-        return None, step_log_p
-
-    _, emission_log_ps = jax.lax.scan(
-        scan_emission,
-        None,
-        xs=jnp.arange(sequence_length),
+    emission_latent_history = _batched_latent_history(
+        target,
+        x_path,
+        target.emission_order,
+        sequence_length,
     )
+    observation_start = target.observation_dependency
+    observations = util.slice_pytree(
+        observation_path,
+        observation_start,
+        observation_start + sequence_length,
+    )
+    emission_observation_history = _batched_observation_history(
+        target,
+        observation_path,
+        sequence_length,
+    )
+
+    if isinstance(condition, seqjtyping.NoCondition):
+        emission_log_ps = jax.vmap(
+            lambda latent_history_t, observation_t, observation_history_t, params_t: target.emission_log_prob(
+                latent_history_t,
+                observation_t,
+                observation_history_t,
+                condition,
+                params_t,
+            )
+        )(
+            emission_latent_history,
+            observations,
+            emission_observation_history,
+            parameters_batched,
+        )
+    else:
+        observation_condition = util.slice_pytree(
+            condition,
+            observation_start,
+            observation_start + sequence_length,
+        )
+        emission_log_ps = jax.vmap(target.emission_log_prob)(
+            emission_latent_history,
+            observations,
+            emission_observation_history,
+            observation_condition,
+            parameters_batched,
+        )
+
     return emission_log_ps.sum()
 
 
