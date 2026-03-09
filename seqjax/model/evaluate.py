@@ -12,7 +12,7 @@ from seqjax.model import interface as model_interface
 from seqjax.model import util as model_util
 
 
-def _validate_sequence_lengths[
+def _validate_x_sequence_lengths[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
@@ -24,7 +24,6 @@ def _validate_sequence_lengths[
         typing.Any,
     ],
     x_path: LatentT,
-    observation_path: ObservationT | None,
     condition: ConditionT,
 ) -> int:
     x_length = x_path.batch_shape[0]
@@ -36,33 +35,51 @@ def _validate_sequence_lengths[
 
     sequence_length = x_length - target.prior_order + 1
 
-    if observation_path is not None:
-        y_length = observation_path.batch_shape[0]
-        min_y_length = target.observation_dependency + sequence_length
-        if y_length < min_y_length:
+    if not isinstance(condition, seqjtyping.NoCondition):
+        condition_length = condition.batch_shape[0]
+        min_condition_length = target.prior_order + sequence_length - 1
+        if condition_length < min_condition_length:
             raise ValueError(
-                "observation_path length is too short for model dependency, got "
-                f"y_length={y_length} expected_at_least={min_y_length} "
-                f"(observation_dependency={target.observation_dependency}, "
-                f"sequence_length={sequence_length})"
+                "condition length is too short for latent evaluation, got "
+                f"condition_length={condition_length} expected_at_least={min_condition_length}"
             )
+
+    return sequence_length
+
+
+def _validate_xy_sequence_lengths[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+](
+    target: model_interface.SequentialModelProtocol[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        typing.Any,
+    ],
+    x_path: LatentT,
+    observation_path: ObservationT,
+    condition: ConditionT,
+) -> int:
+    sequence_length = _validate_x_sequence_lengths(target, x_path, condition)
+
+    y_length = observation_path.batch_shape[0]
+    min_y_length = target.observation_dependency + sequence_length
+    if y_length < min_y_length:
+        raise ValueError(
+            "observation_path length is too short for model dependency, got "
+            f"y_length={y_length} expected_at_least={min_y_length} "
+            f"(observation_dependency={target.observation_dependency}, "
+            f"sequence_length={sequence_length})"
+        )
 
     if not isinstance(condition, seqjtyping.NoCondition):
         condition_length = condition.batch_shape[0]
-        if condition_length < target.prior_order:
-            raise ValueError(
-                "condition length must be >= prior_order, got "
-                f"condition_length={condition_length} prior_order={target.prior_order}"
-            )
-
-        if observation_path is None:
-            min_condition_length = target.prior_order + sequence_length - 1
-        else:
-            min_condition_length = target.observation_dependency + sequence_length
-
+        min_condition_length = target.observation_dependency + sequence_length
         if condition_length < min_condition_length:
             raise ValueError(
-                "condition length is too short for requested evaluation, got "
+                "condition length is too short for observation evaluation, got "
                 f"condition_length={condition_length} expected_at_least={min_condition_length}"
             )
 
@@ -145,7 +162,7 @@ def log_prob_x[
     parameters: ParametersT,
 ) -> Scalar:
     """Return ``log p(x)`` for a latent sequence."""
-    sequence_length = _validate_sequence_lengths(target, x_path, None, condition)
+    sequence_length = _validate_x_sequence_lengths(target, x_path, condition)
 
     parameters_batched = util.broadcast_packable(
         parameters,
@@ -210,7 +227,7 @@ def log_prob_y_given_x[
     parameters: ParametersT,
 ) -> Scalar:
     """Return ``log p(y | x)`` for a sequence of observations."""
-    sequence_length = _validate_sequence_lengths(
+    sequence_length = _validate_xy_sequence_lengths(
         target,
         x_path,
         observation_path,
