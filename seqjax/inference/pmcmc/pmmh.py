@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax
 import seqjax.model.typing as seqjtyping
-from seqjax.model.base import (
+from seqjax.model.interface import (
     BayesianSequentialModel,
 )
 

@@ -7,7 +7,7 @@ import jaxtyping
 
 import seqjax.model.typing as seqjtyping
 import seqjax.util as util
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 
 
 class InferenceDataset[

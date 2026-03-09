@@ -8,7 +8,7 @@ from typing import Iterable, Union, get_args, get_origin
 
 from graphviz import Digraph  # type: ignore
 
-from .base import SequentialModel
+from .interface import SequentialModel
 
 
 _UNION_TYPES = tuple(

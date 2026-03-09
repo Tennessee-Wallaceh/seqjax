@@ -11,7 +11,7 @@ import jaxtyping
 import optax  # type: ignore[import-untyped]
 
 from seqjax.inference.vi import train
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import InferenceDataset, inference_method
 from seqjax.inference.vi import registry

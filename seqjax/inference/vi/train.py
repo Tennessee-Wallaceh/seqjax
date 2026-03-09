@@ -23,7 +23,7 @@ from jaxtyping import PyTree
 
 from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 from seqjax.inference.interface import InferenceDataset
 from seqjax.inference.vi.base import SSMVariationalApproximation
 from seqjax.inference.vi.sampling import VISamplingKwargs

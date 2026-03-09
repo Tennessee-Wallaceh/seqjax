@@ -17,7 +17,7 @@ from seqjax.inference.particlefilter import run_filter
 from seqjax.inference.particlefilter import registry as particle_filter_registry
 from seqjax.inference.particlefilter.base import FilterData
 from seqjax.inference.vi.base import _sample_sequence_minibatch, sample_batch_and_mask
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 
 
 class SGLDConfig[

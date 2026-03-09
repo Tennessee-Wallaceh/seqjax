@@ -5,7 +5,7 @@ import jax
 import typing
 from dataclasses import field
 
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 from .api import LatentContext, Embedder, SequenceAggregator
 from .aggregation import AggregationKind, build_sequence_aggregator
 

@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.special as jsp
 from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
-from seqjax.model.base import (
+from seqjax.model.interface import (
     SequentialModel,
     Transition,
 )

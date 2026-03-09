@@ -24,56 +24,37 @@ import typing
 
 import jax.numpy as jnp
 
-from . import ar, double_well, stochastic_vol
+from . import interface, ar, ar_bayesian, double_well, stochastic_vol
 
-from .base import BayesianSequentialModel, AllSequentialModels
-from .typing import Parameters
+from .typing import Parameters, HyperParameters
 
-PosteriorFactory = typing.Callable[[Parameters], BayesianSequentialModel]
+PosteriorFactory = typing.Callable[
+    [HyperParameters], 
+    interface.BayesianSequentialModelProtocol
+]
 SequentialModelLabel = typing.Literal[
     "ar",
-    "double_well",
-    "simple_stochastic_vol",
-    "aicher_stochastic_vol",
-    "skew_stochastic_vol",
-    "full_svol",
+]
+
+BayesianModelLabel = typing.Literal[
+    "ar_aronly",
+    "ar_full",
 ]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
 # must appear in ``SequentialModelLabel`` and are typically accessed via
 # ``sequential_models[label]``. When adding a new model, extend
 # ``SequentialModelLabel`` and add the class here with the same label.
-sequential_models: dict[SequentialModelLabel, AllSequentialModels] = {
-    "ar": ar.AR1Target(),
-    "double_well": double_well.DoubleWellTarget(),
-    "simple_stochastic_vol": stochastic_vol.SimpleStochasticVol(),
-    "aicher_stochastic_vol": stochastic_vol.SimpleStochasticVar(),
-    "skew_stochastic_vol": stochastic_vol.SkewStochasticVol(),
-    "full_svol": stochastic_vol.SimpleStochasticVar(),
+sequential_models: dict[SequentialModelLabel, interface.SequentialModelProtocol] = {
+    "ar": interface.validate_sequential_model(ar),
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model
 # label. These factories are typically called with the generative parameters to
 # construct the posterior used by inference algorithms.
-posterior_factories: dict[SequentialModelLabel, PosteriorFactory] = {
-    "ar": typing.cast(PosteriorFactory, ar.AR1Bayesian),
-    "double_well": typing.cast(PosteriorFactory, double_well.DoubleWellBayesian),
-    "simple_stochastic_vol": typing.cast(
-        PosteriorFactory,
-        lambda _ref_params: stochastic_vol.SimpleStochasticVolBayesian(),
-    ),
-    "skew_stochastic_vol": typing.cast(
-        PosteriorFactory,
-        lambda _ref_params: stochastic_vol.SkewStochasticVolBayesian(),
-    ),
-    "aicher_stochastic_vol": typing.cast(
-        PosteriorFactory,
-        lambda _ref_params: stochastic_vol.SimpleStochasticVarBayesian(_ref_params),
-    ),
-    "full_svol": typing.cast(
-        PosteriorFactory,
-        lambda _ref_params: stochastic_vol.StochasticVarBayesian()
-    ),
+posterior_factories: dict[BayesianModelLabel, PosteriorFactory] = {
+    "ar_aronly": typing.cast(PosteriorFactory, ar_bayesian.ar_only),
+    "ar_full": typing.cast(PosteriorFactory, ar_bayesian.ar_full),
 }
 
 # Predefined parameter presets for each model. The outer keys mirror
@@ -94,81 +75,13 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
             transition_std=jnp.array(0.5),
         ),
     },
-    "double_well": {
-        "base": double_well.DoubleWellParams(
-            energy_barrier=jnp.array(2.0),
-            observation_std=jnp.array(0.2),
-            transition_std=jnp.array(1.0),
-        ),
-    },
-    "simple_stochastic_vol": {
-        "base": stochastic_vol.LogVolRW(
-            std_log_vol=jnp.array(3.2),
-            mean_reversion=jnp.array(12.0),
-            long_term_vol=jnp.array(0.16),
-        ),
-    },
-    "aicher_stochastic_vol": {
-        "base": stochastic_vol.LogVarParams(
-            std_log_var=jnp.array(0.5),
-            ar=jnp.array(0.9),
-            long_term_log_var=2 * jnp.log(jnp.array(0.16)),
-        ),
-    },
-    "skew_stochastic_vol": {
-        "base": stochastic_vol.LogVolWithSkew(
-            std_log_vol=jnp.array(3.2),
-            mean_reversion=jnp.array(12.0),
-            long_term_vol=jnp.array(0.16),
-            skew=jnp.array(0.0),
-        ),
-    },
-    "full_svol": {
-        "base": stochastic_vol.LogVarParams(
-            std_log_var=jnp.array(0.5),
-            ar=jnp.array(0.9),
-            long_term_log_var=2 * jnp.log(jnp.array(0.16)),
-        ),
-    },
 }
 
 ConditionGenerator = typing.Callable[[int], typing.Any]
 
 # Optional mapping of model labels to callables that generate condition
 # sequences for simulations and likelihood evaluations.
-condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
-    "double_well": partial(double_well.make_unit_time_increments, dt=0.1),
-    "simple_stochastic_vol": partial(
-        stochastic_vol.make_constant_time_increments,
-        dt=1.0 / (256 * 8),
-    ),
-    "skew_stochastic_vol": partial(
-        stochastic_vol.make_constant_time_increments,
-        dt=1.0 / (256 * 8),
-        prior_order=stochastic_vol.SkewStochasticVol.prior.order,
-    ),
-}
-
-default_parameter_transforms: dict[type[Parameters], dict[str, typing.Any]] = {
-    ar.AROnlyParameters: {"ar": "sigmoid"},
-    double_well.DoubleWellParams: {"energy_barrier": "softplus"},
-    stochastic_vol.LogVolRW: {
-        "std_log_vol": "softplus",
-        "mean_reversion": "softplus",
-        "long_term_vol": "softplus",
-    },
-    stochastic_vol.LogVarStd: {
-        "std_log_var": "softplus",
-    },
-    stochastic_vol.LogVarAR: {
-        "ar": "sigmoid",
-    },
-    stochastic_vol.LogVarParams: {
-        "std_log_var": "softplus",
-        "ar": "sigmoid",
-    },
-}
-
+condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {}
 
 @dataclass(kw_only=True, frozen=True, slots=True)
 class RealDataConfig:
@@ -182,9 +95,9 @@ class RealDataConfig:
         return sequential_models[self.target_model_label]
 
     @property
-    def posterior(self) -> BayesianSequentialModel:
+    def posterior(self) -> interface.BayesianSequentialModelProtocol:
         return posterior_factories[self.target_model_label](
-            parameter_settings[self.target_model_label]["base"]
+            hyperparameter_settings[self.target_model_label]["base"]
         )
     
 @dataclass(kw_only=True, frozen=True, slots=True)
@@ -215,7 +128,7 @@ class SyntheticDataConfig:
         ]
 
     @property
-    def posterior(self) -> BayesianSequentialModel:
+    def posterior(self) -> interface.BayesianSequentialModelProtocol:
         return posterior_factories[self.target_model_label](
             parameter_settings[self.target_model_label][self.generative_parameter_label]
         )

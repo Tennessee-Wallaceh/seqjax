@@ -7,7 +7,7 @@ from flowjax.distributions import (
 from flowjax.flows import masked_autoregressive_flow
 import equinox as eqx
 import seqjax.model.typing as seqjtyping
-from seqjax.model.base import SequentialModel
+from seqjax.model.interface import SequentialModel
 from seqjax.model import simulate, evaluate
 
 import jaxtyping

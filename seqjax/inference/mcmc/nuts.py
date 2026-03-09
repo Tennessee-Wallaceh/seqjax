@@ -13,7 +13,7 @@ import jaxtyping
 from jax_tqdm import scan_tqdm  # type: ignore[import-not-found]
 
 from seqjax.model.simulate import simulate
-from seqjax.model.base import (
+from seqjax.model.interface import (
     BayesianSequentialModel,
 )
 import seqjax.model.typing as seqjtyping

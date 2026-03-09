@@ -13,7 +13,7 @@ import jax.scipy.stats as jstats
 import jaxtyping
 
 import seqjax.model.typing as seqjtyping
-from seqjax.model.base import (
+from seqjax.model.interface import (
     Emission,
     ParameterPrior,
     Prior,

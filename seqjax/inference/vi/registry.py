@@ -16,7 +16,7 @@ from seqjax.inference.vi import maf
 from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import structured
 from seqjax.inference.vi.sampling import VISampleConfig, VISamplingKwargs
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 from seqjax.model.registry import default_parameter_transforms
 
 """

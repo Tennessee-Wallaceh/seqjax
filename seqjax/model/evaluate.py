@@ -5,7 +5,7 @@ from jaxtyping import Scalar
 import typing
 
 import seqjax.model.typing as seqjtyping
-from seqjax.model.base import SequentialModel, Prior, Transition, Emission
+from seqjax.model.interface import SequentialModel, Prior, Transition, Emission
 from seqjax.util import (
     index_pytree,
     slice_pytree,

@@ -12,7 +12,7 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
-from seqjax.model.base import (
+from seqjax.model.interface import (
     BayesianSequentialModel,
     BayesianSequentialModel_TO2_EO2,
     Emission,

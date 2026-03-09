@@ -14,7 +14,7 @@ import jax.random as jrandom
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import InferenceDataset
 from seqjax.model.evaluate import log_prob_joint
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 from seqjax.inference.vi.sampling import VISamplingKwargs
 from .api import LatentContext, Embedder, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 

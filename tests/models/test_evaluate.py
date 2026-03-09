@@ -6,7 +6,7 @@ from typing import ClassVar
 from collections import OrderedDict
 from seqjax.model import evaluate
 import seqjax.model.typing as seqjtyping
-from seqjax.model.base import SequentialModel, Prior, Transition, Emission
+from seqjax.model.interface import SequentialModel, Prior, Transition, Emission
 from jaxtyping import PRNGKeyArray, Scalar
 
 

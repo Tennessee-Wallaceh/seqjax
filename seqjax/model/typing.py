@@ -160,3 +160,7 @@ class Parameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 
 
 class HyperParameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
+
+class NoHyper(HyperParameters):
+    __slots__ = ()
+    _shape_template = OrderedDict()

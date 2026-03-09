@@ -13,7 +13,7 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
-from seqjax.model.base import BayesianSequentialModel, ParameterPrior, Emission, Prior, SequentialModel, Transition
+from seqjax.model.interface import BayesianSequentialModel, ParameterPrior, Emission, Prior, SequentialModel, Transition
 from seqjax.model.typing import Observation, Parameters, Latent, NoCondition, HyperParameters
 import jax.scipy.special as jspecial
 

@@ -1,6 +1,6 @@
 from typing import Tuple, Type
 
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 import seqjax.model.typing
 import equinox as eqx
 import jax

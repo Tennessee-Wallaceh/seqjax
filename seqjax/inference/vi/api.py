@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import typing
 from dataclasses import dataclass, field
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 import jax
 import jax.numpy as jnp
 import equinox as eqx

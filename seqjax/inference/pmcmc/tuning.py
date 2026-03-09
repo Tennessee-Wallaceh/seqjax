@@ -11,7 +11,7 @@ import jax.random as jrandom
 import jaxtyping
 
 import seqjax.model.typing as seqjtyping
-from seqjax.model.base import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModel
 from seqjax.inference.particlefilter import SMCSampler
 from seqjax import util
 
