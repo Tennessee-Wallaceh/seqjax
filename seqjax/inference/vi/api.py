@@ -1,7 +1,7 @@
 from abc import abstractmethod
 import typing
 from dataclasses import dataclass, field
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 import jax
 import jax.numpy as jnp
 import equinox as eqx
@@ -126,7 +126,7 @@ class Embedder[
     """
     Maps observation sequence to various embeddings.
     """
-    target_posterior: BayesianSequentialModel
+    target_posterior: BayesianSequentialModelProtocol
     sample_length: int
     sequence_length: int
     observation_context_dim: int = field(init=False)

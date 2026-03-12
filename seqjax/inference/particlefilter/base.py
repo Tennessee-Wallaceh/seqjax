@@ -11,11 +11,10 @@ import jax.random as jrandom
 import jax.scipy.special as jsp
 from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
 from seqjax.model.interface import (
-    SequentialModel,
-    Transition,
+    SequentialModelProtocol,
+    BayesianSequentialModelProtocol,
 )
 import seqjax.model.typing as seqjtyping
-from seqjax.model import BayesianSequentialModel
 from seqjax import util
 from .resampling import Resampler
 from seqjax.model.evaluate import (
@@ -120,13 +119,14 @@ class TransitionProposal[
     If there is no resampling scheme this is SIS.
     """
 
-    transition: Transition[TransitionLatentHistoryT, ParticleT, ConditionT, ParametersT]
+    transition_sample_fn: Callable[..., ParticleT]
+    transition_log_prob_fn: Callable[..., Scalar]
     # I don't actually care what this does, as long as it produces ParametersT.
     convert_to_model_parameters: Callable[[InferenceParametersT], ParametersT]
 
     def __init__(
         self,
-        model: BayesianSequentialModel[
+        model: BayesianSequentialModelProtocol[
             ParticleT,
             ObservationT,
             ConditionT,
@@ -140,9 +140,10 @@ class TransitionProposal[
             ObservationHistoryT,
         ],
     ):
-        self.transition = model.target.transition
-        self.convert_to_model_parameters = model.convert_to_model_parameters
-        super().__init__(order=self.transition.order)
+        self.transition_sample_fn = model.target.transition_sample
+        self.transition_log_prob_fn = model.target.transition_log_prob
+        self.convert_to_model_parameters = model.parameterization.to_model_parameters
+        super().__init__(order=model.target.transition_order)
 
     def sample(
         self,
@@ -152,7 +153,7 @@ class TransitionProposal[
         condition: ConditionT,
         parameters: InferenceParametersT,
     ) -> ParticleT:
-        return self.transition.sample(
+        return self.transition_sample_fn(
             key, particle_history, condition, self.convert_to_model_parameters(parameters)
         )
 
@@ -164,7 +165,7 @@ class TransitionProposal[
         condition: ConditionT,
         parameters: InferenceParametersT,
     ) -> Array:
-        return self.transition.log_prob(
+        return self.transition_log_prob_fn(
             particle_history,
             new_particles,
             condition,
@@ -182,7 +183,7 @@ class SMCSampler[
 ):
     """Base class implementing sequential Monte Carlo."""
 
-    target: SequentialModel[
+    target: SequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
@@ -202,12 +203,12 @@ class SMCSampler[
 
     @cached_property
     def transition_log_prob(self) -> Callable:
-        return jax.vmap(self.target.transition.log_prob, in_axes=[0, 0, None, None])
+        return jax.vmap(self.target.transition_log_prob, in_axes=[0, 0, None, None])
 
     @cached_property
     def emission_log_prob(self) -> Callable:
         return jax.vmap(
-            self.target.emission.log_prob,
+            self.target.emission_log_prob,
             in_axes=[0, None, None, None, None],
         )
 

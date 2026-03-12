@@ -11,7 +11,7 @@ import jaxtyping
 import optax  # type: ignore[import-untyped]
 
 from seqjax.inference.vi import train
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import InferenceDataset, inference_method
 from seqjax.inference.vi import registry
@@ -30,7 +30,7 @@ def run_full_path_vi[
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         LatentT,
         ObservationT,
         ConditionT,
@@ -149,7 +149,7 @@ def run_buffered_vi[
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         LatentT,
         ObservationT,
         ConditionT,

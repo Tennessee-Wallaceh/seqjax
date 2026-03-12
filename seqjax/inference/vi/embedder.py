@@ -5,7 +5,7 @@ import jax
 import typing
 from dataclasses import field
 
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 from .api import LatentContext, Embedder, SequenceAggregator
 from .aggregation import AggregationKind, build_sequence_aggregator
 
@@ -81,7 +81,7 @@ class PositionalEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModel,
+        target_posterior: BayesianSequentialModelProtocol,
         sample_length: int,
         sequence_length: int,
         n_pos_embedding: int = 8,
@@ -161,7 +161,7 @@ class WindowEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModel,
+        target_posterior: BayesianSequentialModelProtocol,
         sample_length: int,
         sequence_length: int,
         prev_window: int,
@@ -273,7 +273,7 @@ class RNNEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModel,
+        target_posterior: BayesianSequentialModelProtocol,
         sample_length: int,
         sequence_length: int,
         hidden: int,
@@ -377,7 +377,7 @@ class Conv1DEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModel,
+        target_posterior: BayesianSequentialModelProtocol,
         sample_length: int,
         sequence_length: int,
         hidden: int,
@@ -543,7 +543,7 @@ class TransformerEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModel,
+        target_posterior: BayesianSequentialModelProtocol,
         sample_length: int,
         sequence_length: int,
         hidden: int,

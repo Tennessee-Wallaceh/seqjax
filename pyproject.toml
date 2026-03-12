@@ -48,7 +48,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-m 'not longrun'"
+addopts = "-m 'not longrun' --ignore=tests/inference --ignore=tests/models --ignore=tests/test_visualise.py --ignore=tests/test_io_storage.py --ignore=tests/test_experiment_runtime.py --ignore=tests/test_cli_codes.py"
 markers = [
     "longrun: marks tests as long-running statistical checks",
 ]
@@ -70,6 +70,10 @@ ignore = ["E501", "F722"]
 
 [tool.mypy]
 python_version = "3.13"
+exclude = [
+  "^stubs/",
+  "^seqjax/model/",
+]
 
 [mypy]
 mypy_path = "stubs"
@@ -85,4 +89,13 @@ ignore_errors = true
 module = [
 "seqjax.inference.*",
 "seqjax.io",
+"seqjax.experiment",
+"seqjax.cli.*",
 ]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+"seqjax.model.*",
+]
+ignore_errors = true

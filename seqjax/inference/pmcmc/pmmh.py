@@ -11,7 +11,7 @@ import jax.random as jrandom
 import jax
 import seqjax.model.typing as seqjtyping
 from seqjax.model.interface import (
-    BayesianSequentialModel,
+    BayesianSequentialModelProtocol,
 )
 
 from seqjax.inference.particlefilter import registry as particle_filter_registry
@@ -52,7 +52,7 @@ def _make_log_joint_estimator[
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
@@ -159,7 +159,7 @@ def run_particle_mcmc[
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
