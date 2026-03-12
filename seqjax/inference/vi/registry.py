@@ -359,7 +359,6 @@ Approximations
 @dataclass
 class FullVIConfig(VISampleConfig):
     optimization: optimization_registry.OptConfig
-    parameter_field_bijections: dict[str, str | transformations.Bijector]
     embedder: EmbedderConfig
     samples_per_context: int
     num_sequence_minibatch: int = 1

@@ -16,7 +16,7 @@ from seqjax.model.interface import (
 
 from seqjax.inference.particlefilter import registry as particle_filter_registry
 from seqjax.inference.particlefilter import SMCSampler, run_filter
-from seqjax.inference.particlefilter.base import FilterData
+from seqjax.inference.particlefilter.interface import FilterData
 from seqjax.inference.mcmc.metropolis import (
     RandomWalkConfig,
     run_random_walk_metropolis,
@@ -60,7 +60,6 @@ def _make_log_joint_estimator[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     dataset: InferenceDataset[ObservationT, ConditionT],
 ):
     observations = dataset.observations
@@ -72,35 +71,34 @@ def _make_log_joint_estimator[
             self,
             particle_filter: SMCSampler[
                 ParticleT,
-                tuple[ParticleT, ...],
                 ObservationT,
                 ConditionT,
                 ParametersT,
+                InferenceParametersT,
             ],
             sequence_key: PRNGKeyArray,
             params: InferenceParametersT,
             observation_path: ObservationT,
-            condition_path: ConditionT | seqjtyping.NoCondition,
+            condition_path: ConditionT,
         ) -> jaxtyping.Array: ...
 
     def estimate_sequence_log_marginal(
         particle_filter: SMCSampler[
             ParticleT,
-            tuple[ParticleT, ...],
             ObservationT,
             ConditionT,
             ParametersT,
+            InferenceParametersT,
         ],
         sequence_key: PRNGKeyArray,
         params: InferenceParametersT,
         observation_path: ObservationT,
-        condition_path: ConditionT | seqjtyping.NoCondition,
+        condition_path: ConditionT,
     ) -> jaxtyping.Array:
-        model_params = target_posterior.convert_to_model_parameters(params)
         _, _, (log_marginal_increments,) = run_filter(
             sequence_key,
             particle_filter,
-            model_params,
+            params,
             observation_path,
             condition_path=condition_path,
             recorders=(log_marginal_increment,),
@@ -112,12 +110,12 @@ def _make_log_joint_estimator[
     )
 
     def estimate_log_joint(
-        particle_filter: SMCSampler[
+        particle_filter:  SMCSampler[
             ParticleT,
-            tuple[ParticleT,...],
             ObservationT,
             ConditionT,
             ParametersT,
+            InferenceParametersT,
         ],
         params: InferenceParametersT,
         key: PRNGKeyArray,
@@ -144,7 +142,7 @@ def _make_log_joint_estimator[
                 )
             )(sequence_keys, observations, conditions).sum()
 
-        log_prior = target_posterior.parameterization.log_prob(params, hyperparameters)
+        log_prior = target_posterior.parameterization.log_prob(params)
         return log_marginal + log_prior
 
     return estimate_log_joint
@@ -167,7 +165,6 @@ def run_particle_mcmc[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,
@@ -178,17 +175,16 @@ def run_particle_mcmc[
 
     estimate_log_joint = _make_log_joint_estimator(
         target_posterior,
-        hyperparameters,
         dataset,
     )
 
-    particle_filter = particle_filter_registry._build_filter(
+    particle_filter = particle_filter_registry.build_filter(
         target_posterior, 
         config=config.particle_filter_config
     )
     
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameterization.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.parameterization.sample(init_key)
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size

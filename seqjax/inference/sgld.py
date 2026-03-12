@@ -15,10 +15,10 @@ from seqjax import util
 from seqjax.inference.interface import InferenceDataset, inference_method
 from seqjax.inference.particlefilter import run_filter
 from seqjax.inference.particlefilter import registry as particle_filter_registry
-from seqjax.inference.particlefilter.base import FilterData
+from seqjax.inference.particlefilter.interface import FilterData
 from seqjax.inference.vi.base import _sample_sequence_minibatch, sample_batch_and_mask
 from seqjax.model.interface import BayesianSequentialModelProtocol
-
+from seqjax.model import util as model_util
 
 class SGLDConfig[
     ParametersT: seqjtyping.Parameters,
@@ -62,17 +62,34 @@ def _tree_randn_like[ParametersT: seqjtyping.Parameters](
     return jax.tree_util.tree_unflatten(treedef, new_leaves)
 
 
-def estimate_initial_step_score(model, filter_data: FilterData):
+def estimate_initial_step_score[
+    ParticleT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
+    model: BayesianSequentialModelProtocol[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
+    ], 
+    filter_data: FilterData
+):
     # grad wrt to parameters
     def model_initial_log_prob(particles, inference_parameters):
-        model_parameters = model.convert_to_model_parameters(inference_parameters)
-        return model.target.emission.log_prob(
+        model_parameters = model.parameterization.to_model_parameters(inference_parameters)
+        return model.target.emission_log_prob(
             particles,
             filter_data.observation,
-            (),
+            model.target.observation_context(()),
             filter_data.condition,
             model_parameters,
-        ) + model.target.prior.log_prob(
+        ) + model.target.prior_log_prob(
             particles,
             filter_data.condition,
             model_parameters,
@@ -86,19 +103,41 @@ def estimate_initial_step_score(model, filter_data: FilterData):
     )(filter_data.particles, filter_data.inference_parameters)
 
 
-def estimate_step_score(model, filter_data: FilterData):
+def estimate_step_score[
+    ParticleT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
+    model: BayesianSequentialModelProtocol[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
+    ], 
+    filter_data: FilterData[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        InferenceParametersT
+    ]
+):
     # grad wrt to parameters
     def model_step_log_prob(
         particles, emission_particles, transition_history, inference_parameters
     ):
-        model_parameters = model.convert_to_model_parameters(inference_parameters)
-        return model.target.emission.log_prob(
+        model_parameters = model.parameterization.to_model_parameters(inference_parameters)
+        return model.target.emission_log_prob(
             emission_particles,
             filter_data.observation,
-            (),
+            model.target.observation_context(()),
             filter_data.condition,
             model_parameters,
-        ) + model.target.transition.log_prob(
+        ) + model.target.transition_log_prob(
             transition_history,
             particles,
             filter_data.condition,
@@ -107,14 +146,10 @@ def estimate_step_score(model, filter_data: FilterData):
 
     model_step_score = jax.grad(model_step_log_prob, argnums=-1)
 
-    transition_history = model.target.latent_view_for_transition(filter_data.resampled_particles)
-    emission_history = (
-        filter_data.resampled_particles[-(model.target.emission.order - 1) :]
-        if model.target.emission.order > 1
-        else ()
-    )
-    emission_particles = (*emission_history, filter_data.particles[-1])
+    transition_history = model.target.latent_context(filter_data.resampled_particles.values)
     proposed_particles = filter_data.particles[-1]
+
+    emission_particles = model_util.add_history(filter_data.resampled_particles, filter_data.particles[-1])
 
     return jax.vmap(
         model_step_score,
@@ -196,7 +231,6 @@ def _estimate_sequence_score[
             partial(estimate_score_increment, model),
             lambda fd: fd.ancestor_ix,
         ),
-        convert_to_model_parameters=model.convert_to_model_parameters,
     )
 
     log_weights, _, (score_increments, ancestor_ix) = out
@@ -303,7 +337,6 @@ def run_full_sgld_mcmc[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,
@@ -322,7 +355,7 @@ def run_full_sgld_mcmc[
             f"dataset.num_sequences={dataset.num_sequences}."
         )
 
-    particle_filter = particle_filter_registry._build_filter(
+    particle_filter = particle_filter_registry.build_filter(
         target_posterior, config.particle_filter_config
     )
 
@@ -373,7 +406,6 @@ def run_full_sgld_mcmc[
 
         log_prior_score = jax.grad(model.parameterization.log_prob, argnums=0)(
             params,
-            hyperparameters,
         )
 
         return jax.tree_util.tree_map(
@@ -384,7 +416,7 @@ def run_full_sgld_mcmc[
 
     inference_time_start = time.time()
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameterization.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.parameterization.sample(init_key)
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size
@@ -440,7 +472,6 @@ def run_buffer_sgld_mcmc[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,
@@ -459,7 +490,7 @@ def run_buffer_sgld_mcmc[
             f"dataset.num_sequences={dataset.num_sequences}."
         )
 
-    particle_filter = particle_filter_registry._build_filter(
+    particle_filter = particle_filter_registry.build_filter(
         target_posterior,
         config.particle_filter_config,
     )
@@ -515,7 +546,6 @@ def run_buffer_sgld_mcmc[
                         partial(estimate_score_increment, model),
                         lambda fd: fd.ancestor_ix,
                     ),
-                    convert_to_model_parameters=model.convert_to_model_parameters,
                 )
             )(sequence_pf_keys, y_batch)
         else:
@@ -530,7 +560,6 @@ def run_buffer_sgld_mcmc[
                         partial(estimate_score_increment, model),
                         lambda fd: fd.ancestor_ix,
                     ),
-                    convert_to_model_parameters=model.convert_to_model_parameters,
                 )
             )(sequence_pf_keys, y_batch, c_batch)
 
@@ -586,7 +615,6 @@ def run_buffer_sgld_mcmc[
 
         log_prior_score = jax.grad(model.parameterization.log_prob, argnums=0)(
             params,
-            hyperparameters,
         )
 
         return jax.tree_util.tree_map(
@@ -606,7 +634,7 @@ def run_buffer_sgld_mcmc[
 
     inference_time_start = time.time()
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameterization.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.parameterization.sample(init_key)
 
     num_samples = config.sample_block_size
     sample_blocks = [

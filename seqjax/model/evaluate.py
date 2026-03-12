@@ -164,7 +164,6 @@ def log_prob_x[
         parameters,
         leading_axis_len=sequence_length,
     )
-    print(parameters_batched.batch_shape)
 
     prior_latent = target.latent_context(
         tuple(util.index_pytree(x_path, ix) for ix in range(target.prior_order))

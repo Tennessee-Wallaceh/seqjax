@@ -97,7 +97,6 @@ def run_bayesian_nuts[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,
@@ -120,8 +119,8 @@ def run_bayesian_nuts[
 
     def logdensity(state):
         latents, params = state
-        log_prior = target_posterior.parameterization.log_prob(params, hyperparameters)
-        model_params = target_posterior.convert_to_model_parameters(params)
+        log_prior = target_posterior.parameterization.log_prob(params)
+        model_params = target_posterior.parameterization.to_model_parameters(params)
 
         latent_shape = pytree_shape(latents)[0]
         if latent_shape[0] != num_sequences:
@@ -156,7 +155,7 @@ def run_bayesian_nuts[
             initial_parameters = typing.cast(InferenceParametersT, config.initial_params)
         else:
             initial_parameters = target_posterior.parameterization.sample(
-                param_key, hyperparameters
+                param_key
             )
 
         if config.initial_latents is not None:
@@ -170,7 +169,7 @@ def run_bayesian_nuts[
                 )
         else:
             simulation_keys = jrandom.split(latent_key, num_sequences)
-            model_parameters = target_posterior.convert_to_model_parameters(initial_parameters)
+            model_parameters = target_posterior.parameterization.to_model_parameters(initial_parameters)
             if isinstance(conditions, seqjtyping.NoCondition):
                 initial_latents, _ = jax.vmap(
                     lambda sim_key: simulate(

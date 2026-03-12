@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
-from .base import FilterData
+from .interface import FilterData
 
 
 def _normalised_weights(log_w: Array) -> Array:

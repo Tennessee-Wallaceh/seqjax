@@ -8,7 +8,7 @@ from jaxtyping import Array, PRNGKeyArray
 
 from seqjax.util import dynamic_index_pytree_in_dim as index_tree
 import seqjax.model.typing as seqjtyping
-
+from . import interface as pf_interface
 
 class Resampler[
     ParticleT: seqjtyping.Latent,
@@ -28,10 +28,10 @@ class Resampler[
     def __call__(
         self,
         key: PRNGKeyArray,
-        log_weights: Array,
-        particles: tuple[ParticleT, ...],
+        raw_log_weights: Array,
+        particles: pf_interface.FilterContext[ParticleT],
         num_resample: int,
-    ) -> tuple[tuple[ParticleT, ...], Array, Array, typing.Any]: ...
+    ) -> tuple[pf_interface.FilterContext[ParticleT], Array, Array, typing.Any]: ...
 
 
 def multinomial_resample_from_log_weights(

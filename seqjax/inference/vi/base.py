@@ -297,6 +297,53 @@ class FullVI[
             theta_no_grad,
         )
 
+    def batched_log_joint(
+        self, 
+        x_path: LatentT, 
+        y_batch: ObservationT, 
+        c_batch: ConditionT, 
+        buffered_params: InferenceParametersT
+    ):
+        # input to the joint has leading batch axes 
+        # [n_seq, n_subseq, n_mc]
+        # in the inner we map down the MC param+latent samples that are for fixed
+        # (sequence, sub-sequence)
+        # then down the outer two axes
+
+        # x_path [n_seq, n_mc, sample_length]
+        # y_batch [n_seq, sample_length]
+        # c_batch [n_seq, sample_length] | NoCondition()
+        # buffered_params [n_seq, n_mc, sample_length]
+        
+        if isinstance(c_batch, seqjtyping.NoCondition):
+            ax_spec = (0, None, None, 0)
+            ax_spec_2 = (0, 0, None, 0)
+        else:
+            ax_spec = (0, None, 0, 0)
+            ax_spec_2 = (0, 0, 0, 0)
+
+        def _log_joint(
+            x_path: LatentT, 
+            y_batch: ObservationT, 
+            c_batch: ConditionT, 
+            inference_params: InferenceParametersT
+        ):
+            return log_prob_joint(
+                self.target_posterior.target,
+                x_path,
+                y_batch,
+                c_batch,
+                self.target_posterior.parameterization.to_model_parameters(inference_params)
+            )
+
+        batched_log_joint = jax.vmap(jax.vmap(
+            _log_joint,
+            in_axes=ax_spec,
+        ),
+            in_axes=ax_spec_2,
+        )
+        return batched_log_joint(x_path, y_batch, c_batch, buffered_params)
+    
     def estimate_loss(
         self,
         dataset: InferenceDataset[ObservationT, ConditionT],
@@ -322,22 +369,16 @@ class FullVI[
             )
         )(theta_q)
 
-        batched_log_p_joint = jax.vmap(
-            partial(log_prob_joint, self.target_posterior.target),
-            in_axes=[0, 0, 0, 0],
-        )
-        batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
-
         sample_length = sampled_observations.batch_shape[1]
         buffered_theta = jax.vmap(
             jax.vmap(self.buffer_params, in_axes=[0, None]), in_axes=[0, None]
         )(theta_q, jnp.ones(sample_length))
 
-        log_p_y_x = batched_log_p_joint(
+        log_p_y_x = self.batched_log_joint(
             x_path,
             sampled_observations,
             sampled_conditions,
-            self.target_posterior.parameterization.to_model_parameters(buffered_theta),
+            buffered_theta,
         )
 
         neg_elbo = (log_q_theta - log_p_theta) / sequence_minibatch_rescaling
@@ -376,7 +417,7 @@ class FullVI[
         )
 
         parameters = jax.vmap(jax.vmap(self.target_posterior.parameterization.sample))(
-            parameter_keys, typing.cast(typing.Any, None)
+            parameter_keys
         )
 
         latent_context = jax.vmap(self.embedding.embed)(
@@ -532,7 +573,7 @@ class BufferedSSMVI[
             condition=condition_sequence,
         )
 
-        parameters = self.target_posterior.parameterization.sample(parameter_key, typing.cast(typing.Any, None))
+        parameters = self.target_posterior.parameterization.sample(parameter_key)
 
         latent_context = self.embedding.embed(
             y_batch,
@@ -678,7 +719,7 @@ class BufferedSSMVI[
         x_path: LatentT, 
         y_batch: ObservationT, 
         c_batch: ConditionT, 
-        buffered_params: ParametersT
+        buffered_params: InferenceParametersT
     ):
         # input to the joint has leading batch axes 
         # [n_seq, n_subseq, n_mc]
@@ -696,16 +737,28 @@ class BufferedSSMVI[
         else:
             ax_spec = (0, 0, 0, 0)
 
+        def _log_joint(
+            x_path: LatentT, 
+            y_batch: ObservationT, 
+            c_batch: ConditionT, 
+            inference_params: InferenceParametersT
+        ):
+            return log_prob_joint(
+                self.target_posterior.target,
+                x_path,
+                y_batch,
+                c_batch,
+                self.target_posterior.parameterization.to_model_parameters(inference_params)
+            )
+
         batched_log_joint = jax.vmap(jax.vmap(jax.vmap(
-            partial(log_prob_joint, self.target_posterior.target),
+            _log_joint,
             in_axes=ax_spec,
         ),
             in_axes=ax_spec,
         ),
             in_axes=ax_spec,
         )
-        print(ax_spec)
-        print(x_path.batch_shape, y_batch.batch_shape, c_batch.batch_shape, buffered_params.batch_shape)
         return batched_log_joint(x_path, y_batch, c_batch, buffered_params)
     
     def batched_parameter_prior(self, *args, **kwargs):
@@ -761,19 +814,12 @@ class BufferedSSMVI[
         log_p_theta = self.batched_parameter_prior(theta_q)
 
         buffered_params = self.batched_buffer_params(theta_q, theta_mask)
-        
-        # print("log_p_theta", log_p_theta.shape)
-        # print("log_q_theta", log_q_theta.shape)
-        # print("x_path", x_path.batch_shape)
-        # print("y_batch", y_batch.batch_shape)
-        # print("theta_q", theta_q.batch_shape)
-        # print("buffered_params", buffered_params.batch_shape)
 
         log_p_y_x = self.batched_log_joint(
             x_path,
             y_batch,
             c_batch,
-            self.target_posterior.parameterization.to_model_parameters(buffered_params),
+            buffered_params,
         )
         
         neg_elbo = (
@@ -804,7 +850,7 @@ class BufferedSSMVI[
             x_path,
             y_batch,
             c_batch,
-            self.target_posterior.parameterization.to_model_parameters(theta_q),
+            theta_q,
         )
 
         neg_elbo = log_q_x - log_p_y_x

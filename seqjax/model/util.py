@@ -3,6 +3,7 @@ import typing
 import seqjax.model.typing as seqjtyping
 from seqjax import util
 from . import interface
+from seqjax.inference.particlefilter.interface import ProposalContext, FilterContext
 
 def slice_prior_context[
     LatentT: seqjtyping.Latent,
@@ -57,6 +58,18 @@ def add_history[ConditionT: seqjtyping.Condition](
     context: interface.ConditionContext[ConditionT],
     new_value: ConditionT,
 ) -> interface.ConditionContext[ConditionT]: ...
+
+@typing.overload
+def add_history[ParticleT: seqjtyping.Latent](
+    context: ProposalContext[ParticleT],
+    new_value: ParticleT,
+) -> ProposalContext[ParticleT]: ...
+
+@typing.overload
+def add_history[ParticleT: seqjtyping.Latent](
+    context: FilterContext[ParticleT],
+    new_value: ParticleT,
+) -> FilterContext[ParticleT]: ...
 
 def add_history(
     context: interface.FixedLengthHistoryContext,

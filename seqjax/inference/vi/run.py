@@ -38,7 +38,6 @@ def run_full_path_vi[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,

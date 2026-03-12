@@ -1,28 +1,16 @@
 import typing
 from dataclasses import dataclass, field
-from functools import partial
 
 from seqjax.inference.particlefilter import SMCSampler
-from seqjax.inference.particlefilter import SMCSampler
-from seqjax.inference.particlefilter.resampling import multinomial_resample_from_log_weights
+from seqjax.inference.particlefilter.resampling import Resampler, multinomial_resample_from_log_weights
 from seqjax.inference.particlefilter.base import TransitionProposal
+from seqjax.model.interface import (
+    BayesianSequentialModelProtocol,
+)
+from seqjax.model import typing as seqjtyping 
 
 """
 Filter configurations
-
-smc = SMCSampler(
-    target=target_posterior.target,
-    proposal=TransitionProposal(target_posterior),
-    resampler=conditional_resample,
-    num_particles=3000,
-)
-
-config = {
-    filter="bootstrap",
-    resampler="multinomial",
-    num_particles=5000
-}
-
 """
 ProposalKind = typing.Literal["model-transition"]
 
@@ -31,9 +19,10 @@ Resampling methods
 """
 ResampleKind = typing.Literal["multinomial"]
 
-resample_registry = {
+resample_registry: dict[ResampleKind, Resampler] = {
     "multinomial": multinomial_resample_from_log_weights
 }
+
 """
 Filter
 """
@@ -50,10 +39,27 @@ registry = {
     "bootstrap": BootstrapFilterConfig
 }
 
-def _build_filter(target_posterior, config: BootstrapFilterConfig):
+def build_filter[
+    ParticleT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+](
+    target_posterior: BayesianSequentialModelProtocol[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        typing.Any,
+    ], 
+    config: BootstrapFilterConfig
+):
     return SMCSampler(
         target=target_posterior.target,
         proposal=TransitionProposal(target_posterior),
         resampler=resample_registry[config.resample],
         num_particles=config.num_particles,
+        parameterization=target_posterior.parameterization
     )

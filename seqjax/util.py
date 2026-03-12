@@ -110,6 +110,8 @@ def dynamic_slice_pytree(
         tree,
     )
 
+def add_leading_dim(tree):
+    return jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, 0), tree)
 
 def concat_pytree[
     PackableT: seqjtyping.Packable,
