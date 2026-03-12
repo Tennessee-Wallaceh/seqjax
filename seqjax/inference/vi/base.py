@@ -14,7 +14,7 @@ import jax.random as jrandom
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import InferenceDataset
 from seqjax.model.evaluate import log_prob_joint
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.inference.vi.sampling import VISamplingKwargs
 from .api import LatentContext, Embedder, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 
@@ -157,7 +157,7 @@ class SSMVariationalApproximation[
     latent_approximation: AmortizedVariationalApproximation[ParticleT]
     parameter_approximation: UnconditionalVariationalApproximation[ParametersT]
     embedding: Embedder
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
@@ -201,7 +201,7 @@ class FullVI[
     latent_approximation: AmortizedVariationalApproximation[LatentT]
     parameter_approximation: UnconditionalVariationalApproximation[ParametersT]
     embedding: Embedder[ObservationT, ConditionT, ParametersT]
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         LatentT,
         ObservationT,
         ConditionT,
@@ -500,7 +500,7 @@ class BufferedSSMVI[
     latent_approximation: AmortizedVariationalApproximation[LatentT]
     parameter_approximation: UnconditionalVariationalApproximation[InferenceParametersT]
     embedding: Embedder[ObservationT, ConditionT, InferenceParametersT]
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         LatentT,
         ObservationT,
         ConditionT,

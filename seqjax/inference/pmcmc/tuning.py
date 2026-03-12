@@ -11,7 +11,7 @@ import jax.random as jrandom
 import jaxtyping
 
 import seqjax.model.typing as seqjtyping
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.inference.particlefilter import SMCSampler
 from seqjax import util
 
@@ -41,7 +41,7 @@ def tune_particle_filter_variance[
 ](
     estimate_log_joint: LogJointEstimator,
     base_filter: SMCSampler,
-    target_posterior: BayesianSequentialModel,
+    target_posterior: BayesianSequentialModelProtocol,
     hyperparameters: HyperParametersT,
     config: ParticleFilterTuningConfig,
     key: jaxtyping.PRNGKeyArray,

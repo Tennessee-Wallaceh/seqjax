@@ -14,7 +14,7 @@ from jax_tqdm import scan_tqdm  # type: ignore[import-not-found]
 
 from seqjax.model.simulate import simulate
 from seqjax.model.interface import (
-    BayesianSequentialModel,
+    BayesianSequentialModelProtocol,
 )
 import seqjax.model.typing as seqjtyping
 from seqjax.model import evaluate
@@ -89,7 +89,7 @@ def run_bayesian_nuts[
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,

@@ -16,7 +16,7 @@ from seqjax.inference.vi import maf
 from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import structured
 from seqjax.inference.vi.sampling import VISampleConfig, VISamplingKwargs
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.model.registry import default_parameter_transforms
 
 """
@@ -115,7 +115,7 @@ embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
 
 def _build_embedder(
     embedder_config: EmbedderConfig,
-    target_posterior: BayesianSequentialModel,
+    target_posterior: BayesianSequentialModelProtocol,
     sequence_length: int,
     sample_length: int,
     embedding_key: jaxtyping.PRNGKeyArray,
@@ -441,7 +441,7 @@ class BufferedVIConfig(VISampleConfig):
 def build_approximation(
     config: FullVIConfig | BufferedVIConfig,
     sequence_length: int,
-    target_posterior: BayesianSequentialModel,
+    target_posterior: BayesianSequentialModelProtocol,
     key: jaxtyping.PRNGKeyArray,
 ) -> typing.Any:
     parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)

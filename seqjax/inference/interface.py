@@ -7,7 +7,7 @@ import jaxtyping
 
 import seqjax.model.typing as seqjtyping
 import seqjax.util as util
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 
 
 class InferenceDataset[
@@ -129,7 +129,7 @@ class InferenceMethod[
 ](typing.Protocol):
     def __call__(
         self,
-        target_posterior: BayesianSequentialModel[
+        target_posterior: BayesianSequentialModelProtocol[
             LatentT,
             ObservationT,
             ConditionT,
@@ -164,7 +164,7 @@ def adapt_single_sequence_inference[
     HyperParametersT,
 ]:
     def wrapped(
-        target_posterior: BayesianSequentialModel[
+        target_posterior: BayesianSequentialModelProtocol[
             LatentT,
             ObservationT,
             ConditionT,

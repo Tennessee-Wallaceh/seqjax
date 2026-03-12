@@ -17,7 +17,7 @@ from seqjax.inference.particlefilter import run_filter
 from seqjax.inference.particlefilter import registry as particle_filter_registry
 from seqjax.inference.particlefilter.base import FilterData
 from seqjax.inference.vi.base import _sample_sequence_minibatch, sample_batch_and_mask
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 
 
 class SGLDConfig[
@@ -149,7 +149,7 @@ class SequenceScoreEstimator[
     def __call__(
         self,
         particle_filter,
-        model: BayesianSequentialModel[
+        model: BayesianSequentialModelProtocol[
             ParticleT,
             ObservationT,
             ConditionT,
@@ -173,7 +173,7 @@ def _estimate_sequence_score[
     HyperParametersT: seqjtyping.HyperParameters,
 ](
     particle_filter,
-    model: BayesianSequentialModel[
+    model: BayesianSequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
@@ -295,7 +295,7 @@ def run_full_sgld_mcmc[
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
@@ -432,7 +432,7 @@ def run_buffer_sgld_mcmc[
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT: seqjtyping.HyperParameters,
 ](
-    target_posterior: BayesianSequentialModel[
+    target_posterior: BayesianSequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,

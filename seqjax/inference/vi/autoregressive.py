@@ -1,6 +1,6 @@
 from typing import Tuple, Type
 
-from seqjax.model.interface import BayesianSequentialModel
+from seqjax.model.interface import BayesianSequentialModelProtocol
 import seqjax.model.typing
 import equinox as eqx
 import jax
@@ -285,11 +285,11 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
 
 class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
     amortizer_mlp: eqx.nn.MLP | ResNetMLP
-    model: BayesianSequentialModel
+    model: BayesianSequentialModelProtocol
 
     def __init__(
         self,
-        model: BayesianSequentialModel,
+        model: BayesianSequentialModelProtocol,
         *,
         sample_length: int,
         embedder: Embedder,
