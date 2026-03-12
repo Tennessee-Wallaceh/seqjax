@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from seqjax.inference.vi.api import LatentContext
+from seqjax.inference.vi.interface import LatentContext
 from seqjax.inference.vi.structured import StructuredPrecisionGaussian
 from seqjax.model.ar import LatentValue
 from seqjax.model.typing import NoCondition

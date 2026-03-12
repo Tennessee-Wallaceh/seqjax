@@ -3,7 +3,7 @@ import typing
 import equinox as eqx
 import jaxtyping
 import seqjax.model.typing
-from seqjax.inference.vi.api import (
+from seqjax.inference.vi.interface import (
     VariationalApproximation,
     VariationalApproximationFactory,
     UnconditionalVariationalApproximation,

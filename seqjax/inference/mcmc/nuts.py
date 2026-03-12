@@ -120,7 +120,7 @@ def run_bayesian_nuts[
 
     def logdensity(state):
         latents, params = state
-        log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
+        log_prior = target_posterior.parameterization.log_prob(params, hyperparameters)
         model_params = target_posterior.convert_to_model_parameters(params)
 
         latent_shape = pytree_shape(latents)[0]
@@ -155,7 +155,7 @@ def run_bayesian_nuts[
         if config.initial_params is not None:
             initial_parameters = typing.cast(InferenceParametersT, config.initial_params)
         else:
-            initial_parameters = target_posterior.parameter_prior.sample(
+            initial_parameters = target_posterior.parameterization.sample(
                 param_key, hyperparameters
             )
 

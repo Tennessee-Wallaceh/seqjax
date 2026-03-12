@@ -91,7 +91,7 @@ def tune_particle_filter_variance[
     key, parameter_key = jrandom.split(key)
     parameter_keys = jrandom.split(parameter_key, parameter_draws)
     parameter_samples = jax.vmap(
-        target_posterior.parameter_prior.sample, in_axes=[0, None]
+        target_posterior.parameterization.sample, in_axes=[0, None]
     )(parameter_keys, hyperparameters)
 
     parameter_leaves = jax.tree_util.tree_leaves(parameter_samples)
@@ -125,7 +125,7 @@ def tune_particle_filter_variance[
             for _ in range(config.replications):
                 key, subkey = jrandom.split(key)
                 log_joint = estimate_log_joint(candidate_filter, params, subkey)
-                log_prior = target_posterior.parameter_prior.log_prob(
+                log_prior = target_posterior.parameterization.log_prob(
                     params, hyperparameters
                 )
                 log_marginal = log_joint - log_prior

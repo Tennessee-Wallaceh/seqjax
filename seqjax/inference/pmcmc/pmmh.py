@@ -144,7 +144,7 @@ def _make_log_joint_estimator[
                 )
             )(sequence_keys, observations, conditions).sum()
 
-        log_prior = target_posterior.parameter_prior.log_prob(params, hyperparameters)
+        log_prior = target_posterior.parameterization.log_prob(params, hyperparameters)
         return log_marginal + log_prior
 
     return estimate_log_joint
@@ -188,7 +188,7 @@ def run_particle_mcmc[
     )
     
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.parameterization.sample(init_key, hyperparameters)
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size

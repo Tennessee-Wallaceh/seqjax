@@ -9,7 +9,7 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
-from .api import Embedder, LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
+from .interface import Embedder, LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
 
 
 

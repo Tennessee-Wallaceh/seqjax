@@ -32,7 +32,7 @@ class VariationalApproximation[
 class LatentContext[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
-    ParameterT: seqjtyping.Parameters,
+    InferenceParameterT: seqjtyping.Parameters,
     HiddenT: jaxtyping.Array,
 ]:
     """
@@ -47,18 +47,27 @@ class LatentContext[
     """
     observation_context: ObservationT
     condition_context: ConditionT
-    parameter_context: ParameterT
+    parameter_context: InferenceParameterT
     embedded_context: jaxtyping.Array
     sequence_embedded_context: jaxtyping.Array
 
     @classmethod
-    def from_sequence_context_dims(cls, target_posterior, sample_length) -> tuple[
-        int, int, int, int
-    ]:
+    def from_sequence_context_dims(
+        cls, 
+        target_posterior: BayesianSequentialModelProtocol[
+            typing.Any,
+            ObservationT,
+            ConditionT,
+            typing.Any,
+            InferenceParameterT,
+            typing.Any,
+        ], 
+        sample_length: int
+    ) -> tuple[int, int, int, int]:
         return (
             target_posterior.target.observation_cls.flat_dim * sample_length,
             target_posterior.target.condition_cls.flat_dim * sample_length,
-            target_posterior.inference_parameter_cls.flat_dim,
+            target_posterior.parameterization.inference_parameter_cls.flat_dim,
             target_posterior.target.observation_cls.flat_dim * sample_length
         )
 
@@ -68,7 +77,7 @@ class LatentContext[
         sequence_embedded_context: HiddenT,
         observations: ObservationT,
         conditions: ConditionT,
-        parameters: ParameterT,
+        parameters: InferenceParameterT,
 
     ):  
         return cls(
@@ -80,13 +89,22 @@ class LatentContext[
         )
 
     @classmethod
-    def from_sequence_and_embedded_dims(cls, target_posterior, sample_length) -> tuple[
-        int, int, int
-    ]:
+    def from_sequence_and_embedded_dims(
+        cls,
+        target_posterior: BayesianSequentialModelProtocol[
+            typing.Any,
+            ObservationT,
+            ConditionT,
+            typing.Any,
+            InferenceParameterT,
+            typing.Any,
+        ], 
+        sample_length: int
+    ) -> tuple[int, int, int]:
         return (
             target_posterior.target.observation_cls.flat_dim * sample_length,
             target_posterior.target.condition_cls.flat_dim * sample_length,
-            target_posterior.inference_parameter_cls.flat_dim,
+            target_posterior.parameterization.inference_parameter_cls.flat_dim,
         )
 
     @classmethod
@@ -96,7 +114,7 @@ class LatentContext[
         embedded_context: jaxtyping.Array,
         observations: ObservationT,
         conditions: ConditionT,
-        parameters: ParameterT,
+        parameters: InferenceParameterT,
     ):  
         return cls(
             observation_context=observations,

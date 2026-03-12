@@ -57,12 +57,13 @@ def trns_parameter_log_prob(
     log_p_theta = jstats.cauchy.logpdf(transition_std) + log_2
     return log_p_theta
 
-
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class FixedARParams:
-    fixed_observation_std: Scalar
-    fixed_transition_std: Scalar
+    fixed_observation_std: float
+    fixed_transition_std: float
 
+@jax.tree_util.register_dataclass
 @dataclass
 class AROnlyParameterization(
     ParameterizationProtocol[
@@ -80,8 +81,8 @@ class AROnlyParameterization(
     ) -> ar_module.ARParameters:
         return ar_module.ARParameters(
             ar=jax.nn.tanh(inference_parameters.logit_ar),
-            observation_std=self.hyperparameters.fixed_observation_std,
-            transition_std=self.hyperparameters.fixed_transition_std,
+            observation_std=jnp.array(self.hyperparameters.fixed_observation_std),
+            transition_std=jnp.array(self.hyperparameters.fixed_transition_std),
         )
 
     def from_model_parameters(
@@ -92,7 +93,6 @@ class AROnlyParameterization(
             logit_ar=jnp.arctanh(model_parameters.ar)
         )
     
-
     def sample(self, key):
         return UncAROnlyParameters(
             logit_ar=jnp.arctanh(ar_parameter_sample(key))
@@ -104,6 +104,7 @@ class AROnlyParameterization(
         lad = jnp.log(4.0) + jax.nn.log_sigmoid(2.0 * x) + jax.nn.log_sigmoid(-2.0 * x)
         return ar_parameter_log_prob(ar) + lad
 
+@jax.tree_util.register_dataclass
 @dataclass
 class AROnlyBayesian:
     target: typing.ClassVar = ar_model
@@ -114,7 +115,7 @@ def ar_only(hyperparameters: FixedARParams) -> AROnlyBayesian:
         parameterization=AROnlyParameterization(hyperparameters)
     )
 
-
+@jax.tree_util.register_dataclass
 @dataclass
 class FullParameterization(
     ParameterizationProtocol[
@@ -191,7 +192,7 @@ class FullParameterization(
             + lad_trn
         )
     
-
+@jax.tree_util.register_dataclass
 @dataclass
 class ARBayesian:
     target: typing.ClassVar = ar_model

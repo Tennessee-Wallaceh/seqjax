@@ -4,7 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array
 
-from .api import SequenceAggregator
+from .interface import SequenceAggregator
 
 
 AggregationKind = typing.Literal[

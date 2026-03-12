@@ -371,7 +371,7 @@ def run_full_sgld_mcmc[
             minibatch_likelihood_score,
         )
 
-        log_prior_score = jax.grad(model.parameter_prior.log_prob, argnums=0)(
+        log_prior_score = jax.grad(model.parameterization.log_prob, argnums=0)(
             params,
             hyperparameters,
         )
@@ -384,7 +384,7 @@ def run_full_sgld_mcmc[
 
     inference_time_start = time.time()
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.parameterization.sample(init_key, hyperparameters)
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size
@@ -584,7 +584,7 @@ def run_buffer_sgld_mcmc[
             minibatch_likelihood_score,
         )
 
-        log_prior_score = jax.grad(model.parameter_prior.log_prob, argnums=0)(
+        log_prior_score = jax.grad(model.parameterization.log_prob, argnums=0)(
             params,
             hyperparameters,
         )
@@ -606,7 +606,7 @@ def run_buffer_sgld_mcmc[
 
     inference_time_start = time.time()
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameter_prior.sample(init_key, hyperparameters)
+    initial_parameters = target_posterior.parameterization.sample(init_key, hyperparameters)
 
     num_samples = config.sample_block_size
     sample_blocks = [

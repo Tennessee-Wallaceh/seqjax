@@ -38,7 +38,7 @@ import seqjax.model.typing as seqjtyping
 class FixedLengthHistoryContext[ItemT]:
     """Concrete lag-only history context with bounded length.
     This is basically a wrapper around a tuple that gives some typing utility.
-    """
+"""
 
     values: tuple[ItemT, ...]
     length: int = field(metadata=dict(static=True))

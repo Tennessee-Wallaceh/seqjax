@@ -157,7 +157,6 @@ def run_buffered_vi[
         InferenceParametersT,
         HyperParametersT,
     ],
-    hyperparameters: HyperParametersT,
     key: jaxtyping.PRNGKeyArray,
     dataset: InferenceDataset[ObservationT, ConditionT],
     test_samples: int,

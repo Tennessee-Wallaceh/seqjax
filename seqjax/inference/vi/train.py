@@ -61,7 +61,6 @@ class SupportsELBOLoss(Protocol):
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-        hyperparameters: HyperParametersT | None,
     ) -> jaxtyping.Scalar: ...
 
 
@@ -80,7 +79,6 @@ class SupportsPriorFitLoss(Protocol):
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-        hyperparameters: HyperParametersT | None,
     ) -> jaxtyping.Scalar: ...
 
 
@@ -149,7 +147,6 @@ def loss_neg_elbo(
         dataset,
         key,
         sample_kwargs,
-        None,
     )
 
 
@@ -189,7 +186,6 @@ def loss_pre_train_prior(
         dataset,
         key,
         sample_kwargs,
-        None,
     )
 
 

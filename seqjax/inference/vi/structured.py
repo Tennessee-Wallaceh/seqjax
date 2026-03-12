@@ -16,7 +16,7 @@ from jax.nn import softplus
 from jaxtyping import Array, Float, PRNGKeyArray
 
 import seqjax.model.typing as seqjtyping
-from .api import AmortizedVariationalApproximation, Embedder, LatentContext
+from .interface import AmortizedVariationalApproximation, Embedder, LatentContext
 
 
 _LOG_2PI = jnp.log(2.0 * jnp.pi)

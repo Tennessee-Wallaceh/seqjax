@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import typing
 
-from .api import Embedder, LatentContext, VariationalApproximationFactory, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
+from .interface import Embedder, LatentContext, VariationalApproximationFactory, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
 
 
 class MaskedAutoregressiveFlow[

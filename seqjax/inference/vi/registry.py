@@ -17,7 +17,6 @@ from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import structured
 from seqjax.inference.vi.sampling import VISampleConfig, VISamplingKwargs
 from seqjax.model.interface import BayesianSequentialModelProtocol
-from seqjax.model.registry import default_parameter_transforms
 
 """
 Embedding configurations
@@ -271,30 +270,14 @@ parameter_transform_registry = {
 BijectionConfiguration = DefaultTransform
 
 def _build_parameter_approximation[
-    ParametersT: seqjtyping.Parameters,
+    InferenceParameterT: seqjtyping.Parameters,
 ](
-    target_struct_cls: type[ParametersT],
+    target_struct_cls: type[InferenceParameterT],
     approximation: ParameterApproximation,
     *,
     key: jaxtyping.PRNGKeyArray,
-) -> base.UnconditionalVariationalApproximation[ParametersT]:
-    # TODO: allow other bijection configurations- I now think this should
-    # work via a map of options on seqjtyping.Parameter classes.
-    # Ie have a "default"/"spline" string switch
-    # this is part of inference, so could be in an inference.reparametrization submodule
-    bijection_configuration = DefaultTransform()
-    # handle parameter constrainsts with specified constraint transforms
-    if isinstance(bijection_configuration, DefaultTransform):
-        field_transforms = default_parameter_transforms[
-            target_struct_cls
-        ]
-    else:
-        raise Exception("Unknown bijection configuration")
-
+) -> base.UnconditionalVariationalApproximation[InferenceParameterT]:
     field_bijections: dict[str, transformations.Bijector] = {}
-    for parameter_field, bijection in field_transforms.items():
-        field_bijections[parameter_field] = configured_bijections[bijection]()
-
 
     constraint_factory = partial(
         transformations.FieldwiseBijector,
@@ -446,13 +429,12 @@ def build_approximation(
 ) -> typing.Any:
     parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
 
-    target_param_class = target_posterior.inference_parameter_cls
+    target_param_class = target_posterior.parameterization.inference_parameter_cls
     target_latent_class = target_posterior.target.latent_cls
-
 
     parameter_approximation = _build_parameter_approximation(
         target_param_class,
-        config.parameter_approximation,
+    config.parameter_approximation,
         key=parameter_key,
     )
 
