@@ -26,19 +26,20 @@ import jax.numpy as jnp
 
 from . import interface, ar, ar_bayesian, double_well, stochastic_vol
 
-from .typing import Parameters, HyperParameters
+from .typing import Parameters, HyperParameters, NoHyper
 
 PosteriorFactory = typing.Callable[
     [HyperParameters], 
     interface.BayesianSequentialModelProtocol
 ]
 SequentialModelLabel = typing.Literal[
-    "ar",
+    "ar", "svar"
 ]
 
 BayesianModelLabel = typing.Literal[
     "ar_aronly",
     "ar_full",
+    "svar_full"
 ]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
@@ -46,7 +47,8 @@ BayesianModelLabel = typing.Literal[
 # ``sequential_models[label]``. When adding a new model, extend
 # ``SequentialModelLabel`` and add the class here with the same label.
 sequential_models: dict[SequentialModelLabel, interface.SequentialModelProtocol] = {
-    "ar": interface.validate_sequential_model(ar),
+    "ar": interface.validate_sequential_model(ar.ar_model),
+    "svar": interface.validate_sequential_model(stochastic_vol.simple_var.SimpleStochasticVar()),
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model
@@ -55,6 +57,7 @@ sequential_models: dict[SequentialModelLabel, interface.SequentialModelProtocol]
 posterior_factories: dict[BayesianModelLabel, PosteriorFactory] = {
     "ar_aronly": typing.cast(PosteriorFactory, ar_bayesian.ar_only),
     "ar_full": typing.cast(PosteriorFactory, ar_bayesian.ar_full),
+    "svar_full": typing.cast(PosteriorFactory, stochastic_vol.simple_var.svar_full),
 }
 
 # Predefined parameter presets for each model. The outer keys mirror
@@ -62,8 +65,8 @@ posterior_factories: dict[BayesianModelLabel, PosteriorFactory] = {
 # free-form preset names (e.g. ``"base"``) that experiments reference with
 # ``parameter_settings[label][preset]``. Add new presets under the appropriate
 # model label and keep labels consistent across both dictionaries.
-parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
-    "ar": {
+parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
+    "ar_full": {
         "base": ar.ARParameters(
             ar=jnp.array(0.8),
             observation_std=jnp.array(0.1),
@@ -75,6 +78,22 @@ parameter_settings: dict[SequentialModelLabel, dict[str, Parameters]] = {
             transition_std=jnp.array(0.5),
         ),
     },
+    "svar_full": {
+        "base": stochastic_vol.simple_var.LogVarParams(
+            ar=jnp.array(0.6),
+            std_log_var=jnp.array(3.2),
+            long_term_log_var=2 * jnp.log(jnp.array(0.16)),
+        )
+    }
+}
+
+hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = {
+    "ar_full": {
+        "base": NoHyper(),
+    },
+    "svar_full": {
+        "base": NoHyper(),
+    }
 }
 
 ConditionGenerator = typing.Callable[[int], typing.Any]
@@ -86,13 +105,13 @@ condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {}
 @dataclass(kw_only=True, frozen=True, slots=True)
 class RealDataConfig:
     dataset_name: str
-    target_model_label: SequentialModelLabel
+    target_model_label: BayesianModelLabel
     sequence_length: int
     num_sequences: int = 1
 
     @property
     def target(self):
-        return sequential_models[self.target_model_label]
+        return self.posterior.target
 
     @property
     def posterior(self) -> interface.BayesianSequentialModelProtocol:
@@ -102,7 +121,7 @@ class RealDataConfig:
     
 @dataclass(kw_only=True, frozen=True, slots=True)
 class SyntheticDataConfig:
-    target_model_label: SequentialModelLabel
+    target_model_label: BayesianModelLabel
     generative_parameter_label: str
     sequence_length: int
     seed: int
@@ -118,19 +137,20 @@ class SyntheticDataConfig:
         return dataset_name
 
     @property
-    def target(self):
-        return sequential_models[self.target_model_label]
-
-    @property
     def generative_parameters(self):
         return parameter_settings[self.target_model_label][
             self.generative_parameter_label
         ]
+    
+    @property
+    def target(self):
+        return self.posterior.target
 
     @property
     def posterior(self) -> interface.BayesianSequentialModelProtocol:
         return posterior_factories[self.target_model_label](
-            parameter_settings[self.target_model_label][self.generative_parameter_label]
+            hyperparameter_settings[self.target_model_label]["base"]
         )
+
     
 DataConfig = RealDataConfig | SyntheticDataConfig

@@ -169,10 +169,11 @@ def run_experiment(
     if isinstance(experiment_config.data_config, model_registry.RealDataConfig):
         data_folder = resolved_runtime_config.data_root or resolved_runtime_config.local_root
         prepared_storage = io.LocalPreparedDataStorage(data_folder)
-        x_paths, observations, conditions = prepared_storage.get_data(
+        observations, conditions = prepared_storage.get_data(
             experiment_config.data_config,
             experiment_config.data_config,
         )
+        x_paths = None
     elif isinstance(experiment_config.data_config, model_registry.SyntheticDataConfig):
         remote_storage: io.DataStorage
         if resolved_runtime_config.wandb_offline:
@@ -212,7 +213,6 @@ def run_experiment(
     )
     param_samples, extra_data = inference(
         model,
-        hyperparameters=None,
         key=jrandom.key(experiment_config.fit_seed),
         dataset=dataset,
         test_samples=experiment_config.test_samples,

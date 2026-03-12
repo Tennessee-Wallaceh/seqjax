@@ -9,7 +9,7 @@ from typing import (
     TypeAlias,
 )
 import typing
-
+from dataclasses import fields
 from functools import partial
 
 import equinox as eqx
@@ -20,7 +20,6 @@ import jax.tree_util as jtu
 import jaxtyping
 import optax  # type: ignore[import-untyped]
 from jaxtyping import PyTree
-
 from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
 from seqjax.model.interface import BayesianSequentialModelProtocol
@@ -208,10 +207,11 @@ def sample_theta_qs(
     theta, _ = jax.vmap(model.parameter_approximation.sample_and_log_prob)(
         parameter_keys, None
     )
+    model_theta = model.target_posterior.parameterization.to_model_parameters(theta)
     qs = jax.tree_util.tree_map(
-        lambda x: jnp.quantile(x, jnp.array([0.05, 0.95])), theta
+        lambda x: jnp.quantile(x, jnp.array([0.05, 0.95])), model_theta
     )
-    means = jax.tree_util.tree_map(lambda x: jnp.mean(x), theta)
+    means = jax.tree_util.tree_map(lambda x: jnp.mean(x), model_theta)
     return (
         typing.cast(ArrayTree, qs),
         typing.cast(ArrayTree, means),
@@ -282,7 +282,7 @@ class Tracker:
             )
             self.checkpoint_samples.append((elapsed_time_s, theta))
             _reads = []
-            for param in static.parameter_approximation.target_struct_cls.fields():
+            for param in static.target_posterior.target.parameter_cls.fields():
                 update[f"{param}_q05"] = getattr(qs, param)[0]
                 update[f"{param}_q95"] = getattr(qs, param)[1]
                 update[f"{param}_mean"] = getattr(means, param)

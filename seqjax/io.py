@@ -5,21 +5,20 @@ import typing
 import json
 import pickle
 
+import wandb
+import wandb.errors
 import equinox as eqx
+import jax.random as jrandom
+import jax
+import jax.numpy as jnp
 
 import polars as pl  # type: ignore[import-not-found]
 import numpy as np
 import os
 from seqjax.model.typing import Packable
-from seqjax.model.registry import DataConfig, SyntheticDataConfig, SequentialModelLabel, condition_generators
+from seqjax.model.registry import DataConfig, RealDataConfig, SyntheticDataConfig, SequentialModelLabel, condition_generators
 from seqjax.model import simulate
-import jax.random as jrandom
-import jax
-import jax.numpy as jnp
-
-import wandb
-import wandb.errors
-
+from seqjax.inference.interface import ObservationDataset
 
 class WandbRun(Protocol):
     """Subset of the :mod:`wandb` run API used by this module."""
@@ -141,27 +140,6 @@ def packable_to_df(packable: Packable) -> pl.DataFrame:
 
 def df_to_packable(packable_cls: type[Packable], df: pl.DataFrame) -> Packable:
     return packable_cls.unravel(df.to_jax())
-
-
-def _read_packable_parquet(file_path: str, packable_cls: type[Packable]) -> Packable:
-    expected_columns = list(packable_cls.flat_fields())
-    df = pl.read_parquet(file_path)
-    actual_columns = df.columns
-
-    if set(actual_columns) != set(expected_columns):
-        missing = sorted(set(expected_columns) - set(actual_columns))
-        extra = sorted(set(actual_columns) - set(expected_columns))
-        raise ValueError(
-            "Packable parquet schema mismatch for "
-            f"{file_path}. Missing={missing}, extra={extra}."
-        )
-
-    if actual_columns != expected_columns:
-        df = df.select(expected_columns)
-
-    return df_to_packable(packable_cls, df)
-
-
 
 
 PREPARED_DATASET_MANIFEST = "dataset_manifest.json"
@@ -442,19 +420,17 @@ def _assert_all_required_shards_present(
 
 
 def _stack_sequence_packables(
-    x_paths: list[Packable],
     observation_paths: list[Packable],
     condition_paths: list[Packable | None],
-) -> tuple[Packable, Packable, Packable | None]:
-    x_stacked = _stack_packables(x_paths)
+) -> tuple[Packable, Packable | None]:
     observation_stacked = _stack_packables(observation_paths)
     if len(condition_paths) == 0 or all(c is None for c in condition_paths):
-        return x_stacked, observation_stacked, None
+        return observation_stacked, None
     if not all(c is not None for c in condition_paths):
         raise ValueError(
             "Condition shard mismatch: some sequences have condition data and others do not."
         )
-    return x_stacked, observation_stacked, _stack_packables(
+    return observation_stacked, _stack_packables(
         typing.cast(list[Packable], condition_paths)
     )
 
@@ -810,6 +786,46 @@ def save_named_packable_dataset(
     )
 
 
+def save_real_dataset(
+    local_root: str,
+    observation_data: ObservationDataset,
+    data_config: RealDataConfig,
+    overwrite: bool = False,
+) -> None:
+    """Persist a pre-processed dataset under ``local_root/datasets/<dataset_name>``."""
+    dataset_dir = os.path.join(local_root, "datasets", data_config.dataset_name)
+    if os.path.isdir(dataset_dir) and not overwrite:
+        raise FileExistsError(
+            f"Dataset directory already exists: {dataset_dir}. "
+            "Pass overwrite=True to replace it."
+        )
+
+    os.makedirs(dataset_dir, exist_ok=True)
+
+    num_sequences = observation_data.num_sequences
+    for seq_ix in range(num_sequences):
+        observation_path, condition_path = observation_data.sequence(seq_ix)
+        if not isinstance(observation_path, Packable):
+            raise ValueError(f"observation_paths[{seq_ix}] is not a Packable.")
+        
+        packable_to_df(observation_path).write_parquet(os.path.join(dataset_dir, f"observation_path_s{seq_ix}.parquet"))
+
+        if condition_path is not None:
+            packable_to_df(condition_path).write_parquet(
+                os.path.join(dataset_dir, f"conditions_s{seq_ix}.parquet")
+            )
+
+    _write_dataset_manifest(
+        dataset_dir,
+        NamedDatasetReference(
+            dataset_name=data_config.dataset_name,
+            expected_model_label=data_config.target_model_label,
+            expected_sequence_length=observation_data.sequence_length,
+            expected_num_sequences=num_sequences,
+        ),
+    )
+
+
 class LocalPreparedDataStorage:
     """Named dataset backend that only loads pre-processed local datasets."""
 
@@ -822,30 +838,12 @@ class LocalPreparedDataStorage:
     def _file_path(self, dataset_name: str, file_name: str) -> str:
         return os.path.join(self._dataset_dir(dataset_name), f"{file_name}.parquet")
 
-    def _validate_dataset_files(self, prepared_data_request: PreparedDataRequest) -> None:
-        dataset_name = prepared_data_request.dataset_name
-        required = ["x_path", "observation_path"]
-        if prepared_data_request.target_model_label in condition_generators:
-            required.append("condition")
-
-        missing = [
-            name
-            for name in required
-            if not os.path.isfile(self._file_path(dataset_name, name))
-        ]
-        if missing:
-            raise FileNotFoundError(
-                f"Prepared dataset '{dataset_name}' is missing required files: {missing}. "
-                f"Expected directory: {self._dataset_dir(dataset_name)}"
-            )
-
     def get_data(
         self,
         data_config: DataConfig,
         prepared_data_request: PreparedDataRequest,
     ) -> tuple[Packable, Packable, Packable | None]:
         dataset_name = prepared_data_request.dataset_name
-        self._validate_dataset_files(prepared_data_request)
         _validate_dataset_manifest(
             self._dataset_dir(dataset_name),
             NamedDatasetReference(
@@ -858,17 +856,17 @@ class LocalPreparedDataStorage:
         observation_paths = []
         loaded_condition_paths = []
         for sequence_idx in range(data_config.num_sequences):
-            x_paths.append(
-                df_to_packable(
-                    data_config.target.latent_cls,
-                    pl.read_parquet(
-                        self._file_path(
-                            dataset_name,
-                            _sequence_file_stem("x_path", sequence_idx),
-                        )
-                    ),
-                )
-            )
+            # x_paths.append(
+            #     df_to_packable(
+            #         data_config.target.latent_cls,
+            #         pl.read_parquet(
+            #             self._file_path(
+            #                 dataset_name,
+            #                 _sequence_file_stem("x_path", sequence_idx),
+            #             )
+            #         ),
+            #     )
+            # )
             observation_paths.append(
                 df_to_packable(
                     data_config.target.observation_cls,
@@ -895,4 +893,4 @@ class LocalPreparedDataStorage:
                 )
             else:
                 loaded_condition_paths.append(None)
-        return _stack_sequence_packables(x_paths, observation_paths, loaded_condition_paths)
+        return _stack_sequence_packables(observation_paths, loaded_condition_paths)
