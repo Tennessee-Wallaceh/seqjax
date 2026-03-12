@@ -30,15 +30,12 @@ from .simple_vol import (
     make_constant_time_increments,
 )
 from .simple_var import (
-    ARStochasticVarBayesian,
     SimpleStochasticVar,
-    SimpleStochasticVarBayesian,
     StochasticVarBayesian,
 )
 from .skew_vol import SkewStochasticVol, SkewStochasticVolBayesian
 
 __all__ = [
-    "ARStochasticVarBayesian",
     "LatentVol",
     "LatentVar",
     "LogReturnObs",
@@ -49,7 +46,6 @@ __all__ = [
     "LogVolWithSkew",
     "LVolStd",
     "SimpleStochasticVar",
-    "SimpleStochasticVarBayesian",
     "StochasticVarBayesian",
     "SimpleStochasticVol",
     "SimpleStochasticVolBayesian",

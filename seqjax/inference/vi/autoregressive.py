@@ -1,7 +1,7 @@
 from typing import Tuple, Type
 
 from seqjax.model.interface import BayesianSequentialModelProtocol
-import seqjax.model.typing
+from seqjax.model import typing as seqjtyping
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -124,7 +124,7 @@ def flat_to_chol(flat: Array, dim: int) -> Tuple[Array, Array]:
 class AutoregressiveApproximation(AmortizedVariationalApproximation):
     """Base class for autoregressive variational samplers."""
 
-    target_struct_cls: Type[seqjax.model.typing.Packable]
+    target_struct_cls: Type[seqjtyping.Packable]
     context_dim: int
     condition_dim: int
     parameter_dim: int
@@ -163,7 +163,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         self,
         key: PRNGKeyArray,
         condition: LatentContext
-    ) -> tuple[seqjax.model.typing.Packable, Float[Array, " sample_length"]]:
+    ) -> tuple[seqjtyping.Packable, Float[Array, " sample_length"]]:
         parameter_context = condition.parameter_context.ravel().flatten()
         initial_prev_x_key, sample_key = jrandom.split(key, 2)
 
@@ -341,10 +341,10 @@ class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
 
         # this is a fixed reparameterization into the model prior
         latent_history = tuple(
-            self.model.target.transition.latent_t.unravel(px) for px in prev_x
+            self.model.target.latent_t.unravel(px) for px in prev_x
         )
-        model_params = self.model.convert_to_model_parameters(
-            self.model.inference_parameter_cls.unravel(theta_context)
+        model_params = self.model.parameterization.to_model_parameters(
+            self.model.parameterization.inference_parameter_cls.unravel(theta_context)
         )
         condition = self.model.target.condition_cls.unravel(condition_context)
         prior_l, prior_scale = self.model.target.transition.loc_scale(

@@ -1,5 +1,5 @@
 from dataclasses import field, dataclass
-from . import ar_model, ar as ar_module
+from . import ar
 import jax.numpy as jnp
 import jax.scipy.stats as jstats
 from seqjax.model.typing import Parameters
@@ -67,7 +67,7 @@ class FixedARParams:
 @dataclass
 class AROnlyParameterization(
     ParameterizationProtocol[
-        ar_module.ARParameters, 
+        ar.ARParameters, 
         UncAROnlyParameters,
         FixedARParams,
     ]
@@ -78,8 +78,8 @@ class AROnlyParameterization(
     def to_model_parameters(
         self,
         inference_parameters: UncAROnlyParameters,
-    ) -> ar_module.ARParameters:
-        return ar_module.ARParameters(
+    ) -> ar.ARParameters:
+        return ar.ARParameters(
             ar=jax.nn.tanh(inference_parameters.logit_ar),
             observation_std=jnp.array(self.hyperparameters.fixed_observation_std),
             transition_std=jnp.array(self.hyperparameters.fixed_transition_std),
@@ -87,7 +87,7 @@ class AROnlyParameterization(
 
     def from_model_parameters(
         self,
-        model_parameters: ar_module.ARParameters,
+        model_parameters: ar.ARParameters,
     ) -> UncAROnlyParameters:
         return UncAROnlyParameters(
             logit_ar=jnp.arctanh(model_parameters.ar)
@@ -107,7 +107,7 @@ class AROnlyParameterization(
 @jax.tree_util.register_dataclass
 @dataclass
 class AROnlyBayesian:
-    target: typing.ClassVar = ar_model
+    target: typing.ClassVar = ar.ar_model
     parameterization: AROnlyParameterization
 
 def ar_only(hyperparameters: FixedARParams) -> AROnlyBayesian:
@@ -119,7 +119,7 @@ def ar_only(hyperparameters: FixedARParams) -> AROnlyBayesian:
 @dataclass
 class FullParameterization(
     ParameterizationProtocol[
-        ar_module.ARParameters,
+        ar.ARParameters,
         UncARParameters,
         seqjtyping.NoHyper,
     ]
@@ -130,12 +130,12 @@ class FullParameterization(
     def to_model_parameters(
         self,
         inference_parameters: UncARParameters,
-    ) -> ar_module.ARParameters:
+    ) -> ar.ARParameters:
         ar_param = jnp.tanh(inference_parameters.logit_ar)
         observation_std = jax.nn.softplus(inference_parameters.sft_inv_obs_std)
         transition_std = jax.nn.softplus(inference_parameters.sft_inv_trns_std)
 
-        return ar_module.ARParameters(
+        return ar.ARParameters(
             ar=ar_param,
             observation_std=observation_std,
             transition_std=transition_std,
@@ -143,7 +143,7 @@ class FullParameterization(
 
     def from_model_parameters(
         self,
-        model_parameters: ar_module.ARParameters,
+        model_parameters: ar.ARParameters,
     ) -> UncARParameters:
         eps_ar = jnp.array(1e-6, dtype=model_parameters.ar.dtype)
         clipped_ar = jnp.clip(model_parameters.ar, -1.0 + eps_ar, 1.0 - eps_ar)
@@ -195,7 +195,7 @@ class FullParameterization(
 @jax.tree_util.register_dataclass
 @dataclass
 class ARBayesian:
-    target: typing.ClassVar = ar_model
+    target: typing.ClassVar = ar.ar_model
     parameterization: FullParameterization
 
 def ar_full(hyperparameters: typing.Any) -> ARBayesian:
