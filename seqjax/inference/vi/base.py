@@ -1032,7 +1032,7 @@ class IWBufferedSSMVI[
             )
 
         batched_log_joint = jax.vmap(jax.vmap(jax.vmap(
-            _log_joint,
+            jax.value_and_grad(_log_joint, argnums=3),
             in_axes=ax_spec2,
         ),
             in_axes=ax_spec,
@@ -1097,12 +1097,14 @@ class IWBufferedSSMVI[
 
         buffered_params = self.batched_buffer_params(theta_q, theta_mask)
 
-        log_p_y_x = self.batched_log_joint(
+        log_p_y_x, score = self.batched_log_joint(
             x_path,
             y_batch,
             c_batch,
             buffered_params,
         )
+
+
 
         # Inner Monte Carlo estimator of the marginal-likelihood-type term
         # for a fixed theta.

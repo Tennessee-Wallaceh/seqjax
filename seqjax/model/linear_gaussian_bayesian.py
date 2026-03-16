@@ -38,7 +38,7 @@ class UncLGSSMParameters(seqjtyping.Parameters):
         sft_inv_emission_noise_scale=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
     )
 
-
+@jax.tree_util.register_dataclass
 @dataclass
 class FullParameterization(
     ParameterizationProtocol[
@@ -142,7 +142,7 @@ class FullParameterization(
 
         return matrix_logp + scale_logp + lad
 
-
+@jax.tree_util.register_dataclass
 @dataclass
 class LGSSMBayesian:
     target: typing.ClassVar[
@@ -156,7 +156,7 @@ class LGSSMBayesian:
     parameterization: FullParameterization
 
 
-def lgssm_full(hyperparameters: typing.Any) -> LGSSMBayesian:
+def lgssm_full(hyperparameters: typing.Any = None) -> LGSSMBayesian:
     """Factory for full-parameter Bayesian LGSSM."""
 
     _ = hyperparameters

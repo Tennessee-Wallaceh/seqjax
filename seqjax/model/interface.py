@@ -85,8 +85,7 @@ class ConditionContext[ConditionT: seqjtyping.Condition](
 ):
     """Concrete condition history context."""
 
-@jax.tree_util.register_dataclass
-@dataclass
+
 class SequentialModelProtocol[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
