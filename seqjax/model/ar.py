@@ -75,6 +75,7 @@ observation_context = partial(ObservationContext, length=0)
 condition_context: typing.Callable[[tuple], ConditionContext[NoCondition]]
 condition_context = partial(ConditionContext, length=0)
 
+@jax.tree_util.register_dataclass
 @dataclass
 class ARModel(
     SequentialModelProtocol[

@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import jaxtyping
 import optax  # type: ignore[import-untyped]
+import jax.random as jrandom
 
 from seqjax.inference.vi import train
 from seqjax.model.interface import BayesianSequentialModelProtocol
@@ -267,6 +268,116 @@ def run_buffered_vi[
         (
             approx_start,
             x_q,
+            tracker,
+            fitted_approximation,
+            opt_state,
+        ),
+    )
+
+
+@inference_method
+def run_hybrid_vi[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+](
+    target_posterior: BayesianSequentialModelProtocol[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+        InferenceParametersT,
+        HyperParametersT,
+    ],
+    key: jaxtyping.PRNGKeyArray,
+    dataset: InferenceDataset[ObservationT, ConditionT],
+    test_samples: int,
+    config: registry.HybridVIConfig,
+    tracker: typing.Any = None,
+) -> tuple[InferenceParametersT, typing.Any]:
+    # set up a default tracker if none provided
+    if tracker is None:
+        tracker = train.Tracker(metric_samples=5000)
+
+    #TODO: find a way to pass dynamic objects to inference runs
+    start_approximation = None
+    sync_interval_s = None
+
+    sequence_length = dataset.sequence_length
+
+    if start_approximation is not None:
+        approximation = start_approximation
+    else:
+        approximation = registry.build_approximation(
+            config,
+            sequence_length,
+            target_posterior,
+            key,
+        )
+    start_approximation = approximation
+    
+    opt_state: optax.GradientTransformation
+
+    if config.prior_training_optimization and not isinstance(
+        config.prior_training_optimization, optimization_registry.NoOpt
+    ):
+        print("Starting prior-training...")
+        pre_train_optim = optimization_registry.build_optimizer(
+            config.prior_training_optimization
+        )
+        approximation, _ = train.train(
+            model=approximation,
+            dataset=dataset,
+            key=key,
+            optim=pre_train_optim,
+            target=target_posterior,
+            num_steps=config.prior_training_optimization.total_steps,
+            run_tracker=tracker,
+            sample_kwargs=config.training_sampling_kwargs(loss_label="param-prior"),
+            loss_label="param-prior",
+            time_limit_s=config.prior_training_optimization.time_limit_s,
+            sync_interval_s=sync_interval_s,
+        )
+    
+    if isinstance(
+        config.optimization, optimization_registry.NoOpt
+    ) or config.optimization.total_steps == 0:
+        fitted_approximation = approximation
+        opt_state = None
+    else:
+        optim = optimization_registry.build_optimizer(config.optimization)
+        fitted_approximation, opt_state = train.train(
+            model=approximation,
+            dataset=dataset,
+            key=key,
+            optim=optim,
+            target=target_posterior,
+            num_steps=config.optimization.total_steps,
+            run_tracker=tracker,
+            sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
+            time_limit_s=config.optimization.time_limit_s,
+            sync_interval_s=sync_interval_s,
+        )
+
+    # run sample again for testing purposes
+    eval_sampling_kwargs = config.evaluation_sampling_kwargs(test_samples=test_samples)
+    (
+        theta_q,
+        _,
+    ) = jax.vmap(fitted_approximation.parameter_approximation.sample_and_log_prob)(
+        jrandom.split(key, eval_sampling_kwargs['samples_per_context']),
+        None
+    )
+
+    flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
+    return (
+        flat_theta_q,
+        (
+            None,
+            None,
             tracker,
             fitted_approximation,
             opt_state,

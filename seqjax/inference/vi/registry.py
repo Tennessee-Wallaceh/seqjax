@@ -7,7 +7,7 @@ import jaxtyping
 
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.optimization import registry as optimization_registry
-from seqjax.inference.vi import transformations
+from seqjax.inference.vi import transformations, hybrid
 from seqjax.inference.vi import transformed
 from seqjax.inference.vi import base
 from seqjax.inference.vi import embedder
@@ -17,6 +17,7 @@ from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import structured
 from seqjax.inference.vi.sampling import VISampleConfig, VISamplingKwargs
 from seqjax.model.interface import BayesianSequentialModelProtocol
+from seqjax.inference.particlefilter import registry as particle_filter_registry
 
 """
 Embedding configurations
@@ -387,6 +388,33 @@ class FullVIConfig(VISampleConfig):
 
 
 @dataclass
+class HybridVIConfig(VISampleConfig):
+    optimization: optimization_registry.OptConfig
+    particle_filter_config: particle_filter_registry.BootstrapFilterConfig
+    samples_per_context: int
+    buffer_length: int
+    batch_length: int
+    num_sequence_minibatch: int = 1
+    parameter_approximation: ParameterApproximation = field(
+        default_factory=MeanFieldParameterApproximation
+    )
+    prior_training_optimization: None | optimization_registry.OptConfig = None
+
+    def training_sampling_kwargs(self, *, loss_label: str) -> VISamplingKwargs:
+        return {
+            "context_samples": 1,
+            "samples_per_context": self.samples_per_context,
+            "num_sequence_minibatch": self.num_sequence_minibatch,
+        }
+
+    def evaluation_sampling_kwargs(self, *, test_samples: int) -> VISamplingKwargs:
+        return {
+            "context_samples": 1,
+            "samples_per_context": max(1, int(test_samples)),
+            "num_sequence_minibatch": self.num_sequence_minibatch,
+        }
+    
+@dataclass
 class BufferedVIConfig(VISampleConfig):
     optimization: optimization_registry.OptConfig
     buffer_length: int
@@ -403,6 +431,7 @@ class BufferedVIConfig(VISampleConfig):
         default_factory=AutoregressiveLatentApproximation
     )
     prior_training_optimization: None | optimization_registry.OptConfig = None
+    loss_style: str = "standard"
 
     def training_sampling_kwargs(self, *, loss_label: str) -> VISamplingKwargs:
         return {
@@ -421,7 +450,7 @@ class BufferedVIConfig(VISampleConfig):
         }
 
 def build_approximation(
-    config: FullVIConfig | BufferedVIConfig,
+    config: FullVIConfig | BufferedVIConfig | HybridVIConfig,
     sequence_length: int,
     target_posterior: BayesianSequentialModelProtocol,
     key: jaxtyping.PRNGKeyArray,
@@ -547,12 +576,37 @@ def build_approximation(
             raise ValueError(
                 f"Unknown latent approximation configuration: {latent_config!r}"
             )
-        approximation = base.BufferedSSMVI(
-            latent_approximation,
-            parameter_approximation,
-            embed,
-            target_posterior,
+        
+        if config.loss_style == "standard":
+            approximation = base.BufferedSSMVI(
+                latent_approximation,
+                parameter_approximation,
+                embed,
+                target_posterior,
+                batch_length=config.batch_length,
+                buffer_length=config.buffer_length,
+            )
+        elif config.loss_style == "inner-iw":
+            approximation = base.IWBufferedSSMVI(
+                latent_approximation,
+                parameter_approximation,
+                embed,
+                target_posterior,
+                batch_length=config.batch_length,
+                buffer_length=config.buffer_length,
+            )
+
+    elif isinstance(config, HybridVIConfig):
+        approximation = hybrid.HybridSSMVI(
+            parameter_approximation=parameter_approximation,
+            target_posterior=target_posterior,
+            particle_filter=particle_filter_registry.build_filter(
+                target_posterior,
+                config.particle_filter_config,
+            ),
             batch_length=config.batch_length,
             buffer_length=config.buffer_length,
+
         )
+
     return approximation
