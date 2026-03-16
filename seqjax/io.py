@@ -281,16 +281,15 @@ def load_model_artifact(
     return model
 
 def load_python_object(
-    target_run: WandbRun,
+    run: WandbRun,
     artifact_name: str,
     file_name: str,
 ) -> eqx.Module:
     print(
-        f"Loading {target_run.name}-{artifact_name}:latest from wandb {target_run.project}..."
+        f"Loading {artifact_name}:latest from wandb..."
     )
-    run = wandb.init(project=target_run.project)
     artifact = run.use_artifact(
-        f"{target_run.name}-{artifact_name}:latest", type="run_output"
+        f"{artifact_name}:latest", type="run_output"
     )
 
     artifact_dir = download_artifact(artifact)
