@@ -2,23 +2,18 @@ import typing
 from functools import partial
 
 import equinox as eqx
-import jax.scipy.stats as jstats
-import jax.scipy.linalg as jlinalg
 import jaxtyping
-
 import jax.numpy as jnp
 import jax
-from jax.nn import softplus
 import jax.random as jrandom
 
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import InferenceDataset
-from seqjax.model.evaluate import log_prob_joint
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.inference.vi.sampling import VISamplingKwargs
-from .interface import LatentContext, Embedder, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 from seqjax.inference.particlefilter import SMCSampler
-from seqjax.inference.sgld import buffered_score_estimate
+from seqjax.inference.score_estimator import buffered_score_estimate
+from seqjax.inference.vi.interface import UnconditionalVariationalApproximation
 
 class HybridSSMVI[
     LatentT: seqjtyping.Latent,
