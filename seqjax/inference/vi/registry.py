@@ -493,15 +493,26 @@ def build_approximation(
         latent_config = config.latent_approximation
 
         if isinstance(latent_config, AutoregressiveLatentApproximation):
-            latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
-                target_latent_class,
-                sample_length=sequence_length,
-                embedder=embed,
-                lag_order=latent_config.lag_order,
-                nn_width=latent_config.nn_width,
-                nn_depth=latent_config.nn_depth,
-                key=approximation_key,
-            )
+            if target_latent_class.flat_dim == 1:
+                latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
+                    target_latent_class,
+                    sample_length=sequence_length,
+                    embedder=embed,
+                    lag_order=latent_config.lag_order,
+                    nn_width=latent_config.nn_width,
+                    nn_depth=latent_config.nn_depth,
+                    key=approximation_key,
+                )
+            else:
+                latent_approximation = autoregressive.AmortizedMultivariateAutoregressor(
+                    target_latent_class,
+                    sample_length=sequence_length,
+                    embedder=embed,
+                    lag_order=latent_config.lag_order,
+                    nn_width=latent_config.nn_width,
+                    nn_depth=latent_config.nn_depth,
+                    key=approximation_key,
+                )
         elif isinstance(latent_config, MAFLatentApproximation):
             latent_approximation = maf.AmortizedMAF(
                 target_latent_class,
@@ -539,15 +550,26 @@ def build_approximation(
         latent_config = config.latent_approximation
 
         if isinstance(latent_config, AutoregressiveLatentApproximation):
-            latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
-                target_latent_class,
-                sample_length=config.buffer_length * 2 + config.batch_length,
-                embedder=embed,
-                lag_order=latent_config.lag_order,
-                nn_width=latent_config.nn_width,
-                nn_depth=latent_config.nn_depth,
-                key=approximation_key,
-            )
+            if target_latent_class.flat_dim == 1:
+                latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
+                    target_latent_class,
+                    sample_length=config.buffer_length * 2 + config.batch_length,
+                    embedder=embed,
+                    lag_order=latent_config.lag_order,
+                    nn_width=latent_config.nn_width,
+                    nn_depth=latent_config.nn_depth,
+                    key=approximation_key,
+                )
+            else:
+                latent_approximation = autoregressive.AmortizedMultivariateAutoregressor(
+                    target_latent_class,
+                    sample_length=config.buffer_length * 2 + config.batch_length,
+                    embedder=embed,
+                    lag_order=latent_config.lag_order,
+                    nn_width=latent_config.nn_width,
+                    nn_depth=latent_config.nn_depth,
+                    key=approximation_key,
+                )
 
         elif isinstance(latent_config, MAFLatentApproximation):
             latent_approximation = maf.AmortizedMAF(
