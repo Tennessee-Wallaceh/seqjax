@@ -1031,7 +1031,6 @@ class IWBufferedSSMVI[
                 self.target_posterior.parameterization.to_model_parameters(inference_params)
             )
 
-        print(x_path.batch_shape, y_batch.batch_shape, c_batch.batch_shape, buffered_params.batch_shape)
         batched_log_joint = jax.vmap(jax.vmap(jax.vmap(
             _log_joint,
             in_axes=ax_spec2,

@@ -194,6 +194,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
                 condition.sequence_embedded_context,
                 condition.condition_context
             ),
+            unroll=self.shape[0]
         )
         return (
             self.target_struct_cls.unravel(x_path), 
