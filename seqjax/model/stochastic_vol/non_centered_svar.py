@@ -20,6 +20,9 @@ from .simple_var import UncLogVarParams, FullVarParameterization
 
 class NonCenteredLatentVar(Latent):
     z: Scalar
+    _shape_template: typing.ClassVar = OrderedDict(
+        z=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
 
 prior_order = 1
 transition_order = 1
