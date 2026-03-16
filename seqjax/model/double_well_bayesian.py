@@ -90,7 +90,7 @@ class EBOnlyParameterization(
 
 @dataclass
 class DoubleWellBayesian:
-    target: typing.ClassVar = dw_model
+    target: typing.ClassVar = dw_model.double_well_model
     parameterization: EBOnlyParameterization
 
 

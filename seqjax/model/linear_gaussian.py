@@ -1,7 +1,7 @@
 """Multidimensional linear Gaussian state-space model on the protocol interface."""
 
 from collections import OrderedDict
-from dataclasses import field
+from dataclasses import dataclass, field
 from functools import partial
 import typing
 
@@ -11,7 +11,13 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
-from seqjax.model.interface import ConditionContext, LatentContext, ObservationContext
+from seqjax.model.interface import (
+    ConditionContext,
+    LatentContext,
+    ObservationContext,
+    SequentialModelProtocol,
+    validate_sequential_model,
+)
 from seqjax.model.typing import Latent, NoCondition, Observation, Parameters
 
 
@@ -78,11 +84,6 @@ LGSSMParameters = LGSSMParameters50D
 VectorState = VectorState50D
 VectorObservation = VectorObservation50D
 
-prior_order = 1
-transition_order = 1
-emission_order = 1
-observation_dependency = 0
-
 latent_cls = VectorState
 observation_cls = VectorObservation
 parameter_cls = LGSSMParameters
@@ -96,95 +97,123 @@ condition_context: typing.Callable[[tuple], ConditionContext[NoCondition]]
 condition_context = partial(ConditionContext, length=0)
 
 
-def prior_sample(
-    key: PRNGKeyArray,
-    conditions: ConditionContext[NoCondition],
-    parameters: LGSSMParameters,
-) -> LatentContext[VectorState]:
-    """Sample the initial latent state."""
-    _ = conditions
-    mean = jnp.zeros_like(parameters.transition_noise_scale)
-    scale = parameters.transition_noise_scale
-    x0 = mean + scale * jrandom.normal(key, shape=scale.shape)
-    return latent_context((VectorState(x=x0),))
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class LGSSMModel(
+    SequentialModelProtocol[
+        VectorState,
+        VectorObservation,
+        NoCondition,
+        LGSSMParameters,
+    ]
+):
+    prior_order: int = 1
+    transition_order: int = 1
+    emission_order: int = 1
+    observation_dependency: int = 0
+
+    latent_cls: type[VectorState] = VectorState
+    observation_cls: type[VectorObservation] = VectorObservation
+    parameter_cls: type[LGSSMParameters] = LGSSMParameters
+    condition_cls: type[NoCondition] = NoCondition
+
+    latent_context: typing.Callable[..., LatentContext[VectorState]] = latent_context
+    observation_context: typing.Callable[..., ObservationContext[VectorObservation]] = observation_context
+    condition_context: typing.Callable[..., ConditionContext[NoCondition]] = condition_context
+
+    @staticmethod
+    def prior_sample(
+        key: PRNGKeyArray,
+        conditions: ConditionContext[NoCondition],
+        parameters: LGSSMParameters,
+    ) -> LatentContext[VectorState]:
+        """Sample the initial latent state."""
+        _ = conditions
+        mean = jnp.zeros_like(parameters.transition_noise_scale)
+        scale = parameters.transition_noise_scale
+        x0 = mean + scale * jrandom.normal(key, shape=scale.shape)
+        return latent_context((VectorState(x=x0),))
+
+    @staticmethod
+    def prior_log_prob(
+        latent: LatentContext[VectorState],
+        conditions: ConditionContext[NoCondition],
+        parameters: LGSSMParameters,
+    ) -> Scalar:
+        """Evaluate the prior log-density."""
+        _ = conditions
+        scale = parameters.transition_noise_scale
+        return jstats.norm.logpdf(latent[0].x, loc=0.0, scale=scale).sum()
+
+    @staticmethod
+    def transition_sample(
+        key: PRNGKeyArray,
+        latent_history: LatentContext[VectorState],
+        condition: NoCondition,
+        parameters: LGSSMParameters,
+    ) -> VectorState:
+        """Sample the next latent state."""
+        _ = condition
+        last_state = latent_history[0]
+        mean = parameters.transition_matrix @ last_state.x
+        noise = parameters.transition_noise_scale * jrandom.normal(
+            key,
+            shape=parameters.transition_noise_scale.shape,
+        )
+        return VectorState(x=mean + noise)
+
+    @staticmethod
+    def transition_log_prob(
+        latent_history: LatentContext[VectorState],
+        latent: VectorState,
+        condition: NoCondition,
+        parameters: LGSSMParameters,
+    ) -> Scalar:
+        """Transition log-density under Gaussian innovations."""
+        _ = condition
+        last_state = latent_history[0]
+        mean = parameters.transition_matrix @ last_state.x
+        return jstats.norm.logpdf(
+            latent.x,
+            loc=mean,
+            scale=parameters.transition_noise_scale,
+        ).sum()
+
+    @staticmethod
+    def emission_sample(
+        key: PRNGKeyArray,
+        latent_history: LatentContext[VectorState],
+        observation_history: ObservationContext[VectorObservation],
+        condition: NoCondition,
+        parameters: LGSSMParameters,
+    ) -> VectorObservation:
+        """Sample an observation from the current latent state."""
+        _ = (observation_history, condition)
+        state = latent_history[0]
+        mean = parameters.emission_matrix @ state.x
+        noise = parameters.emission_noise_scale * jrandom.normal(
+            key,
+            shape=parameters.emission_noise_scale.shape,
+        )
+        return VectorObservation(y=mean + noise)
+
+    @staticmethod
+    def emission_log_prob(
+        latent_history: LatentContext[VectorState],
+        observation: VectorObservation,
+        observation_history: ObservationContext[VectorObservation],
+        condition: NoCondition,
+        parameters: LGSSMParameters,
+    ) -> Scalar:
+        """Emission log-density under Gaussian measurement noise."""
+        _ = (observation_history, condition)
+        state = latent_history[0]
+        mean = parameters.emission_matrix @ state.x
+        return jstats.norm.logpdf(
+            observation.y,
+            loc=mean,
+            scale=parameters.emission_noise_scale,
+        ).sum()
 
 
-def prior_log_prob(
-    latent: LatentContext[VectorState],
-    conditions: ConditionContext[NoCondition],
-    parameters: LGSSMParameters,
-) -> Scalar:
-    """Evaluate the prior log-density."""
-    _ = conditions
-    scale = parameters.transition_noise_scale
-    return jstats.norm.logpdf(latent[0].x, loc=0.0, scale=scale).sum()
-
-
-def transition_sample(
-    key: PRNGKeyArray,
-    latent_history: LatentContext[VectorState],
-    condition: NoCondition,
-    parameters: LGSSMParameters,
-) -> VectorState:
-    """Sample the next latent state."""
-    _ = condition
-    last_state = latent_history[0]
-    mean = parameters.transition_matrix @ last_state.x
-    noise = parameters.transition_noise_scale * jrandom.normal(
-        key,
-        shape=parameters.transition_noise_scale.shape,
-    )
-    return VectorState(x=mean + noise)
-
-
-def transition_log_prob(
-    latent_history: LatentContext[VectorState],
-    latent: VectorState,
-    condition: NoCondition,
-    parameters: LGSSMParameters,
-) -> Scalar:
-    """Transition log-density under Gaussian innovations."""
-    _ = condition
-    last_state = latent_history[0]
-    mean = parameters.transition_matrix @ last_state.x
-    return jstats.norm.logpdf(
-        latent.x,
-        loc=mean,
-        scale=parameters.transition_noise_scale,
-    ).sum()
-
-
-def emission_sample(
-    key: PRNGKeyArray,
-    latent_history: LatentContext[VectorState],
-    observation_history: ObservationContext[VectorObservation],
-    condition: NoCondition,
-    parameters: LGSSMParameters,
-) -> VectorObservation:
-    """Sample an observation from the current latent state."""
-    _ = (observation_history, condition)
-    state = latent_history[0]
-    mean = parameters.emission_matrix @ state.x
-    noise = parameters.emission_noise_scale * jrandom.normal(
-        key,
-        shape=parameters.emission_noise_scale.shape,
-    )
-    return VectorObservation(y=mean + noise)
-
-
-def emission_log_prob(
-    latent_history: LatentContext[VectorState],
-    observation: VectorObservation,
-    observation_history: ObservationContext[VectorObservation],
-    condition: NoCondition,
-    parameters: LGSSMParameters,
-) -> Scalar:
-    """Emission log-density under Gaussian measurement noise."""
-    _ = (observation_history, condition)
-    state = latent_history[0]
-    mean = parameters.emission_matrix @ state.x
-    return jstats.norm.logpdf(
-        observation.y,
-        loc=mean,
-        scale=parameters.emission_noise_scale,
-    ).sum()
+lgssm_model = validate_sequential_model(LGSSMModel())
