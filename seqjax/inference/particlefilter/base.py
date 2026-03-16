@@ -387,7 +387,6 @@ def run_filter[
     )
     init_state = (filter_data.log_w, filter_data.particles)
 
-    print("start scan")
     final_state, recorder_history = jax.lax.scan(
         body,
         init=init_state,

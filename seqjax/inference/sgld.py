@@ -254,6 +254,125 @@ def _estimate_sequence_score[
         score_increments,
     )
 
+def buffered_score_estimate(
+    particle_filter,
+    model,
+    dataset,
+    params,
+    grad_key,
+    num_sequence_minibatch: int = 1,
+    batch_length: int = 5,
+    buffer_length: int = 5,
+):
+    minibatch_key, start_keys_key, sequence_pf_keys_key = jrandom.split(grad_key, 3)
+    sampled_observations, sampled_conditions = (
+        _sample_sequence_minibatch(
+            dataset,
+            minibatch_key,
+            num_sequence_minibatch,
+        )
+    )
+    sequence_pf_keys = jrandom.split(
+        sequence_pf_keys_key,
+        num_sequence_minibatch,
+    )
+    start_keys = jrandom.split(start_keys_key, num_sequence_minibatch)
+
+    path_length = sampled_observations.batch_shape[1]
+    latent_scaling = (batch_length + path_length - 1) / batch_length
+
+    _, y_batch, c_batch, theta_mask = jax.vmap(
+        sample_batch_and_mask,
+        in_axes=(0, None, None, None, 0, 0),
+    )(
+        start_keys,
+        path_length,
+        batch_length,
+        buffer_length,
+        sampled_observations,
+        sampled_conditions,
+    )
+
+    if isinstance(c_batch, seqjtyping.NoCondition):
+        in_axes = (0, 0, None)
+    else:
+        in_axes = (0, 0, 0)
+
+    batched_out = jax.vmap(
+        lambda sequence_key, sequence_obs, c_batch: run_filter(
+            sequence_key,
+            particle_filter,
+            params,
+            sequence_obs,
+            condition_path=c_batch,
+            recorders=(
+                partial(estimate_score_increment, model),
+                lambda fd: fd.ancestor_ix,
+            ),
+        ),
+        in_axes
+    )(sequence_pf_keys, y_batch, c_batch)
+
+    log_weights, _, (score_increments, ancestor_ix) = batched_out
+    norm_weights = jnp.exp(
+        log_weights - jsp.special.logsumexp(log_weights, axis=-1, keepdims=True)
+    )
+
+    def accumulate_scores(current_score, inputs):
+        score_increment, current_ancestor_ix = inputs
+        new_score = current_score[current_ancestor_ix] + score_increment
+        return new_score, new_score
+
+    def masked_score_for_leaf(
+        minibatch_ancestor_ix,
+        minibatch_norm_weights,
+        minibatch_leaf_score_increments,
+        minibatch_theta_mask,
+    ):
+        def per_sequence_masked_score(
+            sequence_ancestor_ix,
+            sequence_norm_weights,
+            sequence_leaf_score_increments,
+            sequence_mask,
+        ):
+            score_increment = (
+                latent_scaling
+                * jnp.expand_dims(sequence_mask, -1)
+                * sequence_leaf_score_increments
+            )
+            final_score = jax.lax.scan(
+                accumulate_scores,
+                score_increment[0],
+                (score_increment[1:], sequence_ancestor_ix[1:]),
+            )[0]
+            return jnp.sum(final_score * sequence_norm_weights)
+
+        return jax.vmap(per_sequence_masked_score)(
+            minibatch_ancestor_ix,
+            minibatch_norm_weights,
+            minibatch_leaf_score_increments,
+            minibatch_theta_mask,
+        )
+
+    minibatch_likelihood_score = jax.tree_util.tree_map(
+        partial(masked_score_for_leaf, ancestor_ix, norm_weights, minibatch_theta_mask=theta_mask),
+        score_increments,
+    )
+    rescaled_likelihood_score = jax.tree_util.tree_map(
+        lambda leaf: jnp.sum(leaf, axis=0),
+        minibatch_likelihood_score,
+    )
+
+    log_prior_score = jax.grad(model.parameterization.log_prob, argnums=0)(
+        params,
+    )
+
+    return jax.tree_util.tree_map(
+        lambda prior_leaf, likelihood_leaf: (prior_leaf + likelihood_leaf),
+        log_prior_score,
+        rescaled_likelihood_score,
+    )
+
 
 def run_sgld[ParametersT: seqjtyping.Parameters](
     grad_estimator: typing.Callable[[ParametersT, jaxtyping.PRNGKeyArray], ParametersT],
@@ -286,7 +405,7 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
         grad = grad_estimator(params, g_key)
         noise = _tree_randn_like(n_key, params)
         updates = jax.tree_util.tree_map(
-            lambda g, n, s: s * g + jnp.sqrt(2.0 * s) * n * noise_rescale,
+            lambda g, n, s: (s * g + jnp.sqrt(2.0 * s) * n) * noise_rescale,
             grad,
             noise,
             step_sizes,
@@ -494,141 +613,16 @@ def run_buffer_sgld_mcmc[
         target_posterior,
         config.particle_filter_config,
     )
-    conditions = dataset.conditions
-
-    def _buffered_estimate_score(
-        particle_filter,
-        model,
-        dataset,
-        params,
-        grad_key,
-    ):
-        minibatch_key, start_keys_key, sequence_pf_keys_key = jrandom.split(grad_key, 3)
-        sampled_observations, sampled_conditions = (
-            _sample_sequence_minibatch(
-                dataset,
-                minibatch_key,
-                config.num_sequence_minibatch,
-            )
-        )
-        sequence_pf_keys = jrandom.split(
-            sequence_pf_keys_key,
-            config.num_sequence_minibatch,
-        )
-        start_keys = jrandom.split(start_keys_key, config.num_sequence_minibatch)
-
-        path_length = sampled_observations.batch_shape[1]
-        latent_scaling = (config.batch_length + path_length - 1) / config.batch_length
-
-        approx_start, y_batch, c_batch, theta_mask = jax.vmap(
-            sample_batch_and_mask,
-            in_axes=(0, None, None, None, 0, 0),
-        )(
-            start_keys,
-            path_length,
-            config.batch_length,
-            config.buffer_length,
-            sampled_observations,
-            sampled_conditions,
-        )
-
-        del approx_start
-
-        if isinstance(conditions, seqjtyping.NoCondition):
-            batched_out = jax.vmap(
-                lambda sequence_key, sequence_obs: run_filter(
-                    sequence_key,
-                    particle_filter,
-                    params,
-                    sequence_obs,
-                    condition_path=seqjtyping.NoCondition(),
-                    recorders=(
-                        partial(estimate_score_increment, model),
-                        lambda fd: fd.ancestor_ix,
-                    ),
-                )
-            )(sequence_pf_keys, y_batch)
-        else:
-            batched_out = jax.vmap(
-                lambda sequence_key, sequence_obs, sequence_cond: run_filter(
-                    sequence_key,
-                    particle_filter,
-                    params,
-                    sequence_obs,
-                    condition_path=sequence_cond,
-                    recorders=(
-                        partial(estimate_score_increment, model),
-                        lambda fd: fd.ancestor_ix,
-                    ),
-                )
-            )(sequence_pf_keys, y_batch, c_batch)
-
-        log_weights, _, (score_increments, ancestor_ix) = batched_out
-        norm_weights = jnp.exp(
-            log_weights - jsp.special.logsumexp(log_weights, axis=-1, keepdims=True)
-        )
-
-        def accumulate_scores(current_score, inputs):
-            score_increment, current_ancestor_ix = inputs
-            new_score = current_score[current_ancestor_ix] + score_increment
-            return new_score, new_score
-
-        def masked_score_for_leaf(
-            minibatch_ancestor_ix,
-            minibatch_norm_weights,
-            minibatch_leaf_score_increments,
-            minibatch_theta_mask,
-        ):
-            def per_sequence_masked_score(
-                sequence_ancestor_ix,
-                sequence_norm_weights,
-                sequence_leaf_score_increments,
-                sequence_mask,
-            ):
-                score_increment = (
-                    latent_scaling
-                    * jnp.expand_dims(sequence_mask, -1)
-                    * sequence_leaf_score_increments
-                )
-                final_score = jax.lax.scan(
-                    accumulate_scores,
-                    score_increment[0],
-                    (score_increment[1:], sequence_ancestor_ix[1:]),
-                )[0]
-                return jnp.sum(final_score * sequence_norm_weights)
-
-            return jax.vmap(per_sequence_masked_score)(
-                minibatch_ancestor_ix,
-                minibatch_norm_weights,
-                minibatch_leaf_score_increments,
-                minibatch_theta_mask,
-            )
-
-        minibatch_likelihood_score = jax.tree_util.tree_map(
-            partial(masked_score_for_leaf, ancestor_ix, norm_weights, minibatch_theta_mask=theta_mask),
-            score_increments,
-        )
-        rescaled_likelihood_score = jax.tree_util.tree_map(
-            lambda leaf: jnp.sum(leaf, axis=0),
-            minibatch_likelihood_score,
-        )
-
-        log_prior_score = jax.grad(model.parameterization.log_prob, argnums=0)(
-            params,
-        )
-
-        return jax.tree_util.tree_map(
-            lambda prior_leaf, likelihood_leaf: (prior_leaf + likelihood_leaf) / path_length,
-            log_prior_score,
-            rescaled_likelihood_score,
-        )
 
     score_estimator = jax.jit(
         partial(
-            _buffered_estimate_score,
+            buffered_score_estimate,
             particle_filter,
             target_posterior,
             dataset,
+            num_sequence_minibatch=config.num_sequence_minibatch,
+            buffer_length=config.buffer_length,
+            batch_length=config.batch_length,
         )
     )
 

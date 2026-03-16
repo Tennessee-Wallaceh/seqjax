@@ -50,7 +50,8 @@ registry: dict[OptConfigLabels, type[OptConfig]] = {
 def build_optimizer(optimization_config: OptConfig) -> optax.GradientTransformation:
     if isinstance(optimization_config, AdamOpt):
         optim = optax.apply_if_finite(
-            optax.adam(optimization_config.lr), max_consecutive_errors=100
+            optax.adam(optimization_config.lr), 
+            max_consecutive_errors=100
         )
     elif isinstance(optimization_config, CosineOpt):
         schedule = optax.warmup_cosine_decay_schedule(
