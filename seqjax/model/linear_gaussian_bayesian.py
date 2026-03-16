@@ -26,16 +26,16 @@ def _inverse_softplus(x: jax.Array) -> jax.Array:
 class UncLGSSMParameters(seqjtyping.Parameters):
     """Unconstrained parameterisation of LGSSM parameters."""
 
-    transition_matrix: jax.Array = field(default_factory=lambda: jnp.eye(50))
-    sft_inv_transition_noise_scale: jax.Array = field(default_factory=lambda: jnp.zeros(50))
-    emission_matrix: jax.Array = field(default_factory=lambda: jnp.eye(50))
-    sft_inv_emission_noise_scale: jax.Array = field(default_factory=lambda: jnp.zeros(50))
+    transition_matrix: jax.Array = field(default_factory=lambda: jnp.eye(10))
+    sft_inv_transition_noise_scale: jax.Array = field(default_factory=lambda: jnp.zeros(10))
+    emission_matrix: jax.Array = field(default_factory=lambda: jnp.eye(10))
+    sft_inv_emission_noise_scale: jax.Array = field(default_factory=lambda: jnp.zeros(10))
 
     _shape_template: typing.ClassVar = OrderedDict(
-        transition_matrix=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
-        sft_inv_transition_noise_scale=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
-        emission_matrix=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
-        sft_inv_emission_noise_scale=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
+        transition_matrix=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
+        sft_inv_transition_noise_scale=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
+        emission_matrix=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
+        sft_inv_emission_noise_scale=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
     )
 
 @jax.tree_util.register_dataclass
@@ -93,11 +93,11 @@ class FullParameterization(
     def sample(self, key: PRNGKeyArray) -> UncLGSSMParameters:
         a_key, q_key, c_key, r_key = jrandom.split(key, 4)
 
-        transition_matrix = jrandom.normal(a_key, shape=(50, 50))
-        emission_matrix = jrandom.normal(c_key, shape=(50, 50))
+        transition_matrix = jrandom.normal(a_key, shape=(10, 10))
+        emission_matrix = jrandom.normal(c_key, shape=(10, 10))
 
-        transition_noise_scale = jnp.abs(jrandom.cauchy(q_key, shape=(50,)))
-        emission_noise_scale = jnp.abs(jrandom.cauchy(r_key, shape=(50,)))
+        transition_noise_scale = jnp.abs(jrandom.cauchy(q_key, shape=(10,)))
+        emission_noise_scale = jnp.abs(jrandom.cauchy(r_key, shape=(10,)))
 
         return UncLGSSMParameters(
             transition_matrix=transition_matrix,
@@ -130,8 +130,8 @@ class FullParameterization(
         scale_logp = (
             jstats.cauchy.logpdf(transition_noise_scale).sum()
             + jstats.cauchy.logpdf(emission_noise_scale).sum()
-            + 50 * jnp.log(jnp.array(2.0))
-            + 50 * jnp.log(jnp.array(2.0))
+            + 10 * jnp.log(jnp.array(2.0))
+            + 10 * jnp.log(jnp.array(2.0))
         )
 
         lad = jax.nn.log_sigmoid(

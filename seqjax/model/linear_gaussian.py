@@ -21,44 +21,44 @@ from seqjax.model.interface import (
 from seqjax.model.typing import Latent, NoCondition, Observation, Parameters
 
 
-class VectorState50D(Latent):
+class VectorState10D(Latent):
     """Multivariate latent state."""
 
     x: Array
 
     _shape_template: typing.ClassVar = OrderedDict(
-        x=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
+        x=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
     )
 
 
-class VectorObservation50D(Observation):
+class VectorObservation10D(Observation):
     """Vector-valued observation."""
 
     y: Array
 
     _shape_template: typing.ClassVar = OrderedDict(
-        y=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
+        y=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
     )
 
 
-class LGSSMParameters50D(Parameters):
-    """Parameters of a 50-dimensional linear Gaussian state-space model."""
+class LGSSMParameters10D(Parameters):
+    """Parameters of a 10-dimensional linear Gaussian state-space model."""
 
-    transition_matrix: Array = field(default_factory=lambda: jnp.eye(50))
-    transition_noise_scale: Array = field(default_factory=lambda: jnp.ones(50))
-    transition_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(50))
+    transition_matrix: Array = field(default_factory=lambda: jnp.eye(10))
+    transition_noise_scale: Array = field(default_factory=lambda: jnp.ones(10))
+    transition_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(10))
 
-    emission_matrix: Array = field(default_factory=lambda: jnp.eye(50))
-    emission_noise_scale: Array = field(default_factory=lambda: jnp.ones(50))
-    emission_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(50))
+    emission_matrix: Array = field(default_factory=lambda: jnp.eye(10))
+    emission_noise_scale: Array = field(default_factory=lambda: jnp.ones(10))
+    emission_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(10))
 
     _shape_template: typing.ClassVar = OrderedDict(
-        transition_matrix=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
-        transition_noise_scale=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
-        transition_noise_corr_cholesky=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
-        emission_matrix=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
-        emission_noise_scale=jax.ShapeDtypeStruct(shape=(50,), dtype=jnp.float32),
-        emission_noise_corr_cholesky=jax.ShapeDtypeStruct(shape=(50, 50), dtype=jnp.float32),
+        transition_matrix=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
+        transition_noise_scale=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
+        transition_noise_corr_cholesky=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
+        emission_matrix=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
+        emission_noise_scale=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
+        emission_noise_corr_cholesky=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
     )
 
     @property
@@ -80,9 +80,9 @@ class LGSSMParameters50D(Parameters):
         return chol @ chol.T
 
 
-LGSSMParameters = LGSSMParameters50D
-VectorState = VectorState50D
-VectorObservation = VectorObservation50D
+LGSSMParameters = LGSSMParameters10D
+VectorState = VectorState10D
+VectorObservation = VectorObservation10D
 
 latent_cls = VectorState
 observation_cls = VectorObservation

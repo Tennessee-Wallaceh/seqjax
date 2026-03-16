@@ -287,9 +287,13 @@ def buffered_score_estimate(
             sequence_leaf_score_increments,
             sequence_mask,
         ):
+            trailing_dim = tuple(
+                1 + d
+                for d in range(sequence_leaf_score_increments.ndim - 1)
+            )
             score_increment = (
                 latent_scaling
-                * jnp.expand_dims(sequence_mask, -1)
+                * jnp.expand_dims(sequence_mask, trailing_dim)
                 * sequence_leaf_score_increments
             )
             final_score = jax.lax.scan(
@@ -297,7 +301,18 @@ def buffered_score_estimate(
                 score_increment[0],
                 (score_increment[1:], sequence_ancestor_ix[1:]),
             )[0]
-            return jnp.sum(final_score * sequence_norm_weights)
+
+            # per particle score
+            trailing_dim = tuple(
+                1 + d
+                for d in range(final_score.ndim - 1)
+            )
+            out = jnp.sum(
+                final_score 
+                * jnp.expand_dims(sequence_norm_weights, trailing_dim),
+                axis=0
+            )
+            return out
 
         return jax.vmap(per_sequence_masked_score)(
             minibatch_ancestor_ix,
