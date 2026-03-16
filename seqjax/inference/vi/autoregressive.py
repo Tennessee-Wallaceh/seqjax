@@ -1,4 +1,4 @@
-from typing import Protocol, Tuple, Type
+from typing import Protocol, Type
 
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.model import typing as seqjtyping
@@ -9,8 +9,10 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
-from .interface import Embedder, LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
+from .interface import Embedder, LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 
+
+_LOG_2PI = jnp.log(2.0 * jnp.pi)
 
 
 def xavier_init(key: PRNGKeyArray, shape: tuple[int, ...]) -> Array:
@@ -111,15 +113,6 @@ class AmortizerMLP(eqx.Module):
         p_missing = self.proj_missing(missing)
         combined = p_x + p_theta + p_context + p_missing
         return self.mlp(combined)
-
-
-def flat_to_chol(flat: Array, dim: int) -> Tuple[Array, Array]:
-    tri = jnp.zeros((dim, dim))
-    idx = jnp.tril_indices(dim)
-    tri = tri.at[idx].set(flat)
-    cov = tri @ tri.T
-    return tri, cov
-
 
 class VectorToVector(Protocol):
     def __call__(self, x: Array) -> Array: ...
@@ -435,7 +428,7 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
             key=key,
         )
 
-    def _build_cholesky(self, unconstrained_chol: Array) -> tuple[Array, Array]:
+    def _build_cholesky(self, unconstrained_chol: Array) -> Array:
         if unconstrained_chol.shape[-1] != self._n_tril:
             raise ValueError(
                 "Invalid Cholesky parameter count: "
@@ -447,8 +440,7 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
         tri = tri.at[tril_ix].set(unconstrained_chol)
         diag_ix = jnp.diag_indices(self._x_dim)
         tri = tri.at[diag_ix].set(jax.nn.softplus(tri[diag_ix]) + 1e-4)
-        cov = tri @ tri.T
-        return tri, cov
+        return tri
 
     def conditional(
         self,
@@ -475,8 +467,10 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
         loc = trans_params[: self._x_dim]
         unconstrained_chol = trans_params[self._x_dim :]
 
-        chol, cov = self._build_cholesky(unconstrained_chol)
+        chol = self._build_cholesky(unconstrained_chol)
 
         x = chol @ z + loc
-        log_q_x = jstats.multivariate_normal.logpdf(x, loc, cov)
+        log_det_chol = jnp.sum(jnp.log(jnp.diagonal(chol)))
+        quadratic = jnp.sum(z**2)
+        log_q_x = -0.5 * (self._x_dim * _LOG_2PI + 2.0 * log_det_chol + quadratic)
         return x, log_q_x
