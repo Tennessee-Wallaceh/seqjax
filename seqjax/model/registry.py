@@ -48,7 +48,7 @@ BayesianModelLabel = typing.Literal[
 # ``SequentialModelLabel`` and add the class here with the same label.
 sequential_models: dict[SequentialModelLabel, interface.SequentialModelProtocol] = {
     "ar": interface.validate_sequential_model(ar.ar_model),
-    "svar": interface.validate_sequential_model(stochastic_vol.simple_var.SimpleStochasticVar()),
+    "svar": stochastic_vol.simple_var.simple_stochastic_var_model,
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model

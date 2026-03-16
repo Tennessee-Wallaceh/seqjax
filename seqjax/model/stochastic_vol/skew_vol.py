@@ -9,7 +9,13 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
-from seqjax.model.interface import ConditionContext, LatentContext, ObservationContext
+from seqjax.model.interface import (
+    ConditionContext,
+    LatentContext,
+    ObservationContext,
+    SequentialModelProtocol,
+    validate_sequential_model,
+)
 
 from .common import SkewStochVolParamPrior, random_walk_loc_scale, skew_return_mean_and_scale
 from .types import LatentVol, LogReturnObs, LogVolWithSkew, TimeIncrement
@@ -114,20 +120,28 @@ def emission_log_prob(
     return jstats.norm.logpdf(observation.log_return, loc=return_mean, scale=return_scale)
 
 
-class SkewStochasticVol:
-    prior_order = prior_order
-    transition_order = transition_order
-    emission_order = emission_order
-    observation_dependency = observation_dependency
+@dataclass(frozen=True)
+class SkewStochasticVol(
+    SequentialModelProtocol[
+        LatentVol,
+        LogReturnObs,
+        TimeIncrement,
+        LogVolWithSkew,
+    ]
+):
+    prior_order: int = prior_order
+    transition_order: int = transition_order
+    emission_order: int = emission_order
+    observation_dependency: int = observation_dependency
 
-    latent_cls = latent_cls
-    observation_cls = observation_cls
-    parameter_cls = parameter_cls
-    condition_cls = condition_cls
+    latent_cls: type[LatentVol] = latent_cls
+    observation_cls: type[LogReturnObs] = observation_cls
+    parameter_cls: type[LogVolWithSkew] = parameter_cls
+    condition_cls: type[TimeIncrement] = condition_cls
 
-    latent_context = staticmethod(latent_context)
-    observation_context = staticmethod(observation_context)
-    condition_context = staticmethod(condition_context)
+    latent_context: typing.Callable[..., LatentContext[LatentVol]] = latent_context
+    observation_context: typing.Callable[..., ObservationContext[LogReturnObs]] = observation_context
+    condition_context: typing.Callable[..., ConditionContext[TimeIncrement]] = condition_context
 
     prior_sample = staticmethod(prior_sample)
     prior_log_prob = staticmethod(prior_log_prob)
@@ -137,9 +151,12 @@ class SkewStochasticVol:
     emission_log_prob = staticmethod(emission_log_prob)
 
 
+skew_stochastic_vol_model = validate_sequential_model(SkewStochasticVol())
+
+
 @dataclass
 class SkewStochasticVolBayesian:
     inference_parameter_cls: typing.ClassVar[type[LogVolWithSkew]] = LogVolWithSkew
-    target: typing.ClassVar = SkewStochasticVol()
+    target: typing.ClassVar = skew_stochastic_vol_model
     parameter_prior: typing.ClassVar = SkewStochVolParamPrior()
     convert_to_model_parameters = staticmethod(lambda parameters: parameters)

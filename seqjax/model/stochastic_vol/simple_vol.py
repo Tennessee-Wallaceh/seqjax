@@ -10,7 +10,13 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
-from seqjax.model.interface import ConditionContext, LatentContext, ObservationContext
+from seqjax.model.interface import (
+    ConditionContext,
+    LatentContext,
+    ObservationContext,
+    SequentialModelProtocol,
+    validate_sequential_model,
+)
 from seqjax.model.typing import NoCondition
 
 from .common import StdLogVolPrior, StochVolParamPrior, lv_to_std_only, random_walk_loc_scale
@@ -109,20 +115,29 @@ def emission_log_prob(
     return jstats.norm.logpdf(observation.log_return, loc=0.0, scale=return_scale)
 
 
-class SimpleStochasticVol:
-    prior_order = prior_order
-    transition_order = transition_order
-    emission_order = emission_order
-    observation_dependency = observation_dependency
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class SimpleStochasticVol(
+    SequentialModelProtocol[
+        LatentVol,
+        LogReturnObs,
+        TimeIncrement,
+        LogVolRW,
+    ]
+):
+    prior_order: int = prior_order
+    transition_order: int = transition_order
+    emission_order: int = emission_order
+    observation_dependency: int = observation_dependency
 
-    latent_cls = latent_cls
-    observation_cls = observation_cls
-    parameter_cls = parameter_cls
-    condition_cls = condition_cls
+    latent_cls: type[LatentVol] = latent_cls
+    observation_cls: type[LogReturnObs] = observation_cls
+    parameter_cls: type[LogVolRW] = parameter_cls
+    condition_cls: type[TimeIncrement] = condition_cls
 
-    latent_context = staticmethod(latent_context)
-    observation_context = staticmethod(observation_context)
-    condition_context = staticmethod(condition_context)
+    latent_context: typing.Callable[..., LatentContext[LatentVol]] = latent_context
+    observation_context: typing.Callable[..., ObservationContext[LogReturnObs]] = observation_context
+    condition_context: typing.Callable[..., ConditionContext[TimeIncrement]] = condition_context
 
     prior_sample = staticmethod(prior_sample)
     prior_log_prob = staticmethod(prior_log_prob)
@@ -132,10 +147,13 @@ class SimpleStochasticVol:
     emission_log_prob = staticmethod(emission_log_prob)
 
 
+simple_stochastic_vol_model = validate_sequential_model(SimpleStochasticVol())
+
+
 @dataclass
 class SimpleStochasticVolBayesian:
     inference_parameter_cls: typing.ClassVar[type[LogVolRW]] = LogVolRW
-    target: typing.ClassVar = SimpleStochasticVol()
+    target: typing.ClassVar = simple_stochastic_vol_model
     parameter_prior: typing.ClassVar = StochVolParamPrior()
     convert_to_model_parameters = staticmethod(lambda parameters: parameters)
 
@@ -144,7 +162,7 @@ class SimpleStochasticVolBayesian:
 class SimpleStochasticVolBayesianStdLogVol:
     ref_params: LogVolRW
     inference_parameter_cls: typing.ClassVar[type[LVolStd]] = LVolStd
-    target: typing.ClassVar = SimpleStochasticVol()
+    target: typing.ClassVar = simple_stochastic_vol_model
     parameter_prior: typing.ClassVar = StdLogVolPrior()
 
     def __post_init__(self):
@@ -165,7 +183,7 @@ def make_constant_time_increments(
         raise ValueError(f"dt must be > 0, got {dt}")
 
     effective_prior_order = (
-        SimpleStochasticVol.prior_order if prior_order is None else prior_order
+        simple_stochastic_vol_model.prior_order if prior_order is None else prior_order
     )
     if effective_prior_order < 1:
         raise ValueError(

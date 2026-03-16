@@ -10,7 +10,12 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    validate_sequential_model, ConditionContext, LatentContext, ObservationContext, ParameterizationProtocol
+    validate_sequential_model,
+    ConditionContext,
+    LatentContext,
+    ObservationContext,
+    ParameterizationProtocol,
+    SequentialModelProtocol,
 )
 from seqjax.model.typing import Parameters, NoCondition, NoHyper
 
@@ -119,20 +124,27 @@ def emission_log_prob(
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class SimpleStochasticVar:
-    prior_order = prior_order
-    transition_order = transition_order
-    emission_order = emission_order
-    observation_dependency = observation_dependency
+class SimpleStochasticVar(
+    SequentialModelProtocol[
+        LatentVar,
+        LogReturnObs,
+        NoCondition,
+        LogVarParams,
+    ]
+):
+    prior_order: int = prior_order
+    transition_order: int = transition_order
+    emission_order: int = emission_order
+    observation_dependency: int = observation_dependency
 
-    latent_cls = latent_cls
-    observation_cls = observation_cls
-    parameter_cls = parameter_cls
-    condition_cls = condition_cls
+    latent_cls: type[LatentVar] = latent_cls
+    observation_cls: type[LogReturnObs] = observation_cls
+    parameter_cls: type[LogVarParams] = parameter_cls
+    condition_cls: type[NoCondition] = condition_cls
 
-    latent_context = staticmethod(latent_context)
-    observation_context = staticmethod(observation_context)
-    condition_context = staticmethod(condition_context)
+    latent_context: typing.Callable[..., LatentContext[LatentVar]] = latent_context
+    observation_context: typing.Callable[..., ObservationContext[LogReturnObs]] = observation_context
+    condition_context: typing.Callable[..., ConditionContext[NoCondition]] = condition_context
 
     prior_sample = staticmethod(prior_sample)
     prior_log_prob = staticmethod(prior_log_prob)
@@ -140,6 +152,9 @@ class SimpleStochasticVar:
     transition_log_prob = staticmethod(transition_log_prob)
     emission_sample = staticmethod(emission_sample)
     emission_log_prob = staticmethod(emission_log_prob)
+
+
+simple_stochastic_var_model = validate_sequential_model(SimpleStochasticVar())
 
 class UncLogVarParams(Parameters):
     sft_inv_std_log_var: Scalar
@@ -206,7 +221,7 @@ class FullVarParameterization(
 @jax.tree_util.register_dataclass
 @dataclass
 class StochasticVarBayesian:
-    target: typing.ClassVar = validate_sequential_model(SimpleStochasticVar())
+    target: typing.ClassVar = simple_stochastic_var_model
     parameterization : FullVarParameterization
 
 

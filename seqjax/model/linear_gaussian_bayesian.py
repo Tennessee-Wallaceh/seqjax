@@ -152,7 +152,7 @@ class LGSSMBayesian:
             seqjtyping.NoCondition,
             lg_module.LGSSMParameters,
         ]
-    ] = typing.cast(interface.SequentialModelProtocol, lg_module)
+    ] = lg_module.lgssm_model
     parameterization: FullParameterization
 
 

@@ -1,7 +1,7 @@
 """Double-well state-space model on the protocol-based model interface."""
 
 from collections import OrderedDict
-from dataclasses import field
+from dataclasses import dataclass, field
 from functools import partial
 import typing
 
@@ -14,7 +14,9 @@ from jaxtyping import PRNGKeyArray, Scalar
 from seqjax.model.interface import (
     ConditionContext,
     LatentContext,
-    ObservationContext
+    ObservationContext,
+    SequentialModelProtocol,
+    validate_sequential_model,
 )
 from seqjax.model.typing import (
     Observation,
@@ -78,11 +80,6 @@ class NoisyObservation(Observation):
     )
 
 
-prior_order = 1
-transition_order = 1
-emission_order = 1
-observation_dependency = 0
-
 latent_cls = LatentValue
 observation_cls = NoisyObservation
 parameter_cls = DoubleWellParams
@@ -96,27 +93,6 @@ condition_context: typing.Callable[[tuple[TimeIncrement]], ConditionContext[Time
 condition_context = partial(ConditionContext, length=1)
 
 
-def prior_sample(
-    key: PRNGKeyArray,
-    conditions: ConditionContext[TimeIncrement],
-    parameters: DoubleWellParams,
-) -> LatentContext[LatentValue]:
-    """Sample the initial latent value from a unit Gaussian."""
-    _ = (conditions, parameters)
-    x0 = jrandom.normal(key)
-    return latent_context((LatentValue(latent_state=x0),))
-
-
-def prior_log_prob(
-    latent: LatentContext[LatentValue],
-    conditions: ConditionContext[TimeIncrement],
-    parameters: DoubleWellParams,
-) -> Scalar:
-    """Evaluate the prior log-density for the initial latent."""
-    _ = (conditions, parameters)
-    return jstats.norm.logpdf(latent[0].latent_state, scale=jnp.array(1.0))
-
-
 def _transition_mean(
     latent_history: LatentContext[LatentValue],
     condition: TimeIncrement,
@@ -128,59 +104,108 @@ def _transition_mean(
     return previous + dt * drift
 
 
-def transition_sample(
-    key: PRNGKeyArray,
-    latent_history: LatentContext[LatentValue],
-    condition: TimeIncrement,
-    parameters: DoubleWellParams,
-) -> LatentValue:
-    """Sample next latent by Euler-Maruyama discretisation."""
-    mean = _transition_mean(latent_history, condition, parameters)
-    scale = parameters.transition_std * jnp.sqrt(condition.dt)
-    return LatentValue(latent_state=mean + jrandom.normal(key) * scale)
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class DoubleWellModel(
+    SequentialModelProtocol[
+        LatentValue,
+        NoisyObservation,
+        TimeIncrement,
+        DoubleWellParams,
+    ]
+):
+    prior_order: int = 1
+    transition_order: int = 1
+    emission_order: int = 1
+    observation_dependency: int = 0
+
+    latent_cls: type[LatentValue] = LatentValue
+    observation_cls: type[NoisyObservation] = NoisyObservation
+    parameter_cls: type[DoubleWellParams] = DoubleWellParams
+    condition_cls: type[TimeIncrement] = TimeIncrement
+
+    latent_context: typing.Callable[..., LatentContext[LatentValue]] = latent_context
+    observation_context: typing.Callable[..., ObservationContext[NoisyObservation]] = observation_context
+    condition_context: typing.Callable[..., ConditionContext[TimeIncrement]] = condition_context
+
+    @staticmethod
+    def prior_sample(
+        key: PRNGKeyArray,
+        conditions: ConditionContext[TimeIncrement],
+        parameters: DoubleWellParams,
+    ) -> LatentContext[LatentValue]:
+        """Sample the initial latent value from a unit Gaussian."""
+        _ = (conditions, parameters)
+        x0 = jrandom.normal(key)
+        return latent_context((LatentValue(latent_state=x0),))
+
+    @staticmethod
+    def prior_log_prob(
+        latent: LatentContext[LatentValue],
+        conditions: ConditionContext[TimeIncrement],
+        parameters: DoubleWellParams,
+    ) -> Scalar:
+        """Evaluate the prior log-density for the initial latent."""
+        _ = (conditions, parameters)
+        return jstats.norm.logpdf(latent[0].latent_state, scale=jnp.array(1.0))
+
+    @staticmethod
+    def transition_sample(
+        key: PRNGKeyArray,
+        latent_history: LatentContext[LatentValue],
+        condition: TimeIncrement,
+        parameters: DoubleWellParams,
+    ) -> LatentValue:
+        """Sample next latent by Euler-Maruyama discretisation."""
+        mean = _transition_mean(latent_history, condition, parameters)
+        scale = parameters.transition_std * jnp.sqrt(condition.dt)
+        return LatentValue(latent_state=mean + jrandom.normal(key) * scale)
+
+    @staticmethod
+    def transition_log_prob(
+        latent_history: LatentContext[LatentValue],
+        latent: LatentValue,
+        condition: TimeIncrement,
+        parameters: DoubleWellParams,
+    ) -> Scalar:
+        """Transition log-density under Gaussian discretisation noise."""
+        mean = _transition_mean(latent_history, condition, parameters)
+        scale = parameters.transition_std * jnp.sqrt(condition.dt)
+        return jstats.norm.logpdf(latent.latent_state, loc=mean, scale=scale)
+
+    @staticmethod
+    def emission_sample(
+        key: PRNGKeyArray,
+        latent_history: LatentContext[LatentValue],
+        observation_history: ObservationContext[NoisyObservation],
+        condition: TimeIncrement,
+        parameters: DoubleWellParams,
+    ) -> NoisyObservation:
+        """Sample noisy observation from the current latent state."""
+        _ = (observation_history, condition)
+        current = latent_history[0].latent_state
+        y = current + jrandom.normal(key) * parameters.observation_std
+        return NoisyObservation(observation=y)
+
+    @staticmethod
+    def emission_log_prob(
+        latent_history: LatentContext[LatentValue],
+        observation: NoisyObservation,
+        observation_history: ObservationContext[NoisyObservation],
+        condition: TimeIncrement,
+        parameters: DoubleWellParams,
+    ) -> Scalar:
+        """Observation log-density given current latent state."""
+        _ = (observation_history, condition)
+        current = latent_history[0].latent_state
+        return jstats.norm.logpdf(
+            observation.observation,
+            loc=current,
+            scale=parameters.observation_std,
+        )
 
 
-def transition_log_prob(
-    latent_history: LatentContext[LatentValue],
-    latent: LatentValue,
-    condition: TimeIncrement,
-    parameters: DoubleWellParams,
-) -> Scalar:
-    """Transition log-density under Gaussian discretisation noise."""
-    mean = _transition_mean(latent_history, condition, parameters)
-    scale = parameters.transition_std * jnp.sqrt(condition.dt)
-    return jstats.norm.logpdf(latent.latent_state, loc=mean, scale=scale)
-
-
-def emission_sample(
-    key: PRNGKeyArray,
-    latent_history: LatentContext[LatentValue],
-    observation_history: ObservationContext[NoisyObservation],
-    condition: TimeIncrement,
-    parameters: DoubleWellParams,
-) -> NoisyObservation:
-    """Sample noisy observation from the current latent state."""
-    _ = (observation_history, condition)
-    current = latent_history[0].latent_state
-    y = current + jrandom.normal(key) * parameters.observation_std
-    return NoisyObservation(observation=y)
-
-
-def emission_log_prob(
-    latent_history: LatentContext[LatentValue],
-    observation: NoisyObservation,
-    observation_history: ObservationContext[NoisyObservation],
-    condition: TimeIncrement,
-    parameters: DoubleWellParams,
-) -> Scalar:
-    """Observation log-density given current latent state."""
-    _ = (observation_history, condition)
-    current = latent_history[0].latent_state
-    return jstats.norm.logpdf(
-        observation.observation,
-        loc=current,
-        scale=parameters.observation_std,
-    )
+double_well_model = validate_sequential_model(DoubleWellModel())
 
 
 def make_unit_time_increments(
@@ -192,7 +217,7 @@ def make_unit_time_increments(
     if sequence_length < 1:
         raise ValueError(f"sequence_length must be >= 1, got {sequence_length}")
 
-    required_length = sequence_length + prior_order - 1
+    required_length = sequence_length + double_well_model.prior_order - 1
     dt_value = jnp.asarray(dt, dtype=jnp.float32)
     return TimeIncrement(dt=jnp.full((required_length,), dt_value, dtype=dt_value.dtype))
 
@@ -207,4 +232,3 @@ def fill_parameter(
         observation_std=jnp.ones_like(eb_only.energy_barrier) * ref_params.observation_std,
         transition_std=jnp.ones_like(eb_only.energy_barrier) * ref_params.transition_std,
     )
-
