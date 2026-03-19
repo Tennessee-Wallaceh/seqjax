@@ -34,9 +34,46 @@ class Packable[*BatchAxes](eqx.Module):
     _shape_template: ClassVar[OrderedDict[str, jax.ShapeDtypeStruct]]
     flat_dim: ClassVar[int]
 
-    def __init_subclass__(cls, *, abstract: bool = False, **kwargs):
-        super().__init_subclass__(**kwargs)
-        if cls is Packable or abstract:
+    @classmethod
+    def _shape_template_from_class_args(
+        cls,
+        **class_kwargs,
+    ) -> OrderedDict[str, jax.ShapeDtypeStruct] | None:
+        return None
+
+    def __init_subclass__(cls, *, abstract: bool = False, **class_kwargs):
+        super().__init_subclass__()
+        if cls is Packable:
+            return
+
+        if not dataclasses.is_dataclass(cls):
+            dataclasses.dataclass()(cls)
+
+        # Allow subclasses to derive shape templates from class-level arguments
+        template = getattr(cls, "_shape_template", None)
+        if class_kwargs:
+            builder = getattr(cls, "_shape_template_from_class_args", None)
+            if builder is None:
+                raise TypeError(
+                    f"{cls.__qualname__} does not accept class arguments "
+                    f"{sorted(class_kwargs)}"
+                )
+            if template is not None:
+                raise TypeError(
+                    f"{cls.__qualname__} cannot define _shape_template and also "
+                    "derive it from class arguments"
+                )
+            for name, value in class_kwargs.items():
+                setattr(cls, name, value)
+            template = builder(**class_kwargs)
+            if template is None:
+                raise TypeError(
+                    f"{cls.__qualname__}._shape_template_from_class_args must "
+                    "return an OrderedDict"
+                )
+            cls._shape_template = template
+
+        if abstract:
             return
 
         # ensure subclass provided a template
@@ -46,13 +83,11 @@ class Packable[*BatchAxes](eqx.Module):
                 f"{cls.__qualname__} is Packable so must define _shape_template"
             )
 
-        if not abstract:
-            dataclasses.dataclass()(cls)
-
         # check the fields against the template
+        resolved_annotations = typing.get_type_hints(cls, include_extras=True)
         field_names = {
             name
-            for name, tp in cls.__annotations__.items()
+            for name, tp in resolved_annotations.items()
             if not name.startswith("_") and get_origin(tp) is not ClassVar
         }
         template_names = set(template.keys())
