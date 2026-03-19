@@ -7,6 +7,7 @@ from typing import (
     TypeVarTuple,
     get_origin,
 )
+import numpy as np
 import typing
 from collections import OrderedDict
 import dataclasses
@@ -136,11 +137,22 @@ class Packable[*BatchAxes](eqx.Module):
     @classmethod
     def flat_fields(cls):
         return tuple(
-            f"{leaf_name}_{ix}"
+            leaf_name if spec.shape == () else f"{leaf_name}_{'_'.join(map(str, ix))}"
             for leaf_name, spec in cls._shape_template.items()
-            for ix in range(math.prod(spec.shape))
+            for ix in (() if spec.shape == () else np.ndindex(spec.shape))
         )
 
+    @classmethod
+    def flat_field_specs(cls):
+        specs = []
+        for leaf_name, spec in cls._shape_template.items():
+            if spec.shape == ():
+                specs.append((leaf_name, (), leaf_name))
+            else:
+                for ix in np.ndindex(spec.shape):
+                    flat_name = f"{leaf_name}_{'_'.join(str(i) for i in ix)}"
+                    specs.append((leaf_name, ix, flat_name))
+        return tuple(specs)
 
 class Latent[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 

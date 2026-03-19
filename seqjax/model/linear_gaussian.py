@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, PRNGKeyArray, Scalar
+import jax.scipy as jsp
 
 from seqjax.model.interface import (
     ConditionContext,
@@ -20,69 +21,90 @@ from seqjax.model.interface import (
 )
 from seqjax.model.typing import Latent, NoCondition, Observation, Parameters
 
+"""
+Multivariate normal helpers, defined for chol
+"""
+def _mvn_sample(
+    key: PRNGKeyArray,
+    mean: Array,
+    chol: Array,
+) -> Array:
+    """Sample from N(mean, chol @ chol.T)."""
+    z = jrandom.normal(key, shape=mean.shape, dtype=mean.dtype)
+    return mean + chol @ z
 
-class VectorState10D(Latent):
+
+def _mvn_log_prob(
+    x: Array,
+    mean: Array,
+    chol: Array,
+) -> Scalar:
+    """Log-density of N(mean, chol @ chol.T), with lower-triangular chol."""
+    diff = x - mean
+    whitened = jsp.linalg.solve_triangular(
+        chol,
+        diff,
+        lower=True,
+    )
+    log_det_chol = jnp.sum(jnp.log(jnp.diag(chol)))
+    dim = diff.shape[0]
+    return (
+        -0.5 * jnp.dot(whitened, whitened)
+        - log_det_chol
+        - 0.5 * dim * jnp.log(2.0 * jnp.pi)
+    )
+
+
+class VectorState5D(Latent):
     """Multivariate latent state."""
 
     x: Array
 
     _shape_template: typing.ClassVar = OrderedDict(
-        x=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
+        x=jax.ShapeDtypeStruct(shape=(5,), dtype=jnp.float32),
     )
 
 
-class VectorObservation10D(Observation):
+class VectorObservation5D(Observation):
     """Vector-valued observation."""
 
     y: Array
 
     _shape_template: typing.ClassVar = OrderedDict(
-        y=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
+        y=jax.ShapeDtypeStruct(shape=(5,), dtype=jnp.float32),
     )
 
 
-class LGSSMParameters10D(Parameters):
-    """Parameters of a 10-dimensional linear Gaussian state-space model."""
+class LGSSMParameters5D(Parameters):
+    """Canonical 5D LGSSM parameters."""
 
-    transition_matrix: Array = field(default_factory=lambda: jnp.eye(10))
-    transition_noise_scale: Array = field(default_factory=lambda: jnp.ones(10))
-    transition_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(10))
+    transition_matrix: Array = field(default_factory=lambda: 0.7 * jnp.eye(5))
+    transition_noise_cholesky: Array = field(default_factory=lambda: jnp.eye(5))
 
-    emission_matrix: Array = field(default_factory=lambda: jnp.eye(10))
-    emission_noise_scale: Array = field(default_factory=lambda: jnp.ones(10))
-    emission_noise_corr_cholesky: Array = field(default_factory=lambda: jnp.eye(10))
+    emission_matrix: Array = field(default_factory=lambda: jnp.eye(5))
+    emission_noise_cholesky: Array = field(default_factory=lambda: jnp.eye(5))
 
     _shape_template: typing.ClassVar = OrderedDict(
-        transition_matrix=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
-        transition_noise_scale=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
-        transition_noise_corr_cholesky=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
-        emission_matrix=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
-        emission_noise_scale=jax.ShapeDtypeStruct(shape=(10,), dtype=jnp.float32),
-        emission_noise_corr_cholesky=jax.ShapeDtypeStruct(shape=(10, 10), dtype=jnp.float32),
+        transition_matrix=jax.ShapeDtypeStruct(shape=(5, 5), dtype=jnp.float32),
+        transition_noise_cholesky=jax.ShapeDtypeStruct(shape=(5, 5), dtype=jnp.float32),
+        emission_matrix=jax.ShapeDtypeStruct(shape=(5, 5), dtype=jnp.float32),
+        emission_noise_cholesky=jax.ShapeDtypeStruct(shape=(5, 5), dtype=jnp.float32),
     )
-
-    @property
-    def transition_noise_cholesky(self) -> Array:
-        return jnp.diag(self.transition_noise_scale) @ self.transition_noise_corr_cholesky
 
     @property
     def transition_noise_covariance(self) -> Array:
-        chol = self.transition_noise_cholesky
-        return chol @ chol.T
-
-    @property
-    def emission_noise_cholesky(self) -> Array:
-        return jnp.diag(self.emission_noise_scale) @ self.emission_noise_corr_cholesky
+        L = self.transition_noise_cholesky
+        return L @ jnp.swapaxes(L, -1, -2)
 
     @property
     def emission_noise_covariance(self) -> Array:
-        chol = self.emission_noise_cholesky
-        return chol @ chol.T
+        L = self.emission_noise_cholesky
+        return L @ jnp.swapaxes(L, -1, -2)
 
 
-LGSSMParameters = LGSSMParameters10D
-VectorState = VectorState10D
-VectorObservation = VectorObservation10D
+LGSSMParameters = LGSSMParameters5D
+VectorState = VectorState5D
+VectorObservation = VectorObservation5D
 
 latent_cls = VectorState
 observation_cls = VectorObservation
@@ -95,8 +117,6 @@ observation_context: typing.Callable[[tuple], ObservationContext[VectorObservati
 observation_context = partial(ObservationContext, length=0)
 condition_context: typing.Callable[[tuple], ConditionContext[NoCondition]]
 condition_context = partial(ConditionContext, length=0)
-
-
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class LGSSMModel(
@@ -127,11 +147,20 @@ class LGSSMModel(
         conditions: ConditionContext[NoCondition],
         parameters: LGSSMParameters,
     ) -> LatentContext[VectorState]:
-        """Sample the initial latent state."""
+        """Sample the initial latent state.
+
+        Default choice:
+            x0 ~ N(0, Q)
+        where Q = transition_noise_cholesky @ transition_noise_cholesky.T
+        """
         _ = conditions
-        mean = jnp.zeros_like(parameters.transition_noise_scale)
-        scale = parameters.transition_noise_scale
-        x0 = mean + scale * jrandom.normal(key, shape=scale.shape)
+        dim = parameters.transition_matrix.shape[0]
+        mean = jnp.zeros((dim,), dtype=parameters.transition_matrix.dtype)
+        x0 = _mvn_sample(
+            key,
+            mean=mean,
+            chol=parameters.transition_noise_cholesky,
+        )
         return latent_context((VectorState(x=x0),))
 
     @staticmethod
@@ -140,10 +169,15 @@ class LGSSMModel(
         conditions: ConditionContext[NoCondition],
         parameters: LGSSMParameters,
     ) -> Scalar:
-        """Evaluate the prior log-density."""
+        """Evaluate the initial latent prior log-density."""
         _ = conditions
-        scale = parameters.transition_noise_scale
-        return jstats.norm.logpdf(latent[0].x, loc=0.0, scale=scale).sum()
+        dim = parameters.transition_matrix.shape[0]
+        mean = jnp.zeros((dim,), dtype=parameters.transition_matrix.dtype)
+        return _mvn_log_prob(
+            latent[0].x,
+            mean=mean,
+            chol=parameters.transition_noise_cholesky,
+        )
 
     @staticmethod
     def transition_sample(
@@ -156,11 +190,12 @@ class LGSSMModel(
         _ = condition
         last_state = latent_history[0]
         mean = parameters.transition_matrix @ last_state.x
-        noise = parameters.transition_noise_scale * jrandom.normal(
+        x = _mvn_sample(
             key,
-            shape=parameters.transition_noise_scale.shape,
+            mean=mean,
+            chol=parameters.transition_noise_cholesky,
         )
-        return VectorState(x=mean + noise)
+        return VectorState(x=x)
 
     @staticmethod
     def transition_log_prob(
@@ -173,11 +208,11 @@ class LGSSMModel(
         _ = condition
         last_state = latent_history[0]
         mean = parameters.transition_matrix @ last_state.x
-        return jstats.norm.logpdf(
+        return _mvn_log_prob(
             latent.x,
-            loc=mean,
-            scale=parameters.transition_noise_scale,
-        ).sum()
+            mean=mean,
+            chol=parameters.transition_noise_cholesky,
+        )
 
     @staticmethod
     def emission_sample(
@@ -191,11 +226,12 @@ class LGSSMModel(
         _ = (observation_history, condition)
         state = latent_history[0]
         mean = parameters.emission_matrix @ state.x
-        noise = parameters.emission_noise_scale * jrandom.normal(
+        y = _mvn_sample(
             key,
-            shape=parameters.emission_noise_scale.shape,
+            mean=mean,
+            chol=parameters.emission_noise_cholesky,
         )
-        return VectorObservation(y=mean + noise)
+        return VectorObservation(y=y)
 
     @staticmethod
     def emission_log_prob(
@@ -209,11 +245,11 @@ class LGSSMModel(
         _ = (observation_history, condition)
         state = latent_history[0]
         mean = parameters.emission_matrix @ state.x
-        return jstats.norm.logpdf(
+        return _mvn_log_prob(
             observation.y,
-            loc=mean,
-            scale=parameters.emission_noise_scale,
-        ).sum()
+            mean=mean,
+            chol=parameters.emission_noise_cholesky,
+        )
 
 
 lgssm_model = validate_sequential_model(LGSSMModel())

@@ -207,11 +207,11 @@ def sample_theta_qs(
     theta, _ = jax.vmap(model.parameter_approximation.sample_and_log_prob)(
         parameter_keys, None
     )
-    model_theta = model.target_posterior.parameterization.to_model_parameters(theta)
+    model_theta = jax.vmap(model.target_posterior.parameterization.to_model_parameters)(theta)
     qs = jax.tree_util.tree_map(
-        lambda x: jnp.quantile(x, jnp.array([0.05, 0.95])), model_theta
+        lambda x: jnp.quantile(x, jnp.array([0.05, 0.95]), axis=0), model_theta
     )
-    means = jax.tree_util.tree_map(lambda x: jnp.mean(x), model_theta)
+    means = jax.tree_util.tree_map(lambda x: jnp.mean(x, axis=0), model_theta)
     return (
         typing.cast(ArrayTree, qs),
         typing.cast(ArrayTree, means),
@@ -282,12 +282,14 @@ class Tracker:
             )
             self.checkpoint_samples.append((elapsed_time_s, theta))
             _reads = []
-            for param in static.target_posterior.target.parameter_cls.fields():
-                update[f"{param}_q05"] = getattr(qs, param)[0]
-                update[f"{param}_q95"] = getattr(qs, param)[1]
-                update[f"{param}_mean"] = getattr(means, param)
-                _reads.append(f"{param}: {update[f'{param}_mean']:.2f}")
-            mean_str = " , ".join(_reads)
+            field_specs = static.target_posterior.target.parameter_cls.flat_field_specs()
+            for field, field_ix, field_name in field_specs:
+                print(field, field_ix, field_name)
+                update[f"{field_name}_q05"] = getattr(qs, field)[*field_ix, 0]
+                update[f"{field_name}_q95"] = getattr(qs, field)[*field_ix, 1]
+                update[f"{field_name}_mean"] = getattr(means, field)[*field_ix]
+                _reads.append(f"{field_name}: {update[f'{field_name}_mean']:.2f}")
+            mean_str = " , ".join(_reads[:5])
 
             for fcn in self.custom_record_fcns:
                 out = fcn(update, static, trainable, opt_step, loss, loss_label, key)

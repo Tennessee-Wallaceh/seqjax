@@ -372,9 +372,8 @@ def run_hybrid_vi[
         None
     )
 
-    flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
     return (
-        flat_theta_q,
+        theta_q,
         (
             None,
             None,

@@ -82,6 +82,13 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
     else:
         step_sizes = jax.tree_util.tree_map(lambda _: config.step_size, initial_parameters)
 
+    g_max = 10000.
+    def grad_update(g, n, s):
+        norm = jnp.linalg.norm(g)
+        scale = jnp.minimum(1.0, g_max / (norm + 1e-8))
+        g = g * scale
+        return (s * g + jnp.sqrt(2.0 * s) * n) * noise_rescale
+    
     @scan_tqdm(num_samples)
     def step(
         carry: tuple[int, ParametersT],
@@ -92,7 +99,7 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
         grad = grad_estimator(params, g_key)
         noise = _tree_randn_like(n_key, params)
         updates = jax.tree_util.tree_map(
-            lambda g, n, s: (s * g + jnp.sqrt(2.0 * s) * n) * noise_rescale,
+            grad_update,
             grad,
             noise,
             step_sizes,

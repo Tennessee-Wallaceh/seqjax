@@ -328,14 +328,15 @@ class FullVI[
             c_batch: ConditionT, 
             inference_params: InferenceParametersT
         ):
+            # has to vmap down the sequence axis
+            model_parameters = jax.vmap(self.target_posterior.parameterization.to_model_parameters)(inference_params)
             return log_prob_joint(
                 self.target_posterior.target,
                 x_path,
                 y_batch,
                 c_batch,
-                self.target_posterior.parameterization.to_model_parameters(inference_params)
+                model_parameters,
             )
-
         batched_log_joint = jax.vmap(jax.vmap(
             _log_joint,
             in_axes=ax_spec,
@@ -743,12 +744,14 @@ class BufferedSSMVI[
             c_batch: ConditionT, 
             inference_params: InferenceParametersT
         ):
+            # has to vmap down the sequence axis
+            model_parameters = jax.vmap(self.target_posterior.parameterization.to_model_parameters)(inference_params)
             return log_prob_joint(
                 self.target_posterior.target,
                 x_path,
                 y_batch,
                 c_batch,
-                self.target_posterior.parameterization.to_model_parameters(inference_params)
+                model_parameters,
             )
 
         batched_log_joint = jax.vmap(jax.vmap(jax.vmap(
@@ -770,12 +773,23 @@ class BufferedSSMVI[
     
     def batched_buffer_params(self, parameters, mask):
         # each sample has been associated with a mask
+        # parameter leaves may have different structure, so the select
+        # has to be leaf-shape aware
+        def select(param_leaf, _mask):
+            # for scalar 
+            _mask = jnp.expand_dims(_mask, tuple(range(1, param_leaf.ndim + 1)))
+            return jnp.where(
+                _mask, 
+                param_leaf,
+                jax.lax.stop_gradient(param_leaf),
+            )
+
         def _buffer_params(_parameters, _mask):
             return jax.tree.map(
-                lambda a, b: jnp.where(_mask, a, b),
-                _parameters,
-                jax.lax.stop_gradient(_parameters),
+                lambda param_leaf: select(param_leaf, _mask), 
+                _parameters
             )
+
         batched_buffer = jax.vmap(jax.vmap(jax.vmap(_buffer_params)))
         return batched_buffer(parameters, mask)
 
@@ -1023,12 +1037,14 @@ class IWBufferedSSMVI[
             c_batch: ConditionT, 
             inference_params: InferenceParametersT
         ):
+            # has to vmap down the sequence axis
+            model_parameters = jax.vmap(self.target_posterior.parameterization.to_model_parameters)(inference_params)
             return log_prob_joint(
                 self.target_posterior.target,
                 x_path,
                 y_batch,
                 c_batch,
-                self.target_posterior.parameterization.to_model_parameters(inference_params)
+                model_parameters,
             )
 
         batched_log_joint = jax.vmap(jax.vmap(jax.vmap(
