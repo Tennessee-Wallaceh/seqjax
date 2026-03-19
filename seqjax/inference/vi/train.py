@@ -284,7 +284,6 @@ class Tracker:
             _reads = []
             field_specs = static.target_posterior.target.parameter_cls.flat_field_specs()
             for field, field_ix, field_name in field_specs:
-                print(field, field_ix, field_name)
                 update[f"{field_name}_q05"] = getattr(qs, field)[*field_ix, 0]
                 update[f"{field_name}_q95"] = getattr(qs, field)[*field_ix, 1]
                 update[f"{field_name}_mean"] = getattr(means, field)[*field_ix]

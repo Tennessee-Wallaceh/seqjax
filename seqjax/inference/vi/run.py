@@ -262,7 +262,10 @@ def run_buffered_vi[
         dataset, key, eval_sampling_kwargs
     )
 
-    flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
+    def _flatten(x):
+        return x.reshape((-1, *x.shape[len(theta_q.batch_shape):]))
+    flat_theta_q = jax.tree.map(_flatten, theta_q)
+
     return (
         flat_theta_q,
         (
