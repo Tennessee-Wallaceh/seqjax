@@ -162,6 +162,31 @@ def make_vector_observation_cls(dim: int) -> type[_VectorObservationBase]:
     )
 
 
+def emission_matrix_diff_mean(dim: int) -> jnp.ndarray:
+    """
+    Constructs a (dim x dim) emission matrix with:
+      - first (dim-1) rows: adjacent differences x_i - x_{i+1}
+      - last row: global mean (scaled to unit norm)
+
+    This is full-rank and induces strong anisotropy:
+      - tight in high-frequency (difference) directions
+      - loose in low-frequency (mean) direction (unless strongly observed)
+    """
+    if dim <= 1:
+        raise ValueError("dim must be >= 2")
+
+    C = jnp.zeros((dim, dim))
+
+    # Difference rows
+    idx = jnp.arange(dim - 1)
+    C = C.at[idx, idx].set(1.0)
+    C = C.at[idx, idx + 1].add(-1.0)
+
+    # # Global mean row (unit norm)
+    C = C.at[dim - 1, dim - 1].set(1.0)
+
+    return C
+
 @lru_cache(maxsize=None)
 def make_lgssm_parameters_cls(dim: int) -> type[_LGSSMParametersBase]:
     dim = _validate_dim(dim)
@@ -175,16 +200,16 @@ def make_lgssm_parameters_cls(dim: int) -> type[_LGSSMParametersBase]:
             "emission_noise_cholesky": Array,
         }
         ns["transition_matrix"] = field(
-            default_factory=lambda dim=dim: 0.7 * jnp.eye(dim)
+            default_factory=lambda dim=dim: 0.8 * jnp.eye(dim)
         )
         ns["transition_noise_cholesky"] = field(
             default_factory=lambda dim=dim: jnp.eye(dim)
         )
         ns["emission_matrix"] = field(
-            default_factory=lambda dim=dim: jnp.eye(dim)
+            default_factory=lambda dim=dim: emission_matrix_diff_mean(dim)
         )
         ns["emission_noise_cholesky"] = field(
-            default_factory=lambda dim=dim: jnp.eye(dim)
+            default_factory=lambda dim=dim: 0.1 * jnp.eye(dim)
         )
 
     return typing.cast(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import lru_cache, cached_property
 import types
 import typing
 
@@ -122,7 +122,7 @@ def make_unc_lgssm_parameters_cls(dim: int) -> type[_UncLGSSMParametersBase]:
         ),
     )
 
-
+@jax.tree_util.register_dataclass
 @dataclass
 class FullParameterization(
     ParameterizationProtocol[
@@ -132,16 +132,16 @@ class FullParameterization(
     ]
 ):
     hyperparameters: LGSSMHyperParameters = field(default_factory=LGSSMHyperParameters)
-    inference_parameter_cls: type[_UncLGSSMParametersBase] = field(init=False)
-
-    def __post_init__(self) -> None:
-        self.inference_parameter_cls = make_unc_lgssm_parameters_cls(
-            self.hyperparameters.dim
-        )
 
     @property
     def dim(self) -> int:
         return self.hyperparameters.dim
+
+    @cached_property
+    def inference_parameter_cls(self) -> type[_UncLGSSMParametersBase]:
+        return make_unc_lgssm_parameters_cls(
+            self.hyperparameters.dim
+        )
 
     def _validate_model_parameters(
         self,
