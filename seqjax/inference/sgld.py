@@ -46,6 +46,7 @@ class BufferedSGLDConfig[
     buffer_length: int = 5
     batch_length: int = 10
     sample_block_size: int = 1000
+    init_params: typing.Any = None
 
 
 def _tree_randn_like[ParametersT: seqjtyping.Parameters](
@@ -82,11 +83,12 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
     else:
         step_sizes = jax.tree_util.tree_map(lambda _: config.step_size, initial_parameters)
 
-    g_max = 10000.
+    
     def grad_update(g, n, s):
-        norm = jnp.linalg.norm(g)
-        scale = jnp.minimum(1.0, g_max / (norm + 1e-8))
-        g = g * scale
+        # g_max = 10000.
+        # norm = jnp.linalg.norm(g)
+        # scale = jnp.minimum(1.0, g_max / (norm + 1e-8))
+        g = g
         return (s * g + jnp.sqrt(2.0 * s) * n) * noise_rescale
     
     @scan_tqdm(num_samples)
@@ -322,8 +324,12 @@ def run_buffer_sgld_mcmc[
 
     inference_time_start = time.time()
     init_key, next_sample_key = jrandom.split(key)
-    initial_parameters = target_posterior.parameterization.sample(init_key)
 
+    if config.init_params is None:
+        initial_parameters = target_posterior.parameterization.sample(init_key)
+    else:
+        initial_parameters = config.init_params
+        
     num_samples = config.sample_block_size
     sample_blocks = [
         jax.tree_util.tree_map(partial(jnp.expand_dims, axis=0), initial_parameters)

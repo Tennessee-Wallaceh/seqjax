@@ -161,7 +161,6 @@ def make_vector_observation_cls(dim: int) -> type[_VectorObservationBase]:
         ),
     )
 
-
 def emission_matrix_diff_mean(dim: int) -> jnp.ndarray:
     """
     Constructs a (dim x dim) emission matrix with:

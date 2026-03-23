@@ -858,13 +858,15 @@ class BufferedSSMVI[
             sample_kwargs,
 
         )
-        _, _, y_batch, c_batch = extra_info
+        _, theta_mask, y_batch, c_batch = extra_info
+
+        buffered_params = self.batched_buffer_params(theta_q, theta_mask)
 
         log_p_y_x = self.batched_log_joint(
             x_path,
             y_batch,
             c_batch,
-            theta_q,
+            buffered_params,
         )
 
         neg_elbo = log_q_x - log_p_y_x

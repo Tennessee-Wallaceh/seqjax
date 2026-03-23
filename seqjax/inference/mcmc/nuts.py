@@ -245,7 +245,8 @@ def run_bayesian_nuts[
     latent_samples: ParticleT = paths.position[0]
     full_param_samples: InferenceParametersT = paths.position[1]
     param_samples: InferenceParametersT = jax.tree_util.tree_map(
-        partial(subsample_posterior, n_sub=test_samples, key=key), full_param_samples
+        partial(subsample_posterior, n_sub=test_samples, key=key), 
+        full_param_samples
     )
 
     return jax.tree_util.tree_map(jnp.squeeze, param_samples), (

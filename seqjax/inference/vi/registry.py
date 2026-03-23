@@ -13,6 +13,7 @@ from seqjax.inference.vi import base
 from seqjax.inference.vi import embedder
 from seqjax.inference.vi import aggregation
 from seqjax.inference.vi import maf
+from seqjax.inference.vi import conv_nf
 from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import structured
 from seqjax.inference.vi.sampling import VISampleConfig, VISamplingKwargs
@@ -201,6 +202,14 @@ def _build_embedder(
     else:
         raise ValueError(f"Unknown embedder type: {embedder_config.label}")
 
+   
+    print(
+        f"observation_context_dim: {embed.observation_context_dim}",
+        f"condition_context_dim: {embed.condition_context_dim}",
+        f"parameter_context_dim: {embed.parameter_context_dim}",
+        f"embedded_context_dim: {embed.embedded_context_dim}",
+        f"sequence_embedded_context_dim: {embed.sequence_embedded_context_dim}",
+    )
     return embed
 
 
@@ -333,6 +342,14 @@ class MAFLatentApproximation:
     flow_layers: int = 1
 
 @dataclass
+class ConvNFLatentApproximation:
+    label: str = field(init=False, default="conv-flow")
+    nn_width: int = 32
+    nn_depth: int = 2
+    kernel_size: int = 5
+    flow_layers: int = 2
+
+@dataclass
 class StructuredPrecisionLatentApproximation:
     label: str = field(init=False, default="structured")
     nn_width: int = 32
@@ -342,14 +359,16 @@ LatentApproximation = (
     AutoregressiveLatentApproximation 
     | MAFLatentApproximation
     | StructuredPrecisionLatentApproximation
+    | ConvNFLatentApproximation
 )
 LatentApproximationLabels = typing.Literal[
-    "autoregressive", "masked-autoregressive-flow", "structured"
+    "autoregressive", "masked-autoregressive-flow", "structured", "conv-flow"
 ]
 latent_approximation_registry: dict[LatentApproximationLabels, type[LatentApproximation]] = {
     "autoregressive": AutoregressiveLatentApproximation,
     "masked-autoregressive-flow": MAFLatentApproximation,
     "structured": StructuredPrecisionLatentApproximation,
+    "conv-flow": ConvNFLatentApproximation,
 }
 
 """
@@ -488,6 +507,7 @@ def build_approximation(
         autoregressive.AmortizedUnivariateAutoregressor
         | maf.AmortizedMAF
         | structured.StructuredPrecisionGaussian
+        | conv_nf.C
     )
     if isinstance(config, FullVIConfig):
         latent_config = config.latent_approximation
@@ -594,6 +614,18 @@ def build_approximation(
                 key=approximation_key,
             )
 
+        elif isinstance(latent_config, ConvNFLatentApproximation):
+            latent_approximation = conv_nf.AmortizedConvCoupling(
+                target_latent_class,
+                sample_length=config.buffer_length * 2 + config.batch_length,
+                embedder=embed,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                key=approximation_key,
+                kernel_size=latent_config.kernel_size,
+                flow_layers=latent_config.flow_layers,
+            )
+
         else:
             raise ValueError(
                 f"Unknown latent approximation configuration: {latent_config!r}"
@@ -630,5 +662,7 @@ def build_approximation(
             buffer_length=config.buffer_length,
 
         )
+
+
 
     return approximation

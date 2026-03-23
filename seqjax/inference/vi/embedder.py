@@ -364,9 +364,42 @@ class RNNEmbedder(Embedder):
         )
 
 
+class ConvResidualBlock(eqx.Module):
+    conv_1: eqx.nn.Conv1d
+    norm_1: eqx.nn.LayerNorm
+
+    def __init__(
+        self,
+        hidden: int,
+        *,
+        kernel_size: int,
+        dilation: int=1,
+        key,
+    ):
+        k1, k2 = jax.random.split(key, 2)
+        self.conv_1 = eqx.nn.Conv1d(
+            in_channels=hidden,
+            out_channels=hidden,
+            kernel_size=kernel_size,
+            dilation=dilation,
+            padding="SAME",
+            padding_mode="REPLICATE",
+            key=k1,
+        )
+        self.norm_1 = eqx.nn.LayerNorm(hidden)
+
+    def _norm_over_time(self, norm, x: Array) -> Array:
+        return jax.vmap(norm, in_axes=1, out_axes=1)(x)
+
+    def __call__(self, x):
+        resid = self._norm_over_time(self.norm_1, x)
+        resid = self.conv_1(resid)
+        resid = jax.nn.gelu(resid)
+        return 0.9 * x + 0.1 * resid
+    
 class Conv1DEmbedder(Embedder):
     in_proj: eqx.nn.Conv1d
-    convs: tuple[eqx.nn.Conv1d, ...]
+    convs: tuple[ConvResidualBlock, ...]
     hidden: int
     aggregation_kind: AggregationKind = eqx.field(static=True)
     aggregator: SequenceAggregator = eqx.field(static=True)
@@ -402,16 +435,15 @@ class Conv1DEmbedder(Embedder):
             key=k_in,
         )
 
+        dilations = tuple(2**i for i in range(depth))
         self.convs = tuple(
-            eqx.nn.Conv1d(
-                in_channels=hidden,
-                out_channels=hidden,
+            ConvResidualBlock(
+                hidden=hidden,
                 kernel_size=kernel_size,
-                padding="SAME",
-                padding_mode="REPLICATE",
+                dilation=d,
                 key=k,
             )
-            for k in k_layers
+            for d, k in zip(dilations, k_layers)
         )
         self.hidden = hidden
 
@@ -464,7 +496,6 @@ class Conv1DEmbedder(Embedder):
         x = jax.nn.gelu(x)
         for conv in self.convs:
             x = conv(x)
-            x = jax.nn.gelu(x)
 
         return jnp.swapaxes(x, 0, 1)
 

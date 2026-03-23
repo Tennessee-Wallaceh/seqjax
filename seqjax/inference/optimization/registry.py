@@ -27,6 +27,7 @@ class AdamOpt:
     lr: float
     total_steps: int | None
     time_limit_s: int | None = None
+    grad_clip_norm: float | None = None
 
     def __repr__(self) -> str:
         return f"{self.label}({self.lr:.0e})"
@@ -49,9 +50,16 @@ registry: dict[OptConfigLabels, type[OptConfig]] = {
 
 def build_optimizer(optimization_config: OptConfig) -> optax.GradientTransformation:
     if isinstance(optimization_config, AdamOpt):
+        transforms = []
+        if optimization_config.grad_clip_norm is not None:
+            transforms.append(
+                optax.clip_by_global_norm(optimization_config.grad_clip_norm)
+            )
+        transforms.append(optax.adam(optimization_config.lr))
+
         optim = optax.apply_if_finite(
-            optax.adam(optimization_config.lr), 
-            max_consecutive_errors=100
+            optax.chain(*transforms),
+            max_consecutive_errors=100,
         )
     elif isinstance(optimization_config, CosineOpt):
         schedule = optax.warmup_cosine_decay_schedule(
