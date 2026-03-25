@@ -6,7 +6,7 @@ factor of the covariance, driven by :class:`~seqjax.inference.vi.api.LatentConte
 
 from __future__ import annotations
 
-from typing import Type
+from typing import Any, Type
 
 import equinox as eqx
 import jax
@@ -140,7 +140,10 @@ class StructuredPrecisionGaussian[
         self,
         key: PRNGKeyArray,
         condition: LatentContext,
-    ) -> tuple[LatentT, Float[Array, ""]]:
+        state: Any = None,
+        *,
+        inference: bool = False,
+    ) -> tuple[LatentT, Float[Array, ""], Any]:
         mean, diag_blocks, subdiag_blocks = self._covariance_cholesky_blocks(condition)
 
         eps = jrandom.normal(key, (self.shape[0], self.x_dim))
@@ -181,4 +184,5 @@ class StructuredPrecisionGaussian[
         quadratic = jnp.sum(whitened**2)
         log_q = -0.5 * (total_dim * _LOG_2PI + 2.0 * log_det_b + quadratic)
 
-        return self.target_struct_cls.unravel(x_path), log_q
+        sample = self.target_struct_cls.unravel(x_path)
+        return sample, log_q, state

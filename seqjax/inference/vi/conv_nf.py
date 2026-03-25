@@ -374,11 +374,14 @@ class AmortizedConvCoupling[
         self,
         key: jaxtyping.PRNGKeyArray,
         condition: LatentContext,
-    ) -> tuple[TargetStructT, jaxtyping.Scalar]:
+        state: typing.Any = None,
+        *,
+        inference: bool = False,
+    ) -> tuple[TargetStructT, jaxtyping.Scalar, typing.Any]:
         
         cond = self._build_condition(condition)
         flat_sample, log_q = self.distribution.sample_and_log_prob(key, condition=cond)
         latent_sample = typing.cast(
             TargetStructT, self.target_struct_cls.unravel(flat_sample)
         )
-        return latent_sample, log_q
+        return latent_sample, log_q, state

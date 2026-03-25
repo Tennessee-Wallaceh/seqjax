@@ -31,12 +31,22 @@ class TransformedApproximation[T: seqjax.model.typing.Packable, C](
         self.shape = base.shape
 
     def sample_and_log_prob(
-        self, key: jaxtyping.PRNGKeyArray, condition: C
-    ) -> tuple[T, jaxtyping.Scalar]:
-        theta_z, log_q_z = self.base.sample_and_log_prob(key, condition)
+        self,
+        key: jaxtyping.PRNGKeyArray,
+        condition: C,
+        state: typing.Any = None,
+        *,
+        inference: bool = False,
+    ) -> tuple[T, jaxtyping.Scalar, typing.Any]:
+        theta_z, log_q_z, next_state = self.base.sample_and_log_prob(
+            key,
+            condition,
+            state,
+            inference=inference,
+        )
         theta_x, lad = self.constraint.transform_and_lad(theta_z)
         log_q_x = log_q_z - lad
-        return theta_x, log_q_x
+        return theta_x, log_q_x, next_state
 
 
 # overload for unconditional approximation

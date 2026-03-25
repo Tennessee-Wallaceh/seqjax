@@ -52,7 +52,7 @@ def run_full_path_vi[
     observation_path, _ = dataset.sequence(0)
     sequence_length = observation_path.batch_shape[0]
 
-    approximation = registry.build_approximation(
+    approximation, model_state = registry.build_approximation(
         config,
         sequence_length,
         target_posterior,
@@ -68,7 +68,7 @@ def run_full_path_vi[
         prior_train_optim = optimization_registry.build_optimizer(
             config.prior_training_optimization
         )
-        approximation, _ = train.train(
+        approximation, _, model_state = train.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -78,6 +78,7 @@ def run_full_path_vi[
             run_tracker=tracker,
             sample_kwargs=config.training_sampling_kwargs(loss_label="param-prior"),
             loss_label="param-prior",
+            model_state=model_state,
             time_limit_s=config.prior_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
@@ -89,7 +90,7 @@ def run_full_path_vi[
         pre_train_optim = optimization_registry.build_optimizer(
             config.pre_training_optimization
         )
-        approximation, _ = train.train(
+        approximation, _, model_state = train.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -99,6 +100,7 @@ def run_full_path_vi[
             run_tracker=tracker,
             sample_kwargs=config.training_sampling_kwargs(loss_label="pretrain"),
             loss_label="pretrain",
+            model_state=model_state,
             time_limit_s=config.pre_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
@@ -110,7 +112,7 @@ def run_full_path_vi[
     else:
         optim = optimization_registry.build_optimizer(config.optimization)
 
-        fitted_approximation, opt_state = train.train(
+        fitted_approximation, opt_state, model_state = train.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -119,6 +121,7 @@ def run_full_path_vi[
             num_steps=config.optimization.total_steps,
             run_tracker=tracker,
             sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
+            model_state=model_state,
             time_limit_s=config.optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
@@ -130,13 +133,15 @@ def run_full_path_vi[
             dataset,
             key,
             eval_sampling_kwargs,
+            model_state,
+            inference=True,
         )
     )
 
     flat_theta_q = jax.tree_util.tree_map(lambda x: jnp.ravel(x), theta_q)
     return (
         flat_theta_q,
-        (tracker, x_q, fitted_approximation, opt_state),
+        (tracker, x_q, fitted_approximation, opt_state, model_state),
     )
 
 
@@ -167,22 +172,15 @@ def run_buffered_vi[
     if tracker is None:
         tracker = train.Tracker(metric_samples=5000)
 
-    #TODO: find a way to pass dynamic objects to inference runs
-    start_approximation = None
     sync_interval_s = None
 
     sequence_length = dataset.sequence_length
-
-    if start_approximation is not None:
-        approximation = start_approximation
-    else:
-        approximation = registry.build_approximation(
-            config,
-            sequence_length,
-            target_posterior,
-            key,
-        )
-    start_approximation = approximation
+    approximation, model_state = registry.build_approximation(
+        config,
+        sequence_length,
+        target_posterior,
+        key,
+    )
     
     opt_state: optax.GradientTransformation
 
@@ -193,7 +191,7 @@ def run_buffered_vi[
         pre_train_optim = optimization_registry.build_optimizer(
             config.prior_training_optimization
         )
-        approximation, _ = train.train(
+        approximation, _, model_state = train.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -203,6 +201,7 @@ def run_buffered_vi[
             run_tracker=tracker,
             sample_kwargs=config.training_sampling_kwargs(loss_label="param-prior"),
             loss_label="param-prior",
+            model_state=model_state,
             time_limit_s=config.prior_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
@@ -215,7 +214,7 @@ def run_buffered_vi[
         pre_train_optim = optimization_registry.build_optimizer(
             config.pre_training_optimization
         )
-        approximation, _ = train.train(
+        approximation, _, model_state = train.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -225,6 +224,7 @@ def run_buffered_vi[
             run_tracker=tracker,
             sample_kwargs=config.training_sampling_kwargs(loss_label="pretrain"),
             loss_label="pretrain",
+            model_state=model_state,
             time_limit_s=config.pre_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
@@ -238,7 +238,7 @@ def run_buffered_vi[
         opt_state = None
     else:
         optim = optimization_registry.build_optimizer(config.optimization)
-        fitted_approximation, opt_state = train.train(
+        fitted_approximation, opt_state, model_state = train.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -247,6 +247,7 @@ def run_buffered_vi[
             num_steps=config.optimization.total_steps,
             run_tracker=tracker,
             sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
+            model_state=model_state,
             time_limit_s=config.optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
@@ -260,7 +261,7 @@ def run_buffered_vi[
         log_q_x_path,
         (approx_start, theta_mask, y_batch, c_batch),
     ) = typing.cast(typing.Any, fitted_approximation).batched_sample(
-        dataset, key, eval_sampling_kwargs
+        dataset, key, eval_sampling_kwargs, model_state, inference=True
     )
 
     def _flatten(x):
@@ -275,6 +276,7 @@ def run_buffered_vi[
             tracker,
             fitted_approximation,
             opt_state,
+            model_state,
         ),
     )
 
@@ -306,22 +308,15 @@ def run_hybrid_vi[
     if tracker is None:
         tracker = train.Tracker(metric_samples=5000)
 
-    #TODO: find a way to pass dynamic objects to inference runs
-    start_approximation = None
     sync_interval_s = None
 
     sequence_length = dataset.sequence_length
-
-    if start_approximation is not None:
-        approximation = start_approximation
-    else:
-        approximation = registry.build_approximation(
-            config,
-            sequence_length,
-            target_posterior,
-            key,
-        )
-    start_approximation = approximation
+    approximation, model_state = registry.build_approximation(
+        config,
+        sequence_length,
+        target_posterior,
+        key,
+    )
     
     opt_state: optax.GradientTransformation
 
@@ -332,7 +327,7 @@ def run_hybrid_vi[
         pre_train_optim = optimization_registry.build_optimizer(
             config.prior_training_optimization
         )
-        approximation, _ = train.train(
+        approximation, _, model_state = train.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -342,6 +337,7 @@ def run_hybrid_vi[
             run_tracker=tracker,
             sample_kwargs=config.training_sampling_kwargs(loss_label="param-prior"),
             loss_label="param-prior",
+            model_state=model_state,
             time_limit_s=config.prior_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
@@ -353,7 +349,7 @@ def run_hybrid_vi[
         opt_state = None
     else:
         optim = optimization_registry.build_optimizer(config.optimization)
-        fitted_approximation, opt_state = train.train(
+        fitted_approximation, opt_state, model_state = train.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -362,6 +358,7 @@ def run_hybrid_vi[
             num_steps=config.optimization.total_steps,
             run_tracker=tracker,
             sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
+            model_state=model_state,
             time_limit_s=config.optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
@@ -371,9 +368,15 @@ def run_hybrid_vi[
     (
         theta_q,
         _,
-    ) = jax.vmap(fitted_approximation.parameter_approximation.sample_and_log_prob)(
+        _,
+    ) = jax.vmap(
+        fitted_approximation.parameter_approximation.sample_and_log_prob,
+        in_axes=(0, None, None),
+    )(
         jrandom.split(key, eval_sampling_kwargs['samples_per_context']),
-        None
+        None,
+        model_state,
+        inference=True,
     )
 
     return (
@@ -384,5 +387,6 @@ def run_hybrid_vi[
             tracker,
             fitted_approximation,
             opt_state,
+            model_state,
         ),
     )

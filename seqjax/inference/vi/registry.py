@@ -2,6 +2,7 @@ import typing
 from dataclasses import dataclass, field
 from functools import partial
 
+import equinox as eqx
 import jax.random as jrandom
 import jaxtyping
 
@@ -475,7 +476,7 @@ def build_approximation(
     sequence_length: int,
     target_posterior: BayesianSequentialModelProtocol,
     key: jaxtyping.PRNGKeyArray,
-) -> typing.Any:
+) -> tuple[typing.Any, eqx.nn.State]:
     parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
 
     target_param_class = target_posterior.parameterization.inference_parameter_cls
@@ -667,4 +668,4 @@ def build_approximation(
 
 
 
-    return approximation
+    return eqx.nn.make_with_state(lambda: approximation)()
