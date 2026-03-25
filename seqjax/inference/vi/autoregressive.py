@@ -1,4 +1,5 @@
 from typing import Protocol, Type
+import typing
 
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.model import typing as seqjtyping

@@ -343,7 +343,6 @@ def train(
         raise Exception(
             "Variational fitting requires either num_steps or time_limit_s is set!"
         )
-
     if sync_interval_s is None:
         sync_interval_s = DEFAULT_SYNC_INTERVAL_S
 

@@ -596,7 +596,6 @@ class BufferedSSMVI[
         jaxtyping.Float[jaxtyping.Scalar, ""],
         typing.Any,
     ]:
-        
         observation_sequence, condition_sequence = _sample_sequence_minibatch(dataset, seq_key)
         approx_start, y_batch, c_batch, theta_mask = sample_batch_and_mask(
             subseq_key, 
@@ -617,6 +616,7 @@ class BufferedSSMVI[
             sequence_start=approx_start,
             inference=inference,
         )
+        print(embed_state)
 
         x_path, log_q_x, latent_state = self.latent_approximation.sample_and_log_prob(
             latent_key,
@@ -703,7 +703,10 @@ class BufferedSSMVI[
         # so inner is latent+param samples for each (sequence, sub-sequence)
         # next is sub-sequence sample for each sequence sample
         # the outer most is sequence sample
-        batched_sample = jax.vmap(self.joint_sample_and_log_prob, in_axes=(None, None, None, 0, 0, None))
+        batched_sample = jax.vmap(
+            partial(self.joint_sample_and_log_prob, inference=inference),
+            in_axes=(None, None, None, 0, 0, None)
+        )
         batched_sample = jax.vmap(batched_sample, in_axes=(None, None, 0, 0, 0, None))
         batched_sample = jax.vmap(batched_sample, in_axes=(None, 0, 0, 0, 0, None))
         seq_key, subseq_key, param_key, latent_key = jrandom.split(key, 4)
@@ -732,7 +735,6 @@ class BufferedSSMVI[
                     sample_kwargs['samples_per_context']),
             ),
             state,
-            inference=inference,
         )
 
     def batched_pretrain_sample(
@@ -748,7 +750,10 @@ class BufferedSSMVI[
         # so inner is latent+param samples for each (sequence, sub-sequence)
         # next is sub-sequence sample for each sequence sample
         # the outer most is sequence sample
-        batched_sample = jax.vmap(self.sample_prior_and_latent_log_prob, in_axes=(None, None, None, 0, 0, None))
+        batched_sample = jax.vmap(
+            partial(self.sample_prior_and_latent_log_prob, inference=inference), 
+            in_axes=(None, None, None, 0, 0, None)
+        )
         batched_sample = jax.vmap(batched_sample, in_axes=(None, None, 0, 0, 0, None))
         batched_sample = jax.vmap(batched_sample, in_axes=(None, 0, 0, 0, 0, None))
         seq_key, subseq_key, param_key, latent_key = jrandom.split(key, 4)
@@ -777,7 +782,6 @@ class BufferedSSMVI[
                     sample_kwargs['samples_per_context']),
             ),
             state,
-            inference=inference,
         )
     
     def batched_log_joint(
@@ -967,7 +971,8 @@ class BufferedSSMVI[
         )(theta_q)
         prior_elbo = log_q_theta - log_p_theta
         return jnp.mean(prior_elbo), next_state
-    
+
+
 class IWBufferedSSMVI[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,

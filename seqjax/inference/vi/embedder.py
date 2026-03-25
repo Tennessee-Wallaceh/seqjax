@@ -8,6 +8,8 @@ from dataclasses import field
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from .interface import LatentContext, Embedder, SequenceAggregator
 from .aggregation import AggregationKind, build_sequence_aggregator
+from .norm import EMAParamNorm
+
 PositionMode = typing.Literal["sample", "sequence"]
 
 
@@ -423,6 +425,7 @@ class Conv1DEmbedder(Embedder):
     n_pos_embedding: int = eqx.field(static=True)
     positional_basis: PositionalBasis = eqx.field(static=True)
     pos_context: None | Array
+    param_norm: None | EMAParamNorm
 
     def __init__(
         self,
@@ -434,6 +437,7 @@ class Conv1DEmbedder(Embedder):
         kernel_size: int = 5,
         depth: int = 2,
         embed_norm_kind: None | str = None,
+        use_param_norm: bool = False,
         pool_dim: None | int = None,
         pool_kind: str = "avg",
         position_mode: None | PositionMode = None,
@@ -510,6 +514,11 @@ class Conv1DEmbedder(Embedder):
         else:
             self.embedding_norm = None
 
+        if use_param_norm:
+            self.param_norm = EMAParamNorm(self.parameter_context_dim)
+        else:
+            self.param_norm = None
+
         super().__init__(target_posterior, sample_length, sequence_length)
 
     def convolve(self, observations):
@@ -552,6 +561,13 @@ class Conv1DEmbedder(Embedder):
         if self.embedding_norm is not None:
             sequence_embedded_context = self.embedding_norm(sequence_embedded_context)
 
+        if self.param_norm is not None:
+            flat_p = parameters.ravel()
+            print(state)
+            norm_p, state = self.param_norm(flat_p, state, update_stats=inference)
+            print(flat_p, norm_p, parameters)
+            parameters = parameters.unravel(norm_p)
+            
         aggregated = self.aggregator(sequence_embedded_context, observations)
         context = LatentContext.build_from_sequence_and_embedded(
             sequence_embedded_context,

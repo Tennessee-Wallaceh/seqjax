@@ -67,6 +67,7 @@ class Conv1DEmbedderConfig:
     position_mode: None | PositionMode = None
     n_pos_embedding: int = 8
     embed_norm_kind: None | str = None
+    param_norm: bool = False
 
 @dataclass
 class BiRNNEmbedder:
@@ -168,6 +169,7 @@ def _build_embedder(
             pool_kind=embedder_config.pool_kind,
             position_mode=embedder_config.position_mode,
             n_pos_embedding=embedder_config.n_pos_embedding,
+            use_param_norm=embedder_config.param_norm,
         )
     elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
@@ -207,11 +209,11 @@ def _build_embedder(
 
    
     print(
-        f"observation_context_dim: {embed.observation_context_dim}",
-        f"condition_context_dim: {embed.condition_context_dim}",
-        f"parameter_context_dim: {embed.parameter_context_dim}",
-        f"embedded_context_dim: {embed.embedded_context_dim}",
-        f"sequence_embedded_context_dim: {embed.sequence_embedded_context_dim}",
+        f"observation_context_dim: {embed.observation_context_dim} \n",
+        f"condition_context_dim: {embed.condition_context_dim} \n",
+        f"parameter_context_dim: {embed.parameter_context_dim} \n",
+        f"embedded_context_dim: {embed.embedded_context_dim} \n",
+        f"sequence_embedded_context_dim: {embed.sequence_embedded_context_dim} \n",
     )
     return embed
 
@@ -471,6 +473,7 @@ class BufferedVIConfig(VISampleConfig):
             "num_sequence_minibatch": self.num_sequence_minibatch,
         }
 
+@eqx.nn.make_with_state
 def build_approximation(
     config: FullVIConfig | BufferedVIConfig | HybridVIConfig,
     sequence_length: int,
@@ -510,7 +513,7 @@ def build_approximation(
         autoregressive.AmortizedUnivariateAutoregressor
         | maf.AmortizedMAF
         | structured.StructuredPrecisionGaussian
-        | conv_nf.C
+        | conv_nf.AmortizedConvCoupling
     )
     if isinstance(config, FullVIConfig):
         latent_config = config.latent_approximation
@@ -668,4 +671,4 @@ def build_approximation(
 
 
 
-    return eqx.nn.make_with_state(lambda: approximation)()
+    return approximation

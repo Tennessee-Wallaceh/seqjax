@@ -206,7 +206,6 @@ def run_buffered_vi[
             sync_interval_s=sync_interval_s,
         )
 
-
     if config.pre_training_optimization and not isinstance(
         config.pre_training_optimization, optimization_registry.NoOpt
     ):
@@ -228,7 +227,6 @@ def run_buffered_vi[
             time_limit_s=config.pre_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
-
     if isinstance(
         config.optimization, optimization_registry.NoOpt
     ) or (
@@ -251,7 +249,6 @@ def run_buffered_vi[
             time_limit_s=config.optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
-
     # run sample again for testing purposes
     eval_sampling_kwargs = config.evaluation_sampling_kwargs(test_samples=test_samples)
     (
@@ -259,9 +256,9 @@ def run_buffered_vi[
         log_q_theta,
         x_q,
         log_q_x_path,
-        (approx_start, theta_mask, y_batch, c_batch),
+        (approx_start, theta_mask, y_batch, c_batch, model_state),
     ) = typing.cast(typing.Any, fitted_approximation).batched_sample(
-        dataset, key, eval_sampling_kwargs, model_state, inference=True
+        dataset, key, eval_sampling_kwargs, model_state, inference=False
     )
 
     def _flatten(x):
