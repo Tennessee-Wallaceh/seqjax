@@ -119,8 +119,10 @@ class PositionalEmbedder(Embedder):
         observations,
         conditions,
         parameters,
+        state=None,
         *,
         sequence_start: None | int = None,
+        inference: bool = False,
     ):
         sequence_embedded_context = _build_position_features(
             sample_length=self.sample_length,
@@ -132,12 +134,13 @@ class PositionalEmbedder(Embedder):
             sample_mode_cache=self.pos_context,
         )
 
-        return LatentContext.build_from_sequence_context(
+        context = LatentContext.build_from_sequence_context(
             sequence_embedded_context,
             observations,
             conditions,
             parameters,
         )
+        return context, state
 
 
 class WindowEmbedder(Embedder):
@@ -225,8 +228,10 @@ class WindowEmbedder(Embedder):
         observations,
         conditions,
         parameters,
+        state=None,
         *,
         sequence_start: None | int = None,
+        inference: bool = False,
     ):
         observation_array = observations.ravel()
         per_dim_context = jax.vmap(self._pad, in_axes=[1])(observation_array)
@@ -250,12 +255,13 @@ class WindowEmbedder(Embedder):
                 axis=-1,
             )
 
-        return LatentContext.build_from_sequence_context(
+        context = LatentContext.build_from_sequence_context(
             sequence_embedded_context,
             observations,
             conditions,
             parameters,
         )
+        return context, state
 
 
 class RNNEmbedder(Embedder):
@@ -331,7 +337,16 @@ class RNNEmbedder(Embedder):
         _, hs = jax.lax.scan(step, h0, seq)
         return hs
 
-    def embed(self, observations, conditions, parameters, *, sequence_start: None | int = None):
+    def embed(
+        self,
+        observations,
+        conditions,
+        parameters,
+        state=None,
+        *,
+        sequence_start: None | int = None,
+        inference: bool = False,
+    ):
         seq = observations.ravel()
         h_fwd = self._scan(self.cell_fwd, seq)
         h_rev = self._scan(self.cell_rev, seq[::-1])[::-1]
@@ -353,13 +368,14 @@ class RNNEmbedder(Embedder):
             )
 
         embedded_context = self.aggregator(sequence_embedded_context, observations)
-        return LatentContext.build_from_sequence_and_embedded(
+        context = LatentContext.build_from_sequence_and_embedded(
             sequence_embedded_context,
             embedded_context,
             observations,
             conditions,
             parameters,
         )
+        return context, state
 
 
 class ConvResidualBlock(eqx.Module):
@@ -507,7 +523,16 @@ class Conv1DEmbedder(Embedder):
 
         return jnp.swapaxes(x, 0, 1)
 
-    def embed(self, observations, conditions, parameters, *, sequence_start: None | int = None):
+    def embed(
+        self,
+        observations,
+        conditions,
+        parameters,
+        state=None,
+        *,
+        sequence_start: None | int = None,
+        inference: bool = False,
+    ):
         sequence_embedded_context = self.convolve(observations)
         if self.position_mode is not None:
             position_features = _build_position_features(
@@ -528,13 +553,14 @@ class Conv1DEmbedder(Embedder):
             sequence_embedded_context = self.embedding_norm(sequence_embedded_context)
 
         aggregated = self.aggregator(sequence_embedded_context, observations)
-        return LatentContext.build_from_sequence_and_embedded(
+        context = LatentContext.build_from_sequence_and_embedded(
             sequence_embedded_context,
             aggregated,
             observations,
             conditions,
             parameters,
         )
+        return context, state
 
 
 class TransformerBlock(eqx.Module):
@@ -652,7 +678,16 @@ class TransformerEmbedder(Embedder):
             hidden_sequence = block(hidden_sequence)
         return hidden_sequence
 
-    def embed(self, observations, conditions, parameters, *, sequence_start: None | int = None):
+    def embed(
+        self,
+        observations,
+        conditions,
+        parameters,
+        state=None,
+        *,
+        sequence_start: None | int = None,
+        inference: bool = False,
+    ):
         sequence_embedded_context = self.encode(observations)
 
         if self.position_mode is not None:
@@ -673,10 +708,11 @@ class TransformerEmbedder(Embedder):
         downsampled_embedding = self.pooling(
             jnp.swapaxes(sequence_embedded_context, 0, 1)
         ).flatten()
-        return LatentContext.build_from_sequence_and_embedded(
+        context = LatentContext.build_from_sequence_and_embedded(
             sequence_embedded_context,
             downsampled_embedding,
             observations,
             conditions,
             parameters,
         )
+        return context, state

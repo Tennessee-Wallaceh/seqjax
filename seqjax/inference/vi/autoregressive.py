@@ -159,8 +159,11 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
     def sample_and_log_prob(
         self,
         key: PRNGKeyArray,
-        condition: LatentContext
-    ) -> tuple[seqjtyping.Packable, Float[Array, " sample_length"]]:
+        condition: LatentContext,
+        state: typing.Any = None,
+        *,
+        inference: bool = False,
+    ) -> tuple[seqjtyping.Packable, Float[Array, " sample_length"], typing.Any]:
         parameter_context = condition.parameter_context.ravel().flatten()
         initial_prev_x_key, sample_key = jrandom.split(key, 2)
 
@@ -193,10 +196,9 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
             ),
             unroll=self.shape[0]
         )
-        return (
-            self.target_struct_cls.unravel(x_path), 
-            jnp.sum(jnp.sum(log_q_x_path, axis=-1))
-        )
+        sample = self.target_struct_cls.unravel(x_path)
+        log_q = jnp.sum(jnp.sum(log_q_x_path, axis=-1))
+        return sample, log_q, state
 
     def initial_x_context(
         self,

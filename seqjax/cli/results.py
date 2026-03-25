@@ -36,9 +36,9 @@ class ResultProcessor:
 
             return
         elif experiment_config.inference.label == "buffer-vi":
-            approx_start, x_q, run_tracker, fitted_approximation, opt_state = extra_data
+            approx_start, x_q, run_tracker, fitted_approximation, opt_state, _ = extra_data
         elif experiment_config.inference.label == "full-vi":
-            run_tracker, x_q, fitted_approximation, opt_state = extra_data
+            run_tracker, x_q, fitted_approximation, opt_state, _ = extra_data
 
         elif (
             experiment_config.inference.label == "buffer-sgld" 

@@ -60,7 +60,8 @@ class SupportsELBOLoss(Protocol):
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-    ) -> jaxtyping.Scalar: ...
+        state: typing.Any = None,
+    ) -> tuple[jaxtyping.Scalar, typing.Any]: ...
 
 
 class SupportsPretrainLoss(Protocol):
@@ -69,7 +70,8 @@ class SupportsPretrainLoss(Protocol):
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-    ) -> jaxtyping.Scalar: ...
+        state: typing.Any = None,
+    ) -> tuple[jaxtyping.Scalar, typing.Any]: ...
 
 
 class SupportsPriorFitLoss(Protocol):
@@ -78,7 +80,8 @@ class SupportsPriorFitLoss(Protocol):
         dataset: InferenceDataset[ObservationT, ConditionT],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
-    ) -> jaxtyping.Scalar: ...
+        state: typing.Any = None,
+    ) -> tuple[jaxtyping.Scalar, typing.Any]: ...
 
 
 TargetModelT = BayesianSequentialModelProtocol[
@@ -106,8 +109,9 @@ LossFunction = Callable[
         StaticModuleT,
         InferenceDataset[ObservationT, ConditionT],
         jaxtyping.PRNGKeyArray,
+        typing.Any,
     ],
-    jaxtyping.Scalar,
+    tuple[jaxtyping.Scalar, typing.Any],
 ]
 
 CompiledStepFn = Callable[
@@ -117,8 +121,9 @@ CompiledStepFn = Callable[
         OptStateT,
         InferenceDataset[ObservationT, ConditionT],
         jaxtyping.PRNGKeyArray,
+        typing.Any,
     ],
-    tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT],
+    tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT, typing.Any],
 ]
 
 LossAndGradFn = Callable[
@@ -127,8 +132,9 @@ LossAndGradFn = Callable[
         StaticModuleT,
         InferenceDataset[ObservationT, ConditionT],
         jaxtyping.PRNGKeyArray,
+        typing.Any,
     ],
-    tuple[jaxtyping.Scalar, TrainableModuleT],
+    tuple[tuple[jaxtyping.Scalar, typing.Any], TrainableModuleT],
 ]
 
 
@@ -137,15 +143,17 @@ def loss_neg_elbo(
     static: StaticModuleT,
     dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
+    state: typing.Any,
     *,
     sample_kwargs: VISamplingKwargs,
-) -> jaxtyping.Scalar:
+) -> tuple[jaxtyping.Scalar, typing.Any]:
     approximation = typing.cast(SupportsELBOLoss, eqx.combine(trainable, static))
 
     return approximation.estimate_loss(
         dataset,
         key,
         sample_kwargs,
+        state,
     )
 
 
@@ -154,9 +162,10 @@ def loss_pretrain_neg_elbo(
     static: StaticModuleT,
     dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
+    state: typing.Any,
     *,
     sample_kwargs: VISamplingKwargs,
-) -> jaxtyping.Scalar:
+) -> tuple[jaxtyping.Scalar, typing.Any]:
     approximation = typing.cast(
         SupportsPretrainLoss,
         eqx.combine(trainable, static),
@@ -166,6 +175,7 @@ def loss_pretrain_neg_elbo(
         dataset,
         key,
         sample_kwargs,
+        state,
     )
 
 
@@ -174,9 +184,10 @@ def loss_pre_train_prior(
     static: StaticModuleT,
     dataset: InferenceDataset[ObservationT, ConditionT],
     key: jaxtyping.PRNGKeyArray,
+    state: typing.Any,
     *,
     sample_kwargs: VISamplingKwargs,
-) -> jaxtyping.Scalar:
+) -> tuple[jaxtyping.Scalar, typing.Any]:
     approximation = typing.cast(
         SupportsPriorFitLoss,
         eqx.combine(trainable, static),
@@ -185,6 +196,7 @@ def loss_pre_train_prior(
         dataset,
         key,
         sample_kwargs,
+        state,
     )
 
 
@@ -204,8 +216,11 @@ def sample_theta_qs(
 ) -> tuple[ArrayTree, ArrayTree, ArrayTree]:
     model = typing.cast(SSMApproximationT, eqx.combine(static, trainable))
     parameter_keys = jrandom.split(key, metric_samples)
-    theta, _ = jax.vmap(model.parameter_approximation.sample_and_log_prob)(
-        parameter_keys, None
+    theta, _, _ = jax.vmap(
+        model.parameter_approximation.sample_and_log_prob,
+        in_axes=(0, None, None),
+    )(
+        parameter_keys, None, None
     )
     model_theta = jax.vmap(model.target_posterior.parameterization.to_model_parameters)(theta)
     qs = jax.tree_util.tree_map(
@@ -319,9 +334,10 @@ def train(
     loss_label: LossLables = 'elbo',
     nb_context: bool = False,
     initial_opt_state: OptStateT | None = None,
+    model_state: typing.Any = None,
     time_limit_s: int | None = None,
     sync_interval_s: float | None = None,
-) -> tuple[SSMApproximationT, OptStateT]:
+) -> tuple[SSMApproximationT, OptStateT, typing.Any]:
     # check for valid set up
     if num_steps is None and time_limit_s is None:
         raise Exception(
@@ -357,7 +373,7 @@ def train(
         ),
     )
 
-    loss_and_grad: LossAndGradFn = jax.value_and_grad(loss_fn)
+    loss_and_grad: LossAndGradFn = jax.value_and_grad(loss_fn, has_aux=True)
 
     # main training step
     def make_step(
@@ -366,12 +382,14 @@ def train(
         opt_state_in: OptStateT,
         dataset_in: InferenceDataset[ObservationT, ConditionT],
         key_in: jaxtyping.PRNGKeyArray,
-    ) -> tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT]:
-        loss, grads = loss_and_grad(
+        state_in: typing.Any,
+    ) -> tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT, typing.Any]:
+        (loss, next_state), grads = loss_and_grad(
             trainable_in,
             static_in,
             dataset_in,
             key_in,
+            state_in,
         )
         updates, opt_state_next = optim.update(grads, opt_state_in, params=trainable_in)
         trainable_next = eqx.apply_updates(trainable_in, updates)
@@ -379,13 +397,14 @@ def train(
             loss,
             typing.cast(TrainableModuleT, trainable_next),
             typing.cast(OptStateT, opt_state_next),
+            next_state,
         )
 
     # compile
     compiled_make_step = typing.cast(
         CompiledStepFn,
         typing.cast(Any, eqx.filter_jit(make_step))
-        .lower(trainable, static, opt_state, dataset, key)
+        .lower(trainable, static, opt_state, dataset, key, model_state)
         .compile(),
     )
 
@@ -394,8 +413,8 @@ def train(
     loop = tqdm(bar_format="{desc} | elapsed {elapsed} | {postfix}")
 
     # init step (to get tracking info)
-    loss, _trainable, _ = compiled_make_step(
-        trainable, static, opt_state, dataset, key
+    loss, _trainable, _, model_state = compiled_make_step(
+        trainable, static, opt_state, dataset, key, model_state
     )
 
     tracker_postfix = run_tracker.track_step(
@@ -408,8 +427,8 @@ def train(
     opt_step = 0
     while True:
         subkey, key = jrandom.split(key)
-        loss, trainable, opt_state = compiled_make_step(
-            trainable, static, opt_state, dataset, subkey
+        loss, trainable, opt_state, model_state = compiled_make_step(
+            trainable, static, opt_state, dataset, subkey, model_state
         )
         sync_now = (time.perf_counter() - phase_start) > sync_interval_s
 
@@ -472,4 +491,4 @@ def train(
         force_record=True,
     )
 
-    return typing.cast(SSMApproximationT, eqx.combine(static, trainable)), opt_state
+    return typing.cast(SSMApproximationT, eqx.combine(static, trainable)), opt_state, model_state

@@ -21,9 +21,13 @@ class VariationalApproximation[
         self,
         key: jaxtyping.PRNGKeyArray,
         condition: ConditionT,
+        state: typing.Any = None,
+        *,
+        inference: bool = False,
     ) -> tuple[
         TargetStructT,
         jaxtyping.Scalar,
+        typing.Any,
     ]: ...
 
 
@@ -159,13 +163,18 @@ class Embedder[
         observations: ObservationT,
         conditions: ConditionT,
         parameters: InferenceParameterT,
+        state: typing.Any = None,
         *,
         sequence_start: None | int = None,
-    ) -> LatentContext[
-        ObservationT,
-        ConditionT,
-        InferenceParameterT,
-        jaxtyping.Array,
+        inference: bool = False,
+    ) -> tuple[
+        LatentContext[
+            ObservationT,
+            ConditionT,
+            InferenceParameterT,
+            jaxtyping.Array,
+        ],
+        typing.Any,
     ]: ...
 
 
@@ -185,7 +194,10 @@ class UnconditionalVariationalApproximation[
         self,
         key: jaxtyping.PRNGKeyArray,
         condition: None = None,
-    ) -> tuple[TargetStructT, jaxtyping.Scalar]: ...
+        state: typing.Any = None,
+        *,
+        inference: bool = False,
+    ) -> tuple[TargetStructT, jaxtyping.Scalar, typing.Any]: ...
 
 
 class VariationalApproximationFactory[
