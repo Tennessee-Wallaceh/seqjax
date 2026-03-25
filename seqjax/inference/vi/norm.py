@@ -30,26 +30,25 @@ class EMAParamNorm(eqx.Module):
             operand=None,
         )
 
-        def _update(_):
-            x2 = jnp.reshape(x, (-1, x.shape[-1]))
-            batch_mean = jnp.mean(x2, axis=0)
-            batch_var = jnp.var(x2, axis=0)
-
-            new_stats = jax.lax.cond(
-                initialized,
-                lambda _: {
-                    "mean": self.momentum * mean + (1.0 - self.momentum) * batch_mean,
-                    "var": self.momentum * var + (1.0 - self.momentum) * batch_var,
-                    "initialized": jnp.array(True),
-                },
-                lambda _: {
-                    "mean": batch_mean,
-                    "var": batch_var,
-                    "initialized": jnp.array(True),
-                },
-                operand=None,
-            )
-            return state.set(self.index, new_stats)
-
-        state = jax.lax.cond(update_stats, _update, lambda _: state, operand=None)
+        x2 = jnp.reshape(x, (-1, x.shape[-1]))
+        batch_mean = jnp.mean(x2, axis=0)
+        batch_var = jnp.var(x2, axis=0)
+        new_stats = jax.lax.cond(
+            initialized,
+            lambda _: {
+                "mean": self.momentum * mean + (1.0 - self.momentum) * batch_mean,
+                "var": self.momentum * var + (1.0 - self.momentum) * batch_var,
+                "initialized": jnp.array(True),
+            },
+            lambda _: {
+                "mean": batch_mean,
+                "var": batch_var,
+                "initialized": jnp.array(True),
+            },
+            operand=None,
+        )
+    
+        if update_stats:
+            state = state.set(self.index, new_stats)
+            
         return x_norm, state
