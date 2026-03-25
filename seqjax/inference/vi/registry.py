@@ -65,6 +65,7 @@ class Conv1DEmbedderConfig:
     pool_kind: str = "avg"
     position_mode: None | PositionMode = None
     n_pos_embedding: int = 8
+    embed_norm_kind: None | str = None
 
 @dataclass
 class BiRNNEmbedder:
@@ -160,6 +161,7 @@ def _build_embedder(
             hidden=embedder_config.hidden_dim,
             kernel_size=embedder_config.kernel_size,
             depth=embedder_config.depth,
+            embed_norm_kind=embedder_config.embed_norm_kind,
             key=embedding_key,
             pool_dim=embedder_config.pool_dim,
             pool_kind=embedder_config.pool_kind,

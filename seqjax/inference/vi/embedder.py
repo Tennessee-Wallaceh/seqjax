@@ -8,8 +8,6 @@ from dataclasses import field
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from .interface import LatentContext, Embedder, SequenceAggregator
 from .aggregation import AggregationKind, build_sequence_aggregator
-
-
 PositionMode = typing.Literal["sample", "sequence"]
 
 
@@ -396,13 +394,15 @@ class ConvResidualBlock(eqx.Module):
         resid = self.conv_1(resid)
         resid = jax.nn.gelu(resid)
         return 0.9 * x + 0.1 * resid
-    
+
+
 class Conv1DEmbedder(Embedder):
     in_proj: eqx.nn.Conv1d
     convs: tuple[ConvResidualBlock, ...]
     hidden: int
     aggregation_kind: AggregationKind = eqx.field(static=True)
     aggregator: SequenceAggregator = eqx.field(static=True)
+    embedding_norm: None | eqx.nn.LayerNorm
     position_mode: None | PositionMode = eqx.field(static=True)
     n_pos_embedding: int = eqx.field(static=True)
     positional_basis: PositionalBasis = eqx.field(static=True)
@@ -417,6 +417,7 @@ class Conv1DEmbedder(Embedder):
         *,
         kernel_size: int = 5,
         depth: int = 2,
+        embed_norm_kind: None | str = None,
         pool_dim: None | int = None,
         pool_kind: str = "avg",
         position_mode: None | PositionMode = None,
@@ -486,6 +487,13 @@ class Conv1DEmbedder(Embedder):
             self.parameter_context_dim,
         ) = LatentContext.from_sequence_and_embedded_dims(target_posterior, sample_length)
 
+        if embed_norm_kind == "layer-norm":
+            self.embedding_norm = eqx.filter_vmap(
+                eqx.nn.LayerNorm(self.sequence_embedded_context_dim)
+            )
+        else:
+            self.embedding_norm = None
+
         super().__init__(target_posterior, sample_length, sequence_length)
 
     def convolve(self, observations):
@@ -515,6 +523,9 @@ class Conv1DEmbedder(Embedder):
                 [sequence_embedded_context, position_features],
                 axis=-1,
             )
+
+        if self.embedding_norm is not None:
+            sequence_embedded_context = self.embedding_norm(sequence_embedded_context)
 
         aggregated = self.aggregator(sequence_embedded_context, observations)
         return LatentContext.build_from_sequence_and_embedded(
