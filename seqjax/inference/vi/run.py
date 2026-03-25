@@ -52,13 +52,12 @@ def run_full_path_vi[
     observation_path, _ = dataset.sequence(0)
     sequence_length = observation_path.batch_shape[0]
 
-    approximation = registry.build_approximation(
+    approximation, model_state = registry.build_approximation(
         config,
         sequence_length,
         target_posterior,
         key,
     )
-    model_state: typing.Any = {}
 
     sync_interval_s = None
 
@@ -173,23 +172,15 @@ def run_buffered_vi[
     if tracker is None:
         tracker = train.Tracker(metric_samples=5000)
 
-    #TODO: find a way to pass dynamic objects to inference runs
-    start_approximation = None
     sync_interval_s = None
 
     sequence_length = dataset.sequence_length
-
-    if start_approximation is not None:
-        approximation = start_approximation
-    else:
-        approximation = registry.build_approximation(
-            config,
-            sequence_length,
-            target_posterior,
-            key,
-        )
-    start_approximation = approximation
-    model_state: typing.Any = {}
+    approximation, model_state = registry.build_approximation(
+        config,
+        sequence_length,
+        target_posterior,
+        key,
+    )
     
     opt_state: optax.GradientTransformation
 
@@ -317,23 +308,15 @@ def run_hybrid_vi[
     if tracker is None:
         tracker = train.Tracker(metric_samples=5000)
 
-    #TODO: find a way to pass dynamic objects to inference runs
-    start_approximation = None
     sync_interval_s = None
 
     sequence_length = dataset.sequence_length
-
-    if start_approximation is not None:
-        approximation = start_approximation
-    else:
-        approximation = registry.build_approximation(
-            config,
-            sequence_length,
-            target_posterior,
-            key,
-        )
-    start_approximation = approximation
-    model_state: typing.Any = {}
+    approximation, model_state = registry.build_approximation(
+        config,
+        sequence_length,
+        target_posterior,
+        key,
+    )
     
     opt_state: optax.GradientTransformation
 
