@@ -193,29 +193,46 @@ class FullVarParameterization(
         )
 
     def sample(self, key: PRNGKeyArray) -> UncLogVarParams:
-        long_term_log_var_mean = 2 * jnp.log(jnp.array(0.16))
+        annual_vol_mean = 0.8
+        long_term_log_var_mean = 2 * jnp.log(jnp.array(annual_vol_mean))
         k1, k2, k3 = jrandom.split(key, 3)
         return self.from_model_parameters(LogVarParams(
-            std_log_var=10 / jrandom.gamma(k1, 10),
-            ar=jrandom.uniform(k2, minval=-1, maxval=1),
-            long_term_log_var=long_term_log_var_mean + jrandom.normal(k3),
+            std_log_var=jnp.exp(-2.0 + 0.5 * jrandom.normal(k1)),
+            ar=2 * jrandom.beta(k2, 20.0, 1.5) - 1.0,
+            long_term_log_var=long_term_log_var_mean + 0.5 * jrandom.normal(k3),
         ))
-
-
+    
     def log_prob(self, inference_parameters: UncLogVarParams) -> Scalar:
-        long_term_log_var_mean = 2 * jnp.log(jnp.array(0.16))
+        annual_vol_mean = 0.8
+        long_term_log_var_mean = 2 * jnp.log(jnp.array(annual_vol_mean))
         model_params = self.to_model_parameters(inference_parameters)
+
+        std_lp = (
+            jstats.norm.logpdf(jnp.log(model_params.std_log_var), loc=-2.0, scale=0.5)
+            - jnp.log(model_params.std_log_var)
+        )
+
+        ar01 = 0.5 * (model_params.ar + 1.0)
+        ar_lp = (
+            jstats.beta.logpdf(ar01, a=20.0, b=1.5)
+            - jnp.log(2.0)
+        )
+
+        long_term_lp = jstats.norm.logpdf(
+            model_params.long_term_log_var,
+            loc=long_term_log_var_mean,
+            scale=0.5,
+        )
+
         lad_ar = jnp.log1p(-jnp.square(model_params.ar))
         lad_std_log_var = jax.nn.log_sigmoid(inference_parameters.sft_inv_std_log_var)
+
         return (
-            jstats.gamma.logpdf(1 / model_params.std_log_var, 10, scale=1 / 10) 
-            + lad_std_log_var
-            + jstats.uniform.logpdf(model_params.ar, loc=-1.0, scale=2.0)
+            std_lp
+            + ar_lp
+            + long_term_lp
             + lad_ar
-            + jstats.norm.logpdf(
-                model_params.long_term_log_var,
-                loc=long_term_log_var_mean
-            )
+            + lad_std_log_var
         )
 
 @jax.tree_util.register_dataclass
