@@ -229,9 +229,10 @@ def run_buffered_vi[
             sync_interval_s=sync_interval_s,
         )
 
-    
     if isinstance(
         config.optimization, optimization_registry.NoOpt
+    ) or (
+        config.optimization is None,
     ) or config.optimization.total_steps == 0:
         fitted_approximation = approximation
         opt_state = None
