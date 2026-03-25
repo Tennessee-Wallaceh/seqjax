@@ -233,7 +233,7 @@ def run_buffered_vi[
         config.optimization, optimization_registry.NoOpt
     ) or (
         config.optimization is None,
-    ) or config.optimization.total_steps == 0:
+    ):
         fitted_approximation = approximation
         opt_state = None
     else:
