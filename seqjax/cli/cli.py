@@ -251,6 +251,11 @@ def run(
         "--data-root",
         help="Root directory for prepared datasets when --data-source=real.",
     ),
+    init_from_generative: bool = typer.Option(
+        False,
+        "--true-init",
+        help="Whether to use the generative param+latent to initialize.",
+    ),
 ) -> None:
     """Run an experiment using the configured inference method."""
     from seqjax import io
@@ -319,6 +324,7 @@ def run(
         test_samples=test_samples,
         fit_seed=fit_seed,
         inference=inference_config,
+        init_from_generative=init_from_generative,
     )
 
     if dry_run:

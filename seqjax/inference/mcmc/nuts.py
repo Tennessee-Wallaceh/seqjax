@@ -59,9 +59,11 @@ def subsample_posterior(samples, n_sub, key):
 @dataclass
 class NUTSConfig:
     step_size: float = 1e-3
-    num_adaptation: int = 10000
+    num_adaptation: int = 1000
     num_warmup: int = 1000
-    num_steps: int = 5000  # length of the chain
+    num_steps: int = 5000  # length of the each chain
+    sample_block_size: int = 1000 # length of each block sampled
+    downsample_stride: int = 1 # for long sequences
     inverse_mass_matrix: Any | None = None
     num_chains: int = 1
     max_time_s: float | None = None
@@ -108,6 +110,9 @@ def run_bayesian_nuts[
 ]:
     """Sample parameters and latent paths jointly using NUTS."""
 
+    if config.num_steps is None and config.max_time_s is None:
+        raise ValueError("For NUTSConfig both num_steps and max_time_s cannot be None!")
+    
     log_prob_joint = partial(
         evaluate.log_prob_joint,
         target_posterior.target,
@@ -194,63 +199,103 @@ def run_bayesian_nuts[
 
     warmup_key, init_key, sample_key = jrandom.split(key, 3)
 
-    start_warmup_time = time.time()
     warmup = blackjax.window_adaptation(
         blackjax.nuts, 
         logdensity, 
         initial_step_size=config.step_size
     )
 
-    (_, parameters), _ = warmup.run(
+    (_, nuts_config), _ = warmup.run(
         warmup_key,
         initial_state(init_key),
         num_steps=config.num_adaptation,
     )
 
     # configure with warmup params
-    nuts = blackjax.nuts(logdensity, **parameters)
+    nuts = blackjax.nuts(logdensity, **nuts_config)
 
-    chain_inits = jax.vmap(initial_state)(jrandom.split(key, config.num_chains))
-    initial_states = jax.vmap(nuts.init, in_axes=(0))(chain_inits)
+    chain_inits = jax.vmap(initial_state)(jrandom.split(init_key, config.num_chains))
+    initial_states = jax.vmap(nuts.init)(chain_inits)
 
     warmup_states, _ = inference_loop_multiple_chains(
-        sample_key,
+        warmup_key,
         nuts.step,
         initial_states,
         num_samples=config.num_warmup,
         num_chains=config.num_chains,
     )
     jax.block_until_ready(warmup_states)
-    end_warmup_time = time.time()
-    warmup_time = end_warmup_time - start_warmup_time
 
-    start_time = time.time()
-    samples_per_chain = int(config.num_steps / config.num_chains)
-    _, paths = inference_loop_multiple_chains(
-        sample_key,
-        nuts.step,
-        warmup_states,
-        num_samples=samples_per_chain,
-        num_chains=config.num_chains,
+    current_states = warmup_states
+    sample_blocks = []
+    latent_blocks = []
+    block_times_s = []
+
+    samples_taken = 0
+    inference_time_start = time.time()
+    next_sample_key = sample_key
+
+    while True:
+        sample_key, next_sample_key = jrandom.split(next_sample_key)
+
+        current_states, paths = inference_loop_multiple_chains(
+            sample_key,
+            nuts.step,
+            current_states,
+            num_samples=config.sample_block_size,
+            num_chains=config.num_chains,
+        )
+        jax.block_until_ready(current_states)
+
+        raw_param_block = paths.position[1]
+        raw_latent_block = paths.position[0]
+
+        raw_keep = config.sample_block_size
+        if config.num_steps is not None:
+            remaining = config.num_steps - samples_taken
+            raw_keep = min(raw_keep, remaining)
+
+        stride = config.downsample_stride
+        global_offset = samples_taken % stride
+        block_offset = (-global_offset) % stride
+
+        param_block = jax.tree_util.tree_map(
+            lambda x: x[block_offset:raw_keep:stride, ...],
+            raw_param_block,
+        )
+        latent_block = jax.tree_util.tree_map(
+            lambda x: x[block_offset:raw_keep:stride, ...],
+            raw_latent_block,
+        )
+
+        sample_blocks.append(param_block)
+        latent_blocks.append(latent_block)
+
+        samples_taken += raw_keep
+        elapsed_time_s = time.time() - inference_time_start
+        block_times_s.append((elapsed_time_s, samples_taken))
+
+        if config.max_time_s and elapsed_time_s > config.max_time_s:
+            print("Stopping due to time limit")
+            break
+
+        if config.num_steps and samples_taken >= config.num_steps:
+            print("Stopping due to sample limit")
+            break
+
+        print(f"Elapsed time: {int(elapsed_time_s / 60)} minutes")
+
+    param_samples = jax.tree_util.tree_map(
+        lambda *xs: jnp.concatenate(xs, axis=0),
+        *sample_blocks,
     )
-
-    end_time = time.time()
-    sample_time = end_time - start_time
-    time_array_s = warmup_time + (
-        jnp.repeat(jnp.arange(samples_per_chain), config.num_chains)
-        * (sample_time / samples_per_chain)
-    )
-
-    # randomly down sample chains to give desired number of test samples
-    latent_samples: ParticleT = paths.position[0]
-    full_param_samples: InferenceParametersT = paths.position[1]
-    param_samples: InferenceParametersT = jax.tree_util.tree_map(
-        partial(subsample_posterior, n_sub=test_samples, key=key), 
-        full_param_samples
+    latent_samples = jax.tree_util.tree_map(
+        lambda *xs: jnp.concatenate(xs, axis=0),
+        *latent_blocks,
     )
 
     return jax.tree_util.tree_map(jnp.squeeze, param_samples), (
-        time_array_s,
+        block_times_s,
         latent_samples,
-        full_param_samples,
+        param_samples,
     )

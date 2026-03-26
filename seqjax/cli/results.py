@@ -18,20 +18,17 @@ class ResultProcessor:
             param_sample_chains = [ #type: ignore
                 (
                     f"full_param_samples_c{chain}",
-                    util.index_pytree_in_dim(full_param_samples, dim=1, index=chain),
+                    util.index_pytree_in_dim(param_samples, dim=1, index=chain),
                     {},
                 )
-                for chain in range(full_param_samples.batch_shape[1])
+                for chain in range(param_samples.batch_shape[1])
             ]
 
             io.save_packable_artifact(
                 wandb_run,
                 f"{wandb_run.name}-samples",
                 "run_output",
-                [
-                    ("final_samples", param_samples, {}),
-                ]
-                + param_sample_chains,
+                param_sample_chains,
             )
 
             return

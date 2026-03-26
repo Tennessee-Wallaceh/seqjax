@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import os
 from typing import Any, Literal, Protocol, cast
 
@@ -51,6 +51,7 @@ class ExperimentConfig:
     test_samples: int
     fit_seed: int
     inference: inference_registry.InferenceConfig
+    init_from_generative: bool = False
 
 
 WandBStorageMode = Literal["wandb", "wandb-offline"]
@@ -169,7 +170,7 @@ def run_experiment(
     if isinstance(experiment_config.data_config, model_registry.RealDataConfig):
         data_folder = resolved_runtime_config.data_root or resolved_runtime_config.local_root
         prepared_storage = io.LocalPreparedDataStorage(data_folder)
-        observations, conditions = prepared_storage.get_data(
+        _, observations, conditions = prepared_storage.get_data(
             experiment_config.data_config,
             experiment_config.data_config,
         )
@@ -187,6 +188,24 @@ def run_experiment(
         )
     else:
         raise Exception(f"Unsupported data config type {experiment_config.data_config}")
+
+    
+    # Allow special init for NUTS for purpose of generating reference posteriors
+    if (
+        experiment_config.init_from_generative 
+        and experiment_config.inference.label == "NUTS"
+        and isinstance(experiment_config.data_config, model_registry.SyntheticDataConfig)
+    ):
+        generative_params = experiment_config.data_config.generative_parameters
+        nuts_config_with_init = replace(
+            experiment_config.inference,
+            initial_latents=x_paths,
+            initial_params=model.parameterization.from_model_parameters(generative_params),
+        )
+        experiment_config = replace(
+            experiment_config,
+            inference=nuts_config_with_init,
+        )
 
     condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
 
