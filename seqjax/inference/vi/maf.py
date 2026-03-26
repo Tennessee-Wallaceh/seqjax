@@ -60,7 +60,7 @@ class MaskedAutoregressiveFlow[
         )
         
 
-    def sample_and_log_prob(self, key, condition=None, state=None, *, inference: bool = False):
+    def sample_and_log_prob(self, key, condition=None, state=None):
         flat_sample, log_q = self.flow.sample_and_log_prob(key)
         sample = self.target_struct_cls.unravel(flat_sample)
         return sample, log_q, state
@@ -173,8 +173,6 @@ class AmortizedMAF[
         key: jaxtyping.PRNGKeyArray,
         condition: LatentContext,
         state: typing.Any = None,
-        *,
-        inference: bool = False,
     ) -> tuple[TargetStructT, jaxtyping.Scalar, typing.Any]:
         
         cond = self._build_condition(condition)

@@ -31,7 +31,7 @@ class MeanField[TargetStructT: seqjtyping.Packable](
         self.loc = jnp.zeros((target_struct_cls.flat_dim,))
         self._unc_scale = jnp.zeros((target_struct_cls.flat_dim,))
 
-    def sample_and_log_prob(self, key, condition=None, state=None, *, inference: bool = False):
+    def sample_and_log_prob(self, key, condition=None, state=None):
         z = jrandom.normal(key, [self.target_struct_cls.flat_dim])
         scale = 1e-6 + softplus(self._unc_scale)
         x = z * scale + self.loc
@@ -69,7 +69,7 @@ class MultivariateNormal[TargetStructT: seqjtyping.Packable](
         diagonal = softplus(jnp.diag(self._unc_tril)) + self._diag_jitter
         return strictly_lower + jnp.diag(diagonal)
 
-    def sample_and_log_prob(self, key, condition=None, state=None, *, inference: bool = False):
+    def sample_and_log_prob(self, key, condition=None, state=None):
         dim = self.target_struct_cls.flat_dim
         chol = self._cholesky()
         epsilon = jrandom.normal(key, (dim,))
@@ -176,7 +176,8 @@ class SSMVariationalApproximation[
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
         *,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ) -> tuple[
         ParametersT,
         jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
@@ -223,7 +224,8 @@ class FullVI[
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
         *,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ) -> tuple[
         ParametersT,
         jaxtyping.Float[jaxtyping.Array, "context_samples samples_per_context"],
@@ -261,15 +263,23 @@ class FullVI[
             jax.vmap(
                 self.parameter_approximation.sample_and_log_prob,
                 in_axes=(0, None, None),
+                out_axes=(0, 0, None),
             ),
             in_axes=(0, None, None),
-        )(parameter_keys, None, state, inference=inference)
-        latent_context, embed_state = jax.vmap(self.embedding.embed, in_axes=(0, 0, 0, None))(
+            out_axes=(0, 0, None),
+        )(parameter_keys, None, state)
+        latent_context, embed_state = jax.vmap(
+            self.embedding.embed,
+            in_axes=(0, 0, 0, None),
+            out_axes=(0, None),
+            axis_name="sequence",
+        )(
             sampled_observations,
             sampled_conditions,
             jax.lax.stop_gradient(parameters),
             param_state,
-            inference=inference,
+            reduce_axes=reduce_axes + ("sequence",),
+            training=training,
         )
 
         x_path, log_q_x, latent_state = jax.vmap(
@@ -289,13 +299,16 @@ class FullVI[
                     ),
                     0,
                 ),
+                out_axes=(0, 0, None),
+                axis_name="monte-carlo",
             ),
             in_axes=(0, 0, 0),
+            out_axes=(0, 0, None),
+            axis_name="sequence",
         )(
             latent_keys,
             latent_context,
             embed_state,
-            inference=inference,
         )
 
         return (
@@ -370,6 +383,7 @@ class FullVI[
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[typing.Any, typing.Any]:
         theta_q, log_q_theta, x_path, log_q_x_path, extra_info = (
             self.joint_sample_and_log_prob(
@@ -377,6 +391,8 @@ class FullVI[
                 key,
                 sample_kwargs,
                 state,
+                reduce_axes=(),
+                training=training,
             )
         )
         sampled_observations, sampled_conditions, next_state = extra_info
@@ -414,6 +430,7 @@ class FullVI[
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[typing.Any, typing.Any]:
         context_samples = sample_kwargs["context_samples"]
         samples_per_context = sample_kwargs["samples_per_context"]
@@ -443,11 +460,18 @@ class FullVI[
             parameter_keys
         )
 
-        latent_context, embed_state = jax.vmap(self.embedding.embed, in_axes=(0, 0, 0, None))(
+        latent_context, embed_state = jax.vmap(
+            self.embedding.embed,
+            in_axes=(0, 0, 0, None),
+            out_axes=(0, None),
+            axis_name="sequence",
+        )(
             sampled_observations,
             sampled_conditions,
             typing.cast(typing.Any, parameters),
             state,
+            reduce_axes=("sequence",),
+            training=training,
         )
 
         x_path, log_q_x, latent_state = jax.vmap(
@@ -467,8 +491,12 @@ class FullVI[
                     ),
                     0,
                 ),
+                out_axes=(0, 0, None),
+                axis_name="monte-carlo",
             ),
             in_axes=(0, 0, 0),
+            out_axes=(0, 0, None),
+            axis_name="sequence",
         )(
             latent_keys,
             latent_context,
@@ -506,8 +534,10 @@ class FullVI[
             jax.vmap(
                 self.parameter_approximation.sample_and_log_prob,
                 in_axes=(0, None, None),
+                out_axes=(0, 0, None),
             ),
             in_axes=(0, None, None),
+            out_axes=(0, 0, None),
         )(parameter_keys, None, state)
         log_p_theta = jax.vmap(
             jax.vmap(
@@ -1040,12 +1070,14 @@ class IWBufferedSSMVI[
         latent_key: jaxtyping.PRNGKeyArray,
         state: typing.Any = None,
         *,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ) -> tuple[
         InferenceParametersT,
         jaxtyping.Float[jaxtyping.Scalar, ""],
         LatentT,
         jaxtyping.Float[jnp.ndarray, "n_mc"],
+        typing.Any,
         typing.Any,
     ]:
         latent_keys = jrandom.split(latent_key, sample_kwargs["samples_per_context"])
@@ -1064,7 +1096,6 @@ class IWBufferedSSMVI[
             parameter_key,
             None,
             state,
-            inference=inference,
         )
 
         latent_context, embed_state = self.embedding.embed(
@@ -1073,7 +1104,8 @@ class IWBufferedSSMVI[
             jax.lax.stop_gradient(parameters),
             param_state,
             sequence_start=approx_start,
-            inference=inference,
+            reduce_axes=reduce_axes,
+            training=training,
         )
 
         def _sample_latent(latent_key):
@@ -1081,17 +1113,21 @@ class IWBufferedSSMVI[
                 latent_key,
                 latent_context,
                 embed_state,
-                inference=inference,
             )
 
-        x_path, log_q_x, latent_state = jax.vmap(_sample_latent)(latent_keys)
+        x_path, log_q_x, latent_state = jax.vmap(
+            _sample_latent,
+            out_axes=(0, 0, None),
+            axis_name="monte-carlo",
+        )(latent_keys)
 
         return (
             parameters,
             log_q_theta,
             x_path,
             log_q_x,
-            (approx_start, theta_mask, y_batch, c_batch, latent_state),
+            latent_state,
+            (approx_start, theta_mask, y_batch, c_batch),
         )
     
     def batched_sample(
@@ -1101,15 +1137,19 @@ class IWBufferedSSMVI[
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
         *,
-        inference: bool = False,
+        training: bool = False,
     ):
         batched_sample = jax.vmap(
             self.iw_joint_sample_and_log_prob,
             in_axes=(None, None, None, 0, 0, 0, None),
+            out_axes=(0, 0, 0, 0, None, (0, 0, 0, 0)),
+            axis_name="sequence",
         )
         batched_sample = jax.vmap(
             batched_sample,
             in_axes=(None, None, 0, 0, 0, 0, None),
+            out_axes=(0, 0, 0, 0, None, (0, 0, 0, 0)),
+            axis_name="sub-sequence",
         )
 
         seq_key, subseq_key, param_key, latent_key = jrandom.split(key, 4)
@@ -1143,7 +1183,8 @@ class IWBufferedSSMVI[
                 ),
             ),
             state,
-            inference=inference,
+            reduce_axes=("sequence", "sub-sequence"),
+            training=training,
         )
     
     def batched_log_joint(
@@ -1221,6 +1262,7 @@ class IWBufferedSSMVI[
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[typing.Any, typing.Any]:
 
         if sample_kwargs["num_sequence_minibatch"] <= 0:
@@ -1235,13 +1277,14 @@ class IWBufferedSSMVI[
                 f"dataset.num_sequences={dataset.num_sequences}."
             )
 
-        theta_q, log_q_theta, x_path, log_q_x, extra_info = self.batched_sample(
+        theta_q, log_q_theta, x_path, log_q_x, next_state, extra_info = self.batched_sample(
             dataset,
             key,
             sample_kwargs,
             state,
+            training=training,
         )
-        _, theta_mask, y_batch, c_batch, next_state = extra_info
+        _, theta_mask, y_batch, c_batch = extra_info
 
         latent_scaling = (
             self.batch_length + dataset.sequence_length - 1

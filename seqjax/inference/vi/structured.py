@@ -141,8 +141,6 @@ class StructuredPrecisionGaussian[
         key: PRNGKeyArray,
         condition: LatentContext,
         state: Any = None,
-        *,
-        inference: bool = False,
     ) -> tuple[LatentT, Float[Array, ""], Any]:
         mean, diag_blocks, subdiag_blocks = self._covariance_cholesky_blocks(condition)
 

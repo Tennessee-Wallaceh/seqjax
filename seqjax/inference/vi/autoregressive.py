@@ -162,8 +162,6 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         key: PRNGKeyArray,
         condition: LatentContext,
         state: typing.Any = None,
-        *,
-        inference: bool = False,
     ) -> tuple[seqjtyping.Packable, Float[Array, " sample_length"], typing.Any]:
         parameter_context = condition.parameter_context.ravel().flatten()
         initial_prev_x_key, sample_key = jrandom.split(key, 2)
