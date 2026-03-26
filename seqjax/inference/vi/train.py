@@ -61,6 +61,7 @@ class SupportsELBOLoss(Protocol):
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[jaxtyping.Scalar, typing.Any]: ...
 
 
@@ -71,6 +72,7 @@ class SupportsPretrainLoss(Protocol):
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[jaxtyping.Scalar, typing.Any]: ...
 
 
@@ -154,6 +156,7 @@ def loss_neg_elbo(
         key,
         sample_kwargs,
         state,
+        training=True,
     )
 
 
@@ -176,6 +179,7 @@ def loss_pretrain_neg_elbo(
         key,
         sample_kwargs,
         state,
+        training=True,
     )
 
 

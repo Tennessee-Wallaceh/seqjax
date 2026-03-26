@@ -227,14 +227,16 @@ def run_buffered_vi[
             time_limit_s=config.pre_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
+
     if isinstance(
         config.optimization, optimization_registry.NoOpt
     ) or (
-        config.optimization is None,
+        config.optimization is None
     ):
         fitted_approximation = approximation
         opt_state = None
     else:
+        print("Training...")
         optim = optimization_registry.build_optimizer(config.optimization)
         fitted_approximation, opt_state, model_state = train.train(
             model=approximation,
@@ -249,6 +251,7 @@ def run_buffered_vi[
             time_limit_s=config.optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
         )
+    
     # run sample again for testing purposes
     eval_sampling_kwargs = config.evaluation_sampling_kwargs(test_samples=test_samples)
     (
@@ -256,9 +259,10 @@ def run_buffered_vi[
         log_q_theta,
         x_q,
         log_q_x_path,
-        (approx_start, theta_mask, y_batch, c_batch, model_state),
+        model_state,
+        (approx_start, theta_mask, y_batch, c_batch, ),
     ) = typing.cast(typing.Any, fitted_approximation).batched_sample(
-        dataset, key, eval_sampling_kwargs, model_state, inference=False
+        dataset, key, eval_sampling_kwargs, model_state, training=False
     )
 
     def _flatten(x):

@@ -17,7 +17,10 @@ class EMAParamNorm(eqx.Module):
         self.momentum = momentum
         self.eps = eps
 
-    def __call__(self, x, state: eqx.nn.State, *, update_stats: bool):
+    def __call__(self, x, state: eqx.nn.State, *, reduce_axes: tuple[str, ...], training: bool):
+        """
+        x is a flat vector
+        """
         stats = state.get(self.index)
         mean = stats["mean"]
         var = stats["var"]
@@ -30,9 +33,12 @@ class EMAParamNorm(eqx.Module):
             operand=None,
         )
 
-        x2 = jnp.reshape(x, (-1, x.shape[-1]))
-        batch_mean = jnp.mean(x2, axis=0)
-        batch_var = jnp.var(x2, axis=0)
+        # parallel primitives
+        # axes refer to the jax transform context in which this
+        # function has been called
+        batch_mean = jax.lax.pmean(x, axis_name=reduce_axes)
+        batch_var = jax.lax.pmean((x - batch_mean) ** 2, axis_name=reduce_axes)
+
         new_stats = jax.lax.cond(
             initialized,
             lambda _: {
@@ -48,7 +54,7 @@ class EMAParamNorm(eqx.Module):
             operand=None,
         )
     
-        if update_stats:
+        if training:
             state = state.set(self.index, new_stats)
             
         return x_norm, state

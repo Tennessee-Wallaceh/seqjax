@@ -589,11 +589,13 @@ class BufferedSSMVI[
         latent_key: jaxtyping.PRNGKeyArray,
         state: typing.Any = None,
         *,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ) -> tuple[
         InferenceParametersT,
         LatentT,
         jaxtyping.Float[jaxtyping.Scalar, ""],
+        typing.Any,
         typing.Any,
     ]:
         observation_sequence, condition_sequence = _sample_sequence_minibatch(dataset, seq_key)
@@ -614,22 +616,22 @@ class BufferedSSMVI[
             typing.cast(typing.Any, jax.lax.stop_gradient(parameters)),
             state,
             sequence_start=approx_start,
-            inference=inference,
+            reduce_axes=reduce_axes,
+            training=training,
         )
-        print(embed_state)
 
         x_path, log_q_x, latent_state = self.latent_approximation.sample_and_log_prob(
             latent_key,
             latent_context,
             embed_state,
-            inference=inference,
         )
 
         return (
             parameters,
             x_path,
             log_q_x,
-            (approx_start, theta_mask, y_batch, c_batch, latent_state),
+            latent_state,
+            (approx_start, theta_mask, y_batch, c_batch),
         )
     
     def joint_sample_and_log_prob(
@@ -641,11 +643,13 @@ class BufferedSSMVI[
         latent_key: jaxtyping.PRNGKeyArray,
         state: typing.Any = None,
         *,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ) -> tuple[
         InferenceParametersT,
         jaxtyping.Float[jaxtyping.Scalar, ""],
         LatentT,
+        typing.Any,
         jaxtyping.Float[jaxtyping.Scalar, ""],
         typing.Any,
     ]:
@@ -663,7 +667,6 @@ class BufferedSSMVI[
             parameter_key,
             None,
             state,
-            inference=inference,
         )
 
         latent_context, embed_state = self.embedding.embed(
@@ -672,14 +675,14 @@ class BufferedSSMVI[
             typing.cast(typing.Any, jax.lax.stop_gradient(parameters)),
             param_state,
             sequence_start=approx_start,
-            inference=inference,
+            reduce_axes=reduce_axes,
+            training=training,
         )
 
         x_path, log_q_x, latent_state = self.latent_approximation.sample_and_log_prob(
             latent_key,
             latent_context,
             embed_state,
-            inference=inference,
         )
 
         return (
@@ -687,7 +690,8 @@ class BufferedSSMVI[
             log_q_theta,
             x_path,
             log_q_x,
-            (approx_start, theta_mask, y_batch, c_batch, latent_state),
+            latent_state,
+            (approx_start, theta_mask, y_batch, c_batch),
         )
     
     def batched_sample(
@@ -697,18 +701,34 @@ class BufferedSSMVI[
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
         *,
-        inference: bool = False,
+        training: bool = False,
     ):
         # vmaps builds the batch axes from innermost to outermost
         # so inner is latent+param samples for each (sequence, sub-sequence)
         # next is sub-sequence sample for each sequence sample
         # the outer most is sequence sample
         batched_sample = jax.vmap(
-            partial(self.joint_sample_and_log_prob, inference=inference),
-            in_axes=(None, None, None, 0, 0, None)
+            partial(
+                self.joint_sample_and_log_prob, 
+                training=training,
+                reduce_axes=("sequence", "sub-sequence", "monte-carlo"),
+            ),
+            in_axes=(None, None, None, 0, 0, None),
+            out_axes=(0, 0, 0, 0, None, 0),
+            axis_name="sequence",
         )
-        batched_sample = jax.vmap(batched_sample, in_axes=(None, None, 0, 0, 0, None))
-        batched_sample = jax.vmap(batched_sample, in_axes=(None, 0, 0, 0, 0, None))
+        batched_sample = jax.vmap(
+            batched_sample, 
+            in_axes=(None, None, 0, 0, 0, None),
+            out_axes=(0, 0, 0, 0, None, 0),
+            axis_name="sub-sequence"
+        )
+        batched_sample = jax.vmap(
+            batched_sample, 
+            in_axes=(None, 0, 0, 0, 0, None),
+            out_axes=(0, 0, 0, 0, None, 0),
+            axis_name="monte-carlo"
+        )
         seq_key, subseq_key, param_key, latent_key = jrandom.split(key, 4)
         return batched_sample(
             dataset,
@@ -744,18 +764,36 @@ class BufferedSSMVI[
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
         *,
-        inference: bool = False,
+        training: bool = False,
     ):
         # vmaps builds the batch axes from innermost to outermost
         # so inner is latent+param samples for each (sequence, sub-sequence)
         # next is sub-sequence sample for each sequence sample
         # the outer most is sequence sample
+        # we don't want a leading axis for state, because that is 
+        # constant across the samples
         batched_sample = jax.vmap(
-            partial(self.sample_prior_and_latent_log_prob, inference=inference), 
-            in_axes=(None, None, None, 0, 0, None)
+            partial(
+                self.sample_prior_and_latent_log_prob, 
+                training=training,
+                reduce_axes=("sequence", "sub-sequence", "monte-carlo")
+            ), 
+            in_axes=(None, None, None, 0, 0, None),
+            out_axes=(0, 0, 0, None, 0),
+            axis_name="sequence",
         )
-        batched_sample = jax.vmap(batched_sample, in_axes=(None, None, 0, 0, 0, None))
-        batched_sample = jax.vmap(batched_sample, in_axes=(None, 0, 0, 0, 0, None))
+        batched_sample = jax.vmap(
+            batched_sample, 
+            in_axes=(None, None, 0, 0, 0, None),
+            out_axes=(0, 0, 0, None, 0),
+            axis_name="sub-sequence"
+        )
+        batched_sample = jax.vmap(
+            batched_sample, 
+            in_axes=(None, 0, 0, 0, 0, None),
+            out_axes=(0, 0, 0, None, 0),
+            axis_name="monte-carlo"
+        )
         seq_key, subseq_key, param_key, latent_key = jrandom.split(key, 4)
         return batched_sample(
             dataset,
@@ -868,6 +906,7 @@ class BufferedSSMVI[
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[typing.Any, typing.Any]:
         
         if sample_kwargs['num_sequence_minibatch'] <= 0:
@@ -882,14 +921,14 @@ class BufferedSSMVI[
                 f"dataset.num_sequences={dataset.num_sequences}."
             )
                     
-        theta_q, log_q_theta, x_path, log_q_x, extra_info = self.batched_sample(
+        theta_q, log_q_theta, x_path, log_q_x, next_state, extra_info = self.batched_sample(
             dataset,
             key,
             sample_kwargs,
             state,
-
+            training=training,
         )
-        _, theta_mask, y_batch, c_batch, next_state = extra_info
+        _, theta_mask, y_batch, c_batch = extra_info
 
         latent_scaling = (
             self.batch_length + dataset.sequence_length - 1
@@ -923,15 +962,16 @@ class BufferedSSMVI[
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[typing.Any, typing.Any]:
-        theta_q, x_path, log_q_x, extra_info = self.batched_pretrain_sample(
+        theta_q, x_path, log_q_x, next_state, extra_info = self.batched_pretrain_sample(
             dataset,
             key,
             sample_kwargs,
             state,
-
+            training=training,
         )
-        _, theta_mask, y_batch, c_batch, next_state = extra_info
+        _, theta_mask, y_batch, c_batch = extra_info
 
         buffered_params = self.batched_buffer_params(theta_q, theta_mask)
 
@@ -961,8 +1001,10 @@ class BufferedSSMVI[
             jax.vmap(
                 self.parameter_approximation.sample_and_log_prob,
                 in_axes=(0, None, None),
+                out_axes=(0, 0, None),
             ),
             in_axes=(0, None, None),
+            out_axes=(0, 0, None),
         )(parameter_keys, None, state)
         log_p_theta = jax.vmap(
             jax.vmap(

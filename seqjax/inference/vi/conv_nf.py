@@ -82,7 +82,11 @@ class _LocalConditioner(eqx.Module):
         self.kernel_size = kernel_size
         self.update_even = update_even
         in_size = target_dim * (kernel_size - 1) + cond_dim
-        print(f"total in size: {in_size} | {target_dim * (kernel_size - 1)}, {cond_dim}")
+
+        if width_size < in_size:
+            print(f"warning: conv NF conditioner width: {width_size}")
+            print(f"total in size: {in_size} | {target_dim * (kernel_size - 1)}, {cond_dim}")
+        
         # we give conditioning variables rank -1 (no masking of edges to output)
         if update_even:
             in_ranks = jnp.hstack((jnp.arange(target_dim), -jnp.ones(in_size, int)))

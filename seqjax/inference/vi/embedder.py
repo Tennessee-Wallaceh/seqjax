@@ -389,7 +389,7 @@ class ConvResidualBlock(eqx.Module):
         hidden: int,
         *,
         kernel_size: int,
-        dilation: int=1,
+        dilation: int = 1,
         key,
     ):
         k1, k2 = jax.random.split(key, 2)
@@ -515,7 +515,7 @@ class Conv1DEmbedder(Embedder):
             self.embedding_norm = None
 
         if use_param_norm:
-            self.param_norm = EMAParamNorm(self.parameter_context_dim)
+            self.param_norm = EMAParamNorm(self.parameter_context_dim, momentum=0.95)
         else:
             self.param_norm = None
 
@@ -540,7 +540,8 @@ class Conv1DEmbedder(Embedder):
         state=None,
         *,
         sequence_start: None | int = None,
-        inference: bool = False,
+        training: bool = False,
+        reduce_axes: tuple[str, ...] = (),
     ):
         sequence_embedded_context = self.convolve(observations)
         if self.position_mode is not None:
@@ -563,9 +564,7 @@ class Conv1DEmbedder(Embedder):
 
         if self.param_norm is not None:
             flat_p = parameters.ravel()
-            print(state)
-            norm_p, state = self.param_norm(flat_p, state, update_stats=inference)
-            print(flat_p, norm_p, parameters)
+            norm_p, state = self.param_norm(flat_p, state, training=training, reduce_axes=reduce_axes)
             parameters = parameters.unravel(norm_p)
             
         aggregated = self.aggregator(sequence_embedded_context, observations)
