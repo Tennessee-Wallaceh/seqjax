@@ -13,7 +13,7 @@ class ResultProcessor:
         condition,
     ) -> None:
         if experiment_config.inference.label == "NUTS":
-            _, latent_samples, full_param_samples = extra_data
+            _, latent_samples = extra_data
 
             param_sample_chains = [ #type: ignore
                 (

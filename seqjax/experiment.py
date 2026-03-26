@@ -198,13 +198,16 @@ def run_experiment(
     ):
         generative_params = experiment_config.data_config.generative_parameters
         nuts_config_with_init = replace(
-            experiment_config.inference,
+            experiment_config.inference.config,
             initial_latents=x_paths,
             initial_params=model.parameterization.from_model_parameters(generative_params),
         )
         experiment_config = replace(
             experiment_config,
-            inference=nuts_config_with_init,
+            inference=replace(
+                experiment_config.inference,
+                config=nuts_config_with_init,
+            )
         )
 
     condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
