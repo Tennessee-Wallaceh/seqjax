@@ -332,7 +332,7 @@ Latent configurations
 @dataclass
 class AutoregressiveLatentApproximation:
     label: str = field(init=False, default="autoregressive")
-    nn_width: int = 20
+    nn_width: int = 32
     nn_depth: int = 2
     lag_order: int = 1
 
