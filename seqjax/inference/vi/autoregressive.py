@@ -136,6 +136,9 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         embedder: Embedder,
         lag_order: int,
     ) -> None:
+        if target_struct_cls.flat_dim != 1:
+            raise ValueError("AmortizedUnivariateAutoregressor requires target_struct_cls.flat_dim == 1.")
+        
         super().__init__(
             target_struct_cls,
             (sample_length, target_struct_cls.flat_dim),
@@ -193,7 +196,6 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
                 condition.sequence_embedded_context,
                 condition.condition_context
             ),
-            unroll=self.shape[0]
         )
         sample = self.target_struct_cls.unravel(x_path)
         log_q = jnp.sum(jnp.sum(log_q_x_path, axis=-1))
