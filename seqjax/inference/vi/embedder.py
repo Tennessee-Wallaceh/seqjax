@@ -411,10 +411,10 @@ class ConvResidualBlock(eqx.Module):
         return jax.vmap(norm, in_axes=1, out_axes=1)(x)
 
     def __call__(self, x):
-        resid = self._norm_over_time(self.norm_1, x)
-        resid = self.conv_1(resid)
+        # resid = self._norm_over_time(self.norm_1, x)
+        resid = self.conv_1(x)
         resid = jax.nn.gelu(resid)
-        return 0.9 * x + 0.1 * resid
+        return resid
 
 
 class Conv1DEmbedder(Embedder):
