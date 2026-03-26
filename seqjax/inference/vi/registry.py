@@ -54,7 +54,7 @@ class LongContextEmbedder:
     prev_window: int = 10
     post_window: int = 10
     position_mode: None | PositionMode = None
-    n_pos_embedding: int = 8
+    n_pos_embedding: int = 1
 
 @dataclass
 class Conv1DEmbedderConfig:
@@ -65,7 +65,7 @@ class Conv1DEmbedderConfig:
     pool_dim: None | int = None
     pool_kind: str = "avg"
     position_mode: None | PositionMode = None
-    n_pos_embedding: int = 8
+    n_pos_embedding: int = 1
     embed_norm_kind: None | str = None
     param_norm: bool = False
 
@@ -75,7 +75,7 @@ class BiRNNEmbedder:
     hidden_dim: int = 10
     aggregation_kind: aggregation.AggregationKind = "observation-flatten"
     position_mode: None | PositionMode = None
-    n_pos_embedding: int = 8
+    n_pos_embedding: int = 1
 
 
 @dataclass
