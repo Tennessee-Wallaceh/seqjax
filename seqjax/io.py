@@ -135,8 +135,6 @@ def process_parquet_metadata(md: Mapping[str, Any]) -> dict[str, Any]:
 
 def packable_to_df(packable: Packable) -> pl.DataFrame:
     flat_array = np.asarray(packable.ravel())
-    print(flat_array.shape)
-    print(packable.flat_fields())
     return pl.DataFrame(flat_array, schema=packable.flat_fields())
 
 
