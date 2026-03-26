@@ -35,14 +35,11 @@ class TransformedApproximation[T: seqjax.model.typing.Packable, C](
         key: jaxtyping.PRNGKeyArray,
         condition: C,
         state: typing.Any = None,
-        *,
-        inference: bool = False,
     ) -> tuple[T, jaxtyping.Scalar, typing.Any]:
         theta_z, log_q_z, next_state = self.base.sample_and_log_prob(
             key,
             condition,
             state,
-            inference=inference,
         )
         theta_x, lad = self.constraint.transform_and_lad(theta_z)
         log_q_x = log_q_z - lad

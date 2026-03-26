@@ -134,7 +134,7 @@ def run_full_path_vi[
             key,
             eval_sampling_kwargs,
             model_state,
-            inference=True,
+            training=False,
         )
     )
 
@@ -377,7 +377,6 @@ def run_hybrid_vi[
         jrandom.split(key, eval_sampling_kwargs['samples_per_context']),
         None,
         model_state,
-        inference=True,
     )
 
     return (

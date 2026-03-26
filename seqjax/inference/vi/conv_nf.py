@@ -379,8 +379,6 @@ class AmortizedConvCoupling[
         key: jaxtyping.PRNGKeyArray,
         condition: LatentContext,
         state: typing.Any = None,
-        *,
-        inference: bool = False,
     ) -> tuple[TargetStructT, jaxtyping.Scalar, typing.Any]:
         
         cond = self._build_condition(condition)

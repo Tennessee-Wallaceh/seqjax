@@ -68,6 +68,7 @@ class HybridSSMVI[
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[typing.Any, typing.Any]:
         context_samples = sample_kwargs["context_samples"]
         samples_per_context = sample_kwargs["samples_per_context"]
@@ -93,8 +94,12 @@ class HybridSSMVI[
         parameters, log_q_theta, next_state = jax.vmap(
             self.parameter_approximation.sample_and_log_prob,
             in_axes=(0, None, None),
+            out_axes=(0, 0, None),
+            axis_name="monte-carlo",
         )(
-            jrandom.split(param_key, samples_per_context), None, state
+            jrandom.split(param_key, samples_per_context),
+            None,
+            state,
         )
 
         estimated_score = jax.vmap(
@@ -128,6 +133,7 @@ class HybridSSMVI[
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
+        training: bool = False,
     ) -> tuple[typing.Any, typing.Any]:
         raise Exception("No pretrain loss for Hybrid VI")
 
@@ -145,8 +151,10 @@ class HybridSSMVI[
             jax.vmap(
                 self.parameter_approximation.sample_and_log_prob,
                 in_axes=(0, None, None),
+                out_axes=(0, 0, None),
             ),
             in_axes=(0, None, None),
+            out_axes=(0, 0, None),
         )(parameter_keys, None, state)
         log_p_theta = jax.vmap(
             jax.vmap(

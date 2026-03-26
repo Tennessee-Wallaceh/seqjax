@@ -124,7 +124,8 @@ class PositionalEmbedder(Embedder):
         state=None,
         *,
         sequence_start: None | int = None,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ):
         sequence_embedded_context = _build_position_features(
             sample_length=self.sample_length,
@@ -233,7 +234,8 @@ class WindowEmbedder(Embedder):
         state=None,
         *,
         sequence_start: None | int = None,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ):
         observation_array = observations.ravel()
         per_dim_context = jax.vmap(self._pad, in_axes=[1])(observation_array)
@@ -347,7 +349,8 @@ class RNNEmbedder(Embedder):
         state=None,
         *,
         sequence_start: None | int = None,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ):
         seq = observations.ravel()
         h_fwd = self._scan(self.cell_fwd, seq)
@@ -701,7 +704,8 @@ class TransformerEmbedder(Embedder):
         state=None,
         *,
         sequence_start: None | int = None,
-        inference: bool = False,
+        reduce_axes: tuple[str, ...] = (),
+        training: bool = False,
     ):
         sequence_embedded_context = self.encode(observations)
 
