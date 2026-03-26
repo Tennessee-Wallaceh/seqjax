@@ -316,12 +316,51 @@ codes["buffer-vi"]["LAX"] = {
             "W": ("nn_width", parse_int_required, "32"),
             "D": ("nn_depth", parse_int_required, "2"),
         }),
+        "CNF": ("conv-flow", {
+            "W": ("nn_width", parse_int_required, "32"),
+            "D": ("nn_depth", parse_int_required, "2"),
+            "K": ("kernel_size", parse_int_required, "5"),
+            "FL": ("flow_layers", parse_int_required, "2"),
+        }),
     }
 }
 codes["buffer-vi"]["PT"] = pre_train_config
 codes["buffer-vi"]["PR"] = prior_train_config
 codes["buffer-vi"]["B"] = ("buffer_length", parse_int_required, "10")
 codes["buffer-vi"]["M"] = ("batch_length", parse_int_required, "5")
+
+codes["hybrid-vi"] = {
+    "OPT": optimization_config,
+    "MC": ("samples_per_context", parse_int_required, "10"),
+    "SMB": ("num_sequence_minibatch", parse_int_required, "1"),
+    "PAX": {
+        "field": "parameter_approximation",
+        "registry": vi.registry.parameter_approximation_registry,
+        "options": {
+            "MF": ("mean-field", {}),
+            "MAF": ("maf", {
+                "W": ("nn_width", parse_int_required, "32"),
+                "D": ("nn_depth", parse_int_required, "2"),
+            }),
+            "MVN": ("multivariate-normal", {
+                "J": ("diag_jitter", parse_float, "1e-6"),
+            }),
+        },
+    },
+    "PR": prior_train_config,
+    "B": ("buffer_length", parse_int_required, "10"),
+    "M": ("batch_length", parse_int_required, "5"),
+    "PF": {
+        "field": "particle_filter_config",
+        "registry": particle_filter_registry.registry,
+        "options": {
+            "BTS": ("bootstrap", {
+                "N": ("num_particles", parse_int_required, "1k"),
+                "R": ("resample", lambda x: x, "multinomial"),
+            })
+        },
+    },
+}
 
 codes["buffer-sgld"] = {
     "SS": ("step_size", parse_float, "1e-3"),

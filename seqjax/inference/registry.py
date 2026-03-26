@@ -13,6 +13,7 @@ InferenceName = typing.Literal[
     "NUTS",
     "buffer-vi",
     "full-vi",
+    "hybrid-vi",
     "particle-mcmc",
     "full-sgld",
     "buffer-sgld",
@@ -100,6 +101,18 @@ register_inference(
     #     + f"-{str(config.optimization)}"
     #     + f"-E_{config.embedder.label}"
     # ),
+)
+
+register_inference(
+    "hybrid-vi",
+    config_cls=vi.registry.HybridVIConfig,
+    run=vi.run.run_hybrid_vi,
+    name_fn=lambda label, config: (
+        f"{label}-B{config.buffer_length}-M{config.batch_length}"
+        f"-MC{config.samples_per_context}"
+        f"-P{config.particle_filter_config.num_particles}"
+        + f"-{str(config.optimization)}"
+    ),
 )
 
 register_inference(

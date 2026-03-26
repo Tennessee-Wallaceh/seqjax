@@ -74,7 +74,6 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
     "full-vi": (
         vi.registry.FullVIConfig(
             optimization=vi.run.AdamOpt(lr=1e-2, total_steps=2),
-            parameter_field_bijections={},
             embedder=vi.registry.BiRNNEmbedder(),
             samples_per_context=1,
             pre_training_optimization=vi.run.AdamOpt(lr=1e-2, total_steps=1),
@@ -84,6 +83,19 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
                 nn_depth=1,
             ),
             parameter_approximation=vi.registry.MeanFieldParameterApproximation(),
+        ),
+        200,
+    ),
+    "hybrid-vi": (
+        vi.registry.HybridVIConfig(
+            optimization=vi.run.AdamOpt(lr=1e-2, total_steps=2),
+            particle_filter_config=particlefilter.registry.BootstrapFilterConfig(
+                resample="multinomial",
+                num_particles=4,
+            ),
+            samples_per_context=1,
+            buffer_length=2,
+            batch_length=4,
         ),
         200,
     ),
