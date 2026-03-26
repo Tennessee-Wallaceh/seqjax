@@ -174,7 +174,9 @@ class Packable[*BatchAxes](eqx.Module):
         return tuple(
             leaf_name if spec.shape == () else f"{leaf_name}_{'_'.join(map(str, ix))}"
             for leaf_name, spec in cls._shape_template.items()
-            for ix in (() if spec.shape == () else np.ndindex(spec.shape))
+            for ix in (
+                (0,) if spec.shape == () else np.ndindex(spec.shape)
+            )
         )
 
     @classmethod
