@@ -12,6 +12,7 @@ from seqjax.inference import (
 InferenceName = typing.Literal[
     "NUTS",
     "buffer-vi",
+    "hybrid-vi",
     "full-vi",
     "hybrid-vi",
     "particle-mcmc",

@@ -184,6 +184,8 @@ codes["NUTS"] = {
     "NS": ("num_steps", parse_int_optional, "10k"), 
     "NC": ("num_chains", parse_int_required, "1"),
     "MAXT": ("max_time_s", parse_time_optional, "NO"),
+    "BS": ("sample_block_size", parse_int_required, "1k"),
+    "DS": ("downsample_stride", parse_int_required, "1")
 }
 
 """
@@ -295,6 +297,26 @@ codes["full-vi"] = {
                 "J": ("diag_jitter", parse_float, "1e-6"),
             }),
         }
+    },
+}
+
+codes["hybrid-vi"] = {
+    "OPT": optimization_config,
+    "MC": ("samples_per_context", parse_int_required, "10"),
+    "SMB": ("num_sequence_minibatch", parse_int_required, "1"),
+    "PAX": codes["full-vi"]["PAX"].copy(),
+    "PR": prior_train_config,
+    "B": ("buffer_length", parse_int_required, "10"),
+    "M": ("batch_length", parse_int_required, "5"),
+    "PF": {
+        "field": "particle_filter_config",
+        "registry": particle_filter_registry.registry,
+        "options": {
+            "BTS": ("bootstrap", {
+                "N": ("num_particles", parse_int_required, "1k"),
+                "R": ("resample", lambda x: x, "multinomial"),
+            })
+        },
     },
 }
 
