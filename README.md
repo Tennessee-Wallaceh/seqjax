@@ -9,7 +9,7 @@ SeqJAX ships with a handful of toy models demonstrating this approach: an AR(1) 
 SeqJAX requires Python 3.13 or later. Only installation from source is currently available:
 
 ```bash
-pip install git+https://github.com/bayesianshift/seqjax.git
+pip install git+https://github.com/Tennessee-Wallaceh/seqjax.git
 ```
 
 ## Example
