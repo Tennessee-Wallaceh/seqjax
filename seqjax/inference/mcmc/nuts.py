@@ -106,7 +106,7 @@ def run_bayesian_nuts[
     tracker: Any = None,
 ) -> tuple[
     InferenceParametersT,
-    tuple[jaxtyping.Array, ParticleT, InferenceParametersT],
+    tuple[list[tuple[float, int]], ParticleT],
 ]:
     """Sample parameters and latent paths jointly using NUTS."""
 
@@ -294,8 +294,7 @@ def run_bayesian_nuts[
         *latent_blocks,
     )
 
-    return jax.tree_util.tree_map(jnp.squeeze, param_samples), (
+    return param_samples, (
         block_times_s,
         latent_samples,
-        param_samples,
     )
