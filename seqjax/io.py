@@ -135,6 +135,8 @@ def process_parquet_metadata(md: Mapping[str, Any]) -> dict[str, Any]:
 
 def packable_to_df(packable: Packable) -> pl.DataFrame:
     flat_array = np.asarray(packable.ravel())
+    print(flat_array.shape)
+    print(packable.flat_fields())
     return pl.DataFrame(flat_array, schema=packable.flat_fields())
 
 
@@ -419,19 +421,28 @@ def _assert_all_required_shards_present(
 
 
 def _stack_sequence_packables(
+    x_paths: list[Packable | None],
     observation_paths: list[Packable],
     condition_paths: list[Packable | None],
-) -> tuple[Packable, Packable | None]:
+) -> tuple[Packable| None, Packable, Packable | None]:
     observation_stacked = _stack_packables(observation_paths)
-    if len(condition_paths) == 0 or all(c is None for c in condition_paths):
-        return observation_stacked, None
-    if not all(c is not None for c in condition_paths):
-        raise ValueError(
-            "Condition shard mismatch: some sequences have condition data and others do not."
+    
+    if len(x_paths) == 0 or all(c is None for c in x_paths):
+        stacked_x = None
+    else:
+        stacked_x = _stack_packables(
+            typing.cast(list[Packable], x_paths)
         )
-    return observation_stacked, _stack_packables(
-        typing.cast(list[Packable], condition_paths)
-    )
+
+    if len(condition_paths) == 0 or all(c is None for c in condition_paths):
+        stacked_c = None
+    else:
+        stacked_c = _stack_packables(
+            typing.cast(list[Packable], condition_paths)
+        )
+    
+
+    return stacked_x, observation_stacked, stacked_c
 
 
 class WandbArtifactDataStorage:
@@ -892,4 +903,4 @@ class LocalPreparedDataStorage:
                 )
             else:
                 loaded_condition_paths.append(None)
-        return _stack_sequence_packables(observation_paths, loaded_condition_paths)
+        return _stack_sequence_packables([], observation_paths, loaded_condition_paths)
