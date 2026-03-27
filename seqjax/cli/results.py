@@ -36,7 +36,15 @@ class ResultProcessor:
             approx_start, x_q, run_tracker, fitted_approximation, opt_state, _ = extra_data
         elif experiment_config.inference.label == "full-vi":
             run_tracker, x_q, fitted_approximation, opt_state, _ = extra_data
-
+        elif experiment_config.inference.label == "hybrid-vi":
+            (
+                _,
+                _,
+                run_tracker,
+                fitted_approximation,
+                opt_state,
+                model_state,
+            ) = extra_data
         elif (
             experiment_config.inference.label == "buffer-sgld" 
             or experiment_config.inference.label == "particle-mcmc" 
