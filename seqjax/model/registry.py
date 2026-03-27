@@ -83,6 +83,11 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
             ar=jnp.array(0.6),
             std_log_var=jnp.array(3.2),
             long_term_log_var=2 * jnp.log(jnp.array(0.16)),
+        ),
+        "high-freq": stochastic_vol.simple_var.LogVarParams(
+            ar=jnp.array(0.95),
+            std_log_var=jnp.array(0.1),
+            long_term_log_var=2 * jnp.log(jnp.array(0.6)),
         )
     }
 }
