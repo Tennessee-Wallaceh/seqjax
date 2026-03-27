@@ -30,7 +30,7 @@ from flowjax.utils import get_ravelled_pytree_constructor
 from flowjax.bijections.masked_autoregressive import masked_autoregressive_mlp
 import paramax
 
-def _affine_with_min_scale(min_scale: float = 1e-2) -> Affine:
+def _affine_with_min_scale(min_scale: float = 1e-6) -> Affine:
     scale = Parameterize(lambda x: softplus(x) + min_scale, inv_softplus(1 - min_scale))
     return eqx.tree_at(where=lambda aff: aff.scale, pytree=Affine(), replace=scale)
 
@@ -114,6 +114,7 @@ class _LocalConditioner(eqx.Module):
             self._target_ix[:, None] + pad + offsets
         ].reshape(len(self._target_ix), -1)
         cond_features = condition[self._target_ix]
+
         return jnp.hstack((windows, cond_features))
 
     def site_params(self, x_target: Array, context_features: Array) -> Array:
@@ -203,6 +204,7 @@ class LocalParityCoupling(AbstractBijection):
             )(transformer_row, x_row)
             return y_row, jnp.sum(log_det_row)
 
+
         y_target, log_det = eqx.filter_vmap(transform_row)(
             transformer,
             x[self._target_indices],
@@ -266,7 +268,7 @@ def local_parity_coupling_flow(
     ``(dim, cond_dim)``.
     """
     if transformer is None:
-        transformer = _affine_with_min_scale()
+        transformer = _affine_with_min_scale(1e-6)
 
     loc = jnp.zeros((sequence_dim, target_dim))
     scale = jnp.ones((sequence_dim, target_dim))
@@ -322,7 +324,7 @@ class AmortizedConvCoupling[
         self.target_struct_cls = target_struct_cls
 
         if transformer is None:
-            transformer = _affine_with_min_scale(1e-4)
+            transformer = _affine_with_min_scale(1e-6)
 
         cond_input_dim = (
             embedder.parameter_context_dim
@@ -386,4 +388,5 @@ class AmortizedConvCoupling[
         latent_sample = typing.cast(
             TargetStructT, self.target_struct_cls.unravel(flat_sample)
         )
+        
         return latent_sample, log_q, state
