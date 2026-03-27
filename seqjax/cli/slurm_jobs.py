@@ -10,6 +10,7 @@ from typing import Any, TypedDict, cast
 
 class SharedPlan(TypedDict, total=False):
     model: str
+    parameters: str
     sequence_length: int
     num_sequences: int
     inference: str
@@ -89,6 +90,7 @@ def _render_script(
     source_venv: str,
     install_cmd: str,
     model: str,
+    generative_parameters: str,
     sequence_length: int,
     num_sequences: int,
     base_data_seed: int,
@@ -133,6 +135,7 @@ def _render_script(
         [
             "CMD=(python -m seqjax.cli run",
             f"  --model {model}",
+            f"  --parameters {_quote(generative_parameters)}",
             f"  --sequence-length {sequence_length}",
             f"  --num-sequences {num_sequences}",
             '  --data-seed "$DATA_SEED"',
@@ -204,6 +207,9 @@ def generate_slurm_jobs(
     logs_dir = experiment_dir / "logs"
 
     shared = cast(SharedPlan, dict(plan.get("shared", {})))
+    generative_parameters = str(shared.get("parameters", "base"))
+    if not generative_parameters:
+        raise ValueError("shared.parameters must be a non-empty string when provided")
 
     if not dry_run:
         scripts_dir.mkdir(parents=True, exist_ok=True)
@@ -256,6 +262,7 @@ def generate_slurm_jobs(
                 source_venv=str(shared.get("source_venv", ".venv/bin/activate")),
                 install_cmd=str(shared.get("install_cmd", "uv pip install -e .[dev]")),
                 model=str(shared["model"]),
+                generative_parameters=generative_parameters,
                 sequence_length=int(shared["sequence_length"]),
                 num_sequences=int(shared.get("num_sequences", 1)),
                 base_data_seed=base_data_seed,

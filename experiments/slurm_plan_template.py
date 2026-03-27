@@ -8,6 +8,7 @@ PLAN = {
     "output_root": "experiments/jobs",
     "shared": {
         "model": "aicher_stochastic_vol",
+        "parameters": "base",
         "inference": "buffer-vi",
         "sequence_length": 1000,
         "test_samples": 1000,

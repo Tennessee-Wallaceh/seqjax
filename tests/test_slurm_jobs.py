@@ -59,6 +59,7 @@ def test_generate_slurm_jobs_one_script_per_configuration(tmp_path: Path, capsys
     assert 'DATA_SEED="$((BASE_DATA_SEED + (SLURM_ARRAY_TASK_ID / FIT_SEED_REPEATS)))"' in script
     assert '  --data-seed "$DATA_SEED"' in script
     assert '  --fit-seed "$FIT_SEED"' in script
+    assert "  --parameters 'base'" in script
     assert "CODES=(" not in script
     assert "for code in \"${CODES[@]}\"" not in script
     assert "  --code 'A.1'" in script
@@ -138,6 +139,74 @@ PLAN = {
         assert "Invalid flat code token" in str(exc)
     else:
         raise AssertionError("Expected ValueError for invalid flat code token")
+
+
+def test_generate_slurm_jobs_shared_parameters_override(tmp_path: Path) -> None:
+    plan_file = tmp_path / "plan.py"
+    plan_file.write_text(
+        """
+PLAN = {
+    "experiment_name": "demo",
+    "shared": {
+        "model": "aicher_stochastic_vol",
+        "parameters": "challenging",
+        "inference": "buffer-vi",
+        "sequence_length": 25,
+    },
+    "studies": [
+        {
+            "name": "study_one",
+            "axes": {"a": [["A.1"]]},
+        }
+    ],
+}
+""",
+        encoding="utf-8",
+    )
+
+    outputs = slurm_jobs.generate_slurm_jobs(
+        plan_file=str(plan_file),
+        output_root_override=str(tmp_path / "out"),
+        dry_run=False,
+    )
+
+    script = outputs[0].read_text(encoding="utf-8")
+    assert "  --parameters 'challenging'" in script
+
+
+def test_generate_slurm_jobs_empty_parameters_raises(tmp_path: Path) -> None:
+    plan_file = tmp_path / "plan.py"
+    plan_file.write_text(
+        """
+PLAN = {
+    "experiment_name": "demo",
+    "shared": {
+        "model": "aicher_stochastic_vol",
+        "parameters": "",
+        "inference": "buffer-vi",
+        "sequence_length": 25,
+    },
+    "studies": [
+        {
+            "name": "study_one",
+            "axes": {"a": [["A.1"]]},
+        }
+    ],
+}
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        slurm_jobs.generate_slurm_jobs(
+            plan_file=str(plan_file),
+            output_root_override=str(tmp_path / "out"),
+            dry_run=True,
+        )
+    except ValueError as exc:
+        assert "shared.parameters must be a non-empty string" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for empty parameters")
 
 
 def test_generate_slurm_jobs_mismatched_nested_group_raises(tmp_path: Path) -> None:
