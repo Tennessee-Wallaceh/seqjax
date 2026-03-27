@@ -16,6 +16,11 @@ Parser = Callable[[str], Any]
 def parse_float(x: str) -> float:
     return float(Quantity(x))
 
+def parse_float_optional(x: str) -> float | None:
+    if x.strip().upper() == "NO":
+        return None
+    return float(Quantity(x))
+
 def parse_int_required(x: str) -> int:
     v = float(Quantity(x))
     if int(v) != v:
@@ -195,6 +200,7 @@ shared_optimizer: dict[str, FlatCode] = {
     "LR": ("lr", parse_float, "1e-3"),
     "MAXS": ("total_steps", parse_int_optional, "NO"),
     "MAXT": ("time_limit_s", parse_time_optional, "5m"),
+    "GC": ("grad_clip_norm", parse_float_optional, "NO"),
 }
 
 cosine_optimizer: dict[str, FlatCode] = {
