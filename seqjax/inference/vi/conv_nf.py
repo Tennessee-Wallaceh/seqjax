@@ -43,7 +43,7 @@ def _affine_with_min_scale(min_scale: float = 1e-6) -> Affine:
 
 
 class Conditioner(Protocol):
-    def __call__(self, x: Array) -> Array: ...
+    def __call__(self, x: Array, condition: Array) -> Array: ...
 
 
 class _LocalConditioner(eqx.Module):
@@ -149,6 +149,7 @@ class LocalParityCoupling(AbstractBijection):
     target_dim: int
     update_even: bool
     _coord_order: Array
+    _coord_to_rank: Array
     _target_indices: Array
     transformer_constructor: Callable
     conditioner: _LocalConditioner
@@ -200,8 +201,10 @@ class LocalParityCoupling(AbstractBijection):
         self._target_indices = jnp.arange(0 if self.update_even else 1, self.sequence_dim, 2, dtype=jnp.int32)
         if self.update_even:
             self._coord_order = jnp.arange(self.target_dim, dtype=jnp.int32)
+            self._coord_to_rank = jnp.arange(self.target_dim, dtype=jnp.int32)
         else:
             self._coord_order = jnp.arange(self.target_dim - 1, -1, -1, dtype=jnp.int32)
+            self._coord_to_rank = jnp.arange(self.target_dim - 1, -1, -1, dtype=jnp.int32)
 
     def transform_and_log_det(self, x, condition=None):
         transformer = self._condition_to_transformer(x, condition)
@@ -233,7 +236,7 @@ class LocalParityCoupling(AbstractBijection):
                 params_flat = self.conditioner.site_params(x_t, ctx_t)
                 params = params_flat.reshape(self.target_dim, -1)
 
-                transformer_j = self.transformer_constructor(params[j])
+                transformer_j = self.transformer_constructor(params[self._coord_to_rank[j]])
                 x_j = transformer_j.inverse(y_t[j])
 
                 x_t = x_t.at[j].set(x_j)
@@ -251,6 +254,10 @@ class LocalParityCoupling(AbstractBijection):
     def _condition_to_transformer(self, x: Array, condition: Array):
         transform_p = self.conditioner(x, condition)
         transform_p = jnp.reshape(transform_p, (len(self._target_indices), x.shape[1], -1))
+        # The masked network outputs are ordered by rank. For update_even=False,
+        # ranks are reversed relative to natural coordinate order, so remap them
+        # back to coordinate order before constructing per-coordinate transforms.
+        transform_p = transform_p[:, self._coord_to_rank, :]
         transformer = eqx.filter_vmap(eqx.filter_vmap(self.transformer_constructor))(transform_p)
         return transformer
 
