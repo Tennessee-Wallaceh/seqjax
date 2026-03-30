@@ -60,6 +60,7 @@ class _LocalConditioner(eqx.Module):
     kernel_size: int
     update_even: bool
     _target_ix: Array
+    _frozen_ix: Array
 
     def __init__(
         self,
@@ -85,6 +86,7 @@ class _LocalConditioner(eqx.Module):
         self.sequence_dim = sequence_dim
         self.target_dim = target_dim
         self._target_ix = jnp.arange(0 if update_even else 1, self.sequence_dim, 2, jnp.int32)
+        self._frozen_ix = jnp.arange(1 if update_even else 0, self.sequence_dim, 2, jnp.int32)
         self.cond_dim = cond_dim
         self.kernel_size = kernel_size
         self.update_even = update_even
@@ -113,10 +115,16 @@ class _LocalConditioner(eqx.Module):
             key=key,
         )
 
-    def context_features(self, x: Array, condition: Array) -> Array:
-        pad = self.kernel_size - 2
-        offsets = jnp.arange(-(self.kernel_size - 2), self.kernel_size, 2)
-        padded = jnp.pad(x, ((pad, pad), (0, 0)), mode="edge")
+    def context_features(self, x_frozen: Array, condition: Array) -> Array:
+        radius = self.kernel_size // 2
+        pad = radius
+        offsets = jnp.concatenate(
+            (
+                jnp.arange(-radius, 0, dtype=jnp.int32),
+                jnp.arange(1, radius + 1, dtype=jnp.int32),
+            )
+        )
+        padded = jnp.pad(x_frozen, ((pad, pad), (0, 0)), mode="edge")
         windows = padded[
             self._target_ix[:, None] + pad + offsets
         ].reshape(len(self._target_ix), -1)
@@ -130,9 +138,18 @@ class _LocalConditioner(eqx.Module):
         features = jnp.hstack((x_target, context_features))
         return self.masked_autoregressive_mlp(features)
 
-    def __call__(self, x: Array, condition: Array) -> Array:
-        x_target = x[self._target_ix]
-        ctx = self.context_features(x, condition)
+    def __call__(self, x_target: Array, x_frozen: Array, condition: Array) -> Array:
+        if x_target.shape[0] != len(self._target_ix):
+            raise ValueError(
+                "x_target must contain values at target indices only. "
+                f"Expected leading dim {len(self._target_ix)}, received {x_target.shape[0]}."
+            )
+        if x_frozen.shape[0] != self.sequence_dim:
+            raise ValueError(
+                "x_frozen must preserve sequence axis. "
+                f"Expected leading dim {self.sequence_dim}, received {x_frozen.shape[0]}."
+            )
+        ctx = self.context_features(x_frozen, condition)
         return eqx.filter_vmap(self.site_params)(x_target, ctx)
     
 class LocalParityCoupling(AbstractBijection):
@@ -226,7 +243,10 @@ class LocalParityCoupling(AbstractBijection):
 
     def inverse_and_log_det(self, y, condition=None):
         # fixed temporal context for each target sequence site
-        ctx = self.conditioner.context_features(y, condition)
+        y_frozen = jnp.zeros_like(y).at[
+            self.conditioner._frozen_ix
+        ].set(y[self.conditioner._frozen_ix])
+        ctx = self.conditioner.context_features(y_frozen, condition)
         y_target = y[self._target_indices]
 
         def invert_one_site(y_t, ctx_t):
@@ -252,7 +272,11 @@ class LocalParityCoupling(AbstractBijection):
         return x, -log_det
 
     def _condition_to_transformer(self, x: Array, condition: Array):
-        transform_p = self.conditioner(x, condition)
+        x_target = x[self._target_indices]
+        x_frozen = jnp.zeros_like(x).at[
+            self.conditioner._frozen_ix
+        ].set(x[self.conditioner._frozen_ix])
+        transform_p = self.conditioner(x_target, x_frozen, condition)
         transform_p = jnp.reshape(transform_p, (len(self._target_indices), x.shape[1], -1))
         # The masked network outputs are ordered by rank. For update_even=False,
         # ranks are reversed relative to natural coordinate order, so remap them

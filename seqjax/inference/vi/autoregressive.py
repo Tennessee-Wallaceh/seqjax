@@ -136,9 +136,6 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         embedder: Embedder,
         lag_order: int,
     ) -> None:
-        if target_struct_cls.flat_dim != 1:
-            raise ValueError("AmortizedUnivariateAutoregressor requires target_struct_cls.flat_dim == 1.")
-        
         super().__init__(
             target_struct_cls,
             (sample_length, target_struct_cls.flat_dim),
@@ -234,6 +231,10 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
         nn_depth: int,
         key: PRNGKeyArray,
     ) -> None:
+        if target_struct_cls.flat_dim != 1:
+            raise ValueError(
+                "AmortizedUnivariateAutoregressor requires target_struct_cls.flat_dim == 1."
+            )
         super().__init__(
             target_struct_cls,
             sample_length=sample_length,
@@ -299,6 +300,10 @@ class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
         nn_depth: int,
         key: PRNGKeyArray,
     ) -> None:
+        if model.target.latent_cls.flat_dim != 1:
+            raise ValueError(
+                "AmortizedInnovationUnivariateAutoregressor requires latent flat_dim == 1."
+            )
         super().__init__(
             model.target.latent_cls,
             sample_length=sample_length,
