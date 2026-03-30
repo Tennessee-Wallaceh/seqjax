@@ -207,7 +207,7 @@ class FullVI[
 ](eqx.Module):
     latent_approximation: AmortizedVariationalApproximation[LatentT]
     parameter_approximation: UnconditionalVariationalApproximation[ParametersT]
-    embedding: Embedder[ObservationT, ConditionT, ParametersT]
+    embedding: Embedder[ObservationT, ConditionT, InferenceParametersT]
     target_posterior: BayesianSequentialModelProtocol[
         LatentT,
         ObservationT,
@@ -268,6 +268,7 @@ class FullVI[
             in_axes=(0, None, None),
             out_axes=(0, 0, None),
         )(parameter_keys, None, state)
+
         latent_context, embed_state = jax.vmap(
             self.embedding.embed,
             in_axes=(0, 0, 0, None),
@@ -460,41 +461,64 @@ class FullVI[
             parameter_keys
         )
 
+        if isinstance(sampled_conditions, seqjtyping.NoCondition):
+            ax_spec = (0, None, 0, None)
+        else:
+            ax_spec = (0, 0, 0, None)
+
         latent_context, embed_state = jax.vmap(
-            self.embedding.embed,
-            in_axes=(0, 0, 0, None),
+            partial(
+                self.embedding.embed, 
+                reduce_axes=("sequence",),
+                training=training,
+            ),
+            in_axes=ax_spec,
             out_axes=(0, None),
             axis_name="sequence",
         )(
             sampled_observations,
             sampled_conditions,
-            typing.cast(typing.Any, parameters),
+            parameters,
             state,
-            reduce_axes=("sequence",),
-            training=training,
+        )
+
+        if isinstance(sampled_conditions, seqjtyping.NoCondition):
+            condition_spec = None
+        else:
+            condition_spec = 0
+
+        inner_ax_spec = (
+            0,
+            LatentContext.spec(
+                observation_context=None,
+                condition_context=condition_spec,
+                parameter_context=0,
+                embedded_context=None,
+                sequence_embedded_context=None,
+            ),
+            None,
+        )
+  
+        outer_ax_spec = (
+            0,
+            LatentContext.spec(
+                observation_context=0,
+                condition_context=condition_spec,
+                parameter_context=0,
+                embedded_context=0,
+                sequence_embedded_context=0,
+            ),
+            None,
         )
 
         x_path, log_q_x, latent_state = jax.vmap(
             jax.vmap(
                 self.latent_approximation.sample_and_log_prob,
-                in_axes=(
-                    0,
-                    typing.cast(
-                        typing.Any,
-                        LatentContext(
-                            observation_context=None,
-                            condition_context=None,
-                            parameter_context=0,
-                            embedded_context=typing.cast(jaxtyping.Array, None),
-                            sequence_embedded_context=typing.cast(jaxtyping.Array, None),
-                        ),
-                    ),
-                    0,
-                ),
+                in_axes=inner_ax_spec,
                 out_axes=(0, 0, None),
                 axis_name="monte-carlo",
             ),
-            in_axes=(0, 0, 0),
+            in_axes=outer_ax_spec,
             out_axes=(0, 0, None),
             axis_name="sequence",
         )(
@@ -503,11 +527,21 @@ class FullVI[
             embed_state,
         )
 
+        if isinstance(sampled_conditions, seqjtyping.NoCondition):
+            inner_ax_spec = (0, None, None, 0)
+            outer_ax_spec = (0, 0, None, 0)
+        else:
+            inner_ax_spec = (0, None, None, 0)
+            outer_ax_spec = (0, 0, 0, 0)
+
         batched_log_p_joint = jax.vmap(
             partial(log_prob_joint, self.target_posterior.target),
-            in_axes=[0, 0, 0, 0],
+            in_axes=inner_ax_spec,
         )
-        batched_log_p_joint = jax.vmap(batched_log_p_joint, in_axes=[0, 0, 0, 0])
+        batched_log_p_joint = jax.vmap(
+            batched_log_p_joint, 
+            in_axes=outer_ax_spec
+        )
 
         log_p_y_x = batched_log_p_joint(
             x_path,

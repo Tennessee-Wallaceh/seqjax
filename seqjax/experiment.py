@@ -137,7 +137,7 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run):
 
         custom_record_fcns = [wandb_update]
 
-        run_tracker = vi.train.Tracker(
+        run_tracker = vi.train_bayesian.Tracker(
             record_trigger=make_record_trigger(30),
             metric_samples=experiment_config.test_samples,
             custom_record_fcns=custom_record_fcns,

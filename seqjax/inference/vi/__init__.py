@@ -1,4 +1,4 @@
-from . import train
+from . import train_bayesian
 from . import autoregressive
 from . import base
 from . import transformed
@@ -8,7 +8,7 @@ from . import run
 from . import structured
 
 __all__ = [
-    "train",
+    "train_bayesian",
     "autoregressive",
     "base",
     "transformed",

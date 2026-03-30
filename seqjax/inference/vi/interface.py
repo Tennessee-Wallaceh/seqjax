@@ -28,7 +28,6 @@ class VariationalApproximation[
         typing.Any,
     ]: ...
 
-
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class LatentContext[
@@ -53,6 +52,24 @@ class LatentContext[
     embedded_context: jaxtyping.Array
     sequence_embedded_context: jaxtyping.Array
 
+    @classmethod
+    def spec(
+        cls,
+        *,
+        observation_context: int | None,
+        condition_context: int | None,
+        parameter_context: int | None,
+        embedded_context: int | None,
+        sequence_embedded_context: int | None,
+    ):
+        return cls(
+            observation_context,
+            condition_context,
+            parameter_context,
+            embedded_context,
+            sequence_embedded_context,
+        )
+    
     @classmethod
     def from_sequence_context_dims(
         cls, 

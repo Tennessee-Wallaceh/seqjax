@@ -31,8 +31,15 @@ from flowjax.bijections.masked_autoregressive import masked_autoregressive_mlp
 import paramax
 
 def _affine_with_min_scale(min_scale: float = 1e-6) -> Affine:
-    scale = Parameterize(lambda x: softplus(x) + min_scale, inv_softplus(1 - min_scale))
-    return eqx.tree_at(where=lambda aff: aff.scale, pytree=Affine(), replace=scale)
+    scale = Parameterize(
+        lambda x: softplus(x) + min_scale, 
+        inv_softplus(1 - min_scale)
+    )
+    return eqx.tree_at(
+        where=lambda aff: aff.scale, 
+        pytree=Affine(), 
+        replace=scale
+    )
 
 
 class Conditioner(Protocol):
