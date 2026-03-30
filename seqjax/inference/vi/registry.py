@@ -18,7 +18,7 @@ from seqjax.inference.vi import conv_nf
 from seqjax.inference.vi import autoregressive
 from seqjax.inference.vi import structured
 from seqjax.inference.vi.sampling import VISampleConfig, VISamplingKwargs
-from seqjax.model.interface import BayesianSequentialModelProtocol
+from seqjax.model import interface as model_interface
 from seqjax.inference.particlefilter import registry as particle_filter_registry
 
 """
@@ -376,6 +376,81 @@ latent_approximation_registry: dict[LatentApproximationLabels, type[LatentApprox
     "conv-flow": ConvNFLatentApproximation,
 }
 
+
+def build_latent_approximation(
+    latent_config: LatentApproximation, 
+    sample_length: int, 
+    target_model: model_interface.SequentialModelProtocol,
+    key: jaxtyping.PRNGKeyArray,
+    latent_context_dims: embedder.LatentContextDims,
+):
+    target_latent_class = target_model.latent_cls
+
+    if isinstance(latent_config, AutoregressiveLatentApproximation):
+        if target_latent_class.flat_dim == 1:
+            latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
+                target_latent_class,
+                sample_length=sample_length,
+                latent_context_dims=latent_context_dims,
+                lag_order=latent_config.lag_order,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                key=key,
+            )
+        else:
+            latent_approximation = autoregressive.AmortizedMultivariateAutoregressor(
+                target_latent_class,
+                sample_length=sample_length,
+                latent_context_dims=latent_context_dims,
+                lag_order=latent_config.lag_order,
+                nn_width=latent_config.nn_width,
+                nn_depth=latent_config.nn_depth,
+                key=key,
+            )
+
+    elif isinstance(latent_config, MAFLatentApproximation):
+        latent_approximation = maf.AmortizedMAF(
+            target_latent_class,
+            sample_length=sample_length,
+            latent_context_dims=latent_context_dims,
+            key=key,
+            nn_width=latent_config.nn_width,
+            nn_depth=latent_config.nn_depth,
+            flow_layers=latent_config.flow_layers,
+            base_loc=latent_config.base_loc,
+            base_scale=latent_config.base_scale,
+        )
+
+    elif isinstance(latent_config, StructuredPrecisionLatentApproximation):
+        latent_approximation = structured.StructuredPrecisionGaussian(
+            target_latent_class,
+            sample_length=sample_length,
+            latent_context_dims=latent_context_dims,
+            hidden_dim=latent_config.nn_width,
+            depth=latent_config.nn_depth,
+            key=key,
+        )
+
+    elif isinstance(latent_config, ConvNFLatentApproximation):
+        latent_approximation = conv_nf.AmortizedConvCoupling(
+            target_latent_class,
+            sample_length=sample_length,
+            latent_context_dims=latent_context_dims,
+            nn_width=latent_config.nn_width,
+            nn_depth=latent_config.nn_depth,
+            key=key,
+            kernel_size=latent_config.kernel_size,
+            flow_layers=latent_config.flow_layers,
+        )
+
+    else:
+        raise ValueError(
+            f"Unknown latent approximation configuration: {latent_config!r}"
+        )
+    
+    return latent_approximation
+
+
 """
 Approximations
 """
@@ -477,13 +552,12 @@ class BufferedVIConfig(VISampleConfig):
 def build_approximation(
     config: FullVIConfig | BufferedVIConfig | HybridVIConfig,
     sequence_length: int,
-    target_posterior: BayesianSequentialModelProtocol,
+    target_posterior: model_interface.BayesianSequentialModelProtocol,
     key: jaxtyping.PRNGKeyArray,
 ) -> tuple[typing.Any, eqx.nn.State]:
     parameter_key, approximation_key, embedding_key = jrandom.split(key, 3)
 
     target_param_class = target_posterior.parameterization.inference_parameter_cls
-    target_latent_class = target_posterior.target.latent_cls
 
     parameter_approximation = _build_parameter_approximation(
         target_param_class,
@@ -516,54 +590,13 @@ def build_approximation(
         | conv_nf.AmortizedConvCoupling
     )
     if isinstance(config, FullVIConfig):
-        latent_config = config.latent_approximation
-
-        if isinstance(latent_config, AutoregressiveLatentApproximation):
-            if target_latent_class.flat_dim == 1:
-                latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
-                    target_latent_class,
-                    sample_length=sequence_length,
-                    embedder=embed,
-                    lag_order=latent_config.lag_order,
-                    nn_width=latent_config.nn_width,
-                    nn_depth=latent_config.nn_depth,
-                    key=approximation_key,
-                )
-            else:
-                latent_approximation = autoregressive.AmortizedMultivariateAutoregressor(
-                    target_latent_class,
-                    sample_length=sequence_length,
-                    embedder=embed,
-                    lag_order=latent_config.lag_order,
-                    nn_width=latent_config.nn_width,
-                    nn_depth=latent_config.nn_depth,
-                    key=approximation_key,
-                )
-        elif isinstance(latent_config, MAFLatentApproximation):
-            latent_approximation = maf.AmortizedMAF(
-                target_latent_class,
-                sample_length=sequence_length,
-                embedder=embed,
-                key=approximation_key,
-                nn_width=latent_config.nn_width,
-                nn_depth=latent_config.nn_depth,
-                flow_layers=latent_config.flow_layers,
-                base_loc=latent_config.base_loc,
-                base_scale=latent_config.base_scale,
-            )
-        elif isinstance(latent_config, StructuredPrecisionLatentApproximation):
-            latent_approximation = structured.StructuredPrecisionGaussian(
-                target_latent_class,
-                sample_length=sequence_length,
-                embedder=embed,
-                hidden_dim=latent_config.nn_width,
-                depth=latent_config.nn_depth,
-                key=approximation_key,
-            )
-        else:
-            raise ValueError(
-                f"Unknown latent approximation configuration: {latent_config!r}"
-            )
+        latent_approximation = build_latent_approximation(
+            config.latent_approximation,
+            sequence_length,
+            target_model=target_posterior.target,
+            latent_context_dims=embed.latent_context_dims,
+            key=approximation_key
+        )
 
         approximation = base.FullVI(
             latent_approximation,
@@ -573,69 +606,13 @@ def build_approximation(
         )
 
     elif isinstance(config, BufferedVIConfig):
-        latent_config = config.latent_approximation
-
-        if isinstance(latent_config, AutoregressiveLatentApproximation):
-            if target_latent_class.flat_dim == 1:
-                latent_approximation = autoregressive.AmortizedUnivariateAutoregressor(
-                    target_latent_class,
-                    sample_length=config.buffer_length * 2 + config.batch_length,
-                    embedder=embed,
-                    lag_order=latent_config.lag_order,
-                    nn_width=latent_config.nn_width,
-                    nn_depth=latent_config.nn_depth,
-                    key=approximation_key,
-                )
-            else:
-                latent_approximation = autoregressive.AmortizedMultivariateAutoregressor(
-                    target_latent_class,
-                    sample_length=config.buffer_length * 2 + config.batch_length,
-                    embedder=embed,
-                    lag_order=latent_config.lag_order,
-                    nn_width=latent_config.nn_width,
-                    nn_depth=latent_config.nn_depth,
-                    key=approximation_key,
-                )
-
-        elif isinstance(latent_config, MAFLatentApproximation):
-            latent_approximation = maf.AmortizedMAF(
-                target_latent_class,
-                sample_length=config.buffer_length * 2 + config.batch_length,
-                embedder=embed,
-                key=approximation_key,
-                nn_width=latent_config.nn_width,
-                nn_depth=latent_config.nn_depth,
-                flow_layers=latent_config.flow_layers,
-                base_loc=latent_config.base_loc,
-                base_scale=latent_config.base_scale,
-            )
-
-        elif isinstance(latent_config, StructuredPrecisionLatentApproximation):
-            latent_approximation = structured.StructuredPrecisionGaussian(
-                target_latent_class,
-                sample_length=config.buffer_length * 2 + config.batch_length,
-                embedder=embed,
-                hidden_dim=latent_config.nn_width,
-                depth=latent_config.nn_depth,
-                key=approximation_key,
-            )
-
-        elif isinstance(latent_config, ConvNFLatentApproximation):
-            latent_approximation = conv_nf.AmortizedConvCoupling(
-                target_latent_class,
-                sample_length=config.buffer_length * 2 + config.batch_length,
-                embedder=embed,
-                nn_width=latent_config.nn_width,
-                nn_depth=latent_config.nn_depth,
-                key=approximation_key,
-                kernel_size=latent_config.kernel_size,
-                flow_layers=latent_config.flow_layers,
-            )
-
-        else:
-            raise ValueError(
-                f"Unknown latent approximation configuration: {latent_config!r}"
-            )
+        latent_approximation = build_latent_approximation(
+            config.latent_approximation,
+            config.buffer_length * 2 + config.batch_length,
+            target_model=target_posterior.target,
+            latent_context_dims=embed.latent_context_dims,
+            key=approximation_key
+        )
         
         if config.loss_style == "standard":
             approximation = base.BufferedSSMVI(

@@ -9,7 +9,6 @@ from typing import (
     TypeAlias,
 )
 import typing
-from dataclasses import fields
 from functools import partial
 
 import equinox as eqx

@@ -16,7 +16,7 @@ from jax.nn import softplus
 from jaxtyping import Array, Float, PRNGKeyArray
 
 import seqjax.model.typing as seqjtyping
-from .interface import AmortizedVariationalApproximation, Embedder, LatentContext
+from .interface import AmortizedVariationalApproximation, LatentContextDims, LatentContext
 
 
 _LOG_2PI = jnp.log(2.0 * jnp.pi)
@@ -46,10 +46,7 @@ class StructuredPrecisionGaussian[
     """
 
     target_struct_cls: Type[LatentT]
-    embedder: Embedder
-    context_dim: int
-    parameter_dim: int
-    condition_dim: int
+    latent_context_dims: LatentContextDims
     x_dim: int
     chol_diagonal_net: eqx.nn.MLP
     chol_subdiagonal_net: eqx.nn.MLP
@@ -60,7 +57,7 @@ class StructuredPrecisionGaussian[
         target_struct_cls: Type[LatentT],
         *,
         sample_length: int,
-        embedder: Embedder,
+        latent_context_dims: LatentContextDims,
         hidden_dim: int,
         depth: int,
         key: PRNGKeyArray,
@@ -73,10 +70,7 @@ class StructuredPrecisionGaussian[
 
         )
         self.target_struct_cls = target_struct_cls
-        self.embedder = embedder
-        self.context_dim = embedder.sequence_embedded_context_dim
-        self.parameter_dim = embedder.parameter_context_dim
-        self.condition_dim = embedder.condition_context_dim
+        self.latent_context_dims = latent_context_dims
 
         diag_key, subdiag_key, mean_key = jrandom.split(key, 3)
         in_dim = self.context_dim + self.parameter_dim + self.condition_dim
