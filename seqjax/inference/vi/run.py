@@ -11,7 +11,7 @@ import jaxtyping
 import optax  # type: ignore[import-untyped]
 import jax.random as jrandom
 
-from seqjax.inference.vi import train
+from seqjax.inference.vi import train_bayesian
 from seqjax.model.interface import BayesianSequentialModelProtocol
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import InferenceDataset, inference_method
@@ -47,7 +47,7 @@ def run_full_path_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided
     if tracker is None:
-        tracker = train.Tracker(metric_samples=1000)
+        tracker = train_bayesian.Tracker(metric_samples=1000)
 
     observation_path, _ = dataset.sequence(0)
     sequence_length = observation_path.batch_shape[0]
@@ -68,7 +68,7 @@ def run_full_path_vi[
         prior_train_optim = optimization_registry.build_optimizer(
             config.prior_training_optimization
         )
-        approximation, _, model_state = train.train(
+        approximation, _, model_state = train_bayesian.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -90,7 +90,7 @@ def run_full_path_vi[
         pre_train_optim = optimization_registry.build_optimizer(
             config.pre_training_optimization
         )
-        approximation, _, model_state = train.train(
+        approximation, _, model_state = train_bayesian.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -106,13 +106,17 @@ def run_full_path_vi[
         )
 
     opt_state: optax.GradientTransformation
-    if isinstance(config.optimization, optimization_registry.NoOpt):
+    if isinstance(
+        config.optimization, optimization_registry.NoOpt
+    ) or (
+        config.optimization is None
+    ):
         fitted_approximation = approximation
         opt_state = None
     else:
         optim = optimization_registry.build_optimizer(config.optimization)
 
-        fitted_approximation, opt_state, model_state = train.train(
+        fitted_approximation, opt_state, model_state = train_bayesian.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -170,7 +174,7 @@ def run_buffered_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided
     if tracker is None:
-        tracker = train.Tracker(metric_samples=5000)
+        tracker = train_bayesian.Tracker(metric_samples=5000)
 
     sync_interval_s = None
 
@@ -191,7 +195,7 @@ def run_buffered_vi[
         pre_train_optim = optimization_registry.build_optimizer(
             config.prior_training_optimization
         )
-        approximation, _, model_state = train.train(
+        approximation, _, model_state = train_bayesian.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -213,7 +217,7 @@ def run_buffered_vi[
         pre_train_optim = optimization_registry.build_optimizer(
             config.pre_training_optimization
         )
-        approximation, _, model_state = train.train(
+        approximation, _, model_state = train_bayesian.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -238,7 +242,7 @@ def run_buffered_vi[
     else:
         print("Training...")
         optim = optimization_registry.build_optimizer(config.optimization)
-        fitted_approximation, opt_state, model_state = train.train(
+        fitted_approximation, opt_state, model_state = train_bayesian.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -307,7 +311,7 @@ def run_hybrid_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided
     if tracker is None:
-        tracker = train.Tracker(metric_samples=5000)
+        tracker = train_bayesian.Tracker(metric_samples=5000)
 
     sync_interval_s = None
 
@@ -328,7 +332,7 @@ def run_hybrid_vi[
         pre_train_optim = optimization_registry.build_optimizer(
             config.prior_training_optimization
         )
-        approximation, _, model_state = train.train(
+        approximation, _, model_state = train_bayesian.train(
             model=approximation,
             dataset=dataset,
             key=key,
@@ -350,7 +354,7 @@ def run_hybrid_vi[
         opt_state = None
     else:
         optim = optimization_registry.build_optimizer(config.optimization)
-        fitted_approximation, opt_state, model_state = train.train(
+        fitted_approximation, opt_state, model_state = train_bayesian.train(
             model=approximation,
             dataset=dataset,
             key=key,

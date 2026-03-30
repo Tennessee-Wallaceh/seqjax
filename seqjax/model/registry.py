@@ -18,13 +18,12 @@ Labels must be consistent across all three registries so that
 ``condition_generators[label]`` refer to the same model family.
 """
 
-from dataclasses import dataclass, field
-from functools import partial
+from dataclasses import dataclass
 import typing
 
 import jax.numpy as jnp
 
-from . import interface, ar, ar_bayesian, double_well, stochastic_vol
+from . import interface, ar, ar_bayesian, stochastic_vol
 
 from .typing import Parameters, HyperParameters, NoHyper
 
@@ -33,13 +32,14 @@ PosteriorFactory = typing.Callable[
     interface.BayesianSequentialModelProtocol
 ]
 SequentialModelLabel = typing.Literal[
-    "ar", "svar"
+    "ar", 
+    "svar"
 ]
 
 BayesianModelLabel = typing.Literal[
-    "ar_aronly",
-    "ar_full",
-    "svar_full"
+    "ar-aronly",
+    "ar-full",
+    "svar-full"
 ]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
@@ -47,17 +47,17 @@ BayesianModelLabel = typing.Literal[
 # ``sequential_models[label]``. When adding a new model, extend
 # ``SequentialModelLabel`` and add the class here with the same label.
 sequential_models: dict[SequentialModelLabel, interface.SequentialModelProtocol] = {
-    "ar": interface.validate_sequential_model(ar.ar_model),
+    "ar": ar.ar_model,
     "svar": stochastic_vol.simple_var.simple_stochastic_var_model,
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model
-# label. These factories are typically called with the generative parameters to
+# label. These factories are typically called with hyperparameters to
 # construct the posterior used by inference algorithms.
 posterior_factories: dict[BayesianModelLabel, PosteriorFactory] = {
-    "ar_aronly": typing.cast(PosteriorFactory, ar_bayesian.ar_only),
-    "ar_full": typing.cast(PosteriorFactory, ar_bayesian.ar_full),
-    "svar_full": typing.cast(PosteriorFactory, stochastic_vol.simple_var.svar_full),
+    "ar-aronly": typing.cast(PosteriorFactory, ar_bayesian.ar_only),
+    "ar-full": typing.cast(PosteriorFactory, ar_bayesian.ar_full),
+    "svar-full": stochastic_vol.simple_var.svar_full,
 }
 
 # Predefined parameter presets for each model. The outer keys mirror
@@ -66,19 +66,19 @@ posterior_factories: dict[BayesianModelLabel, PosteriorFactory] = {
 # ``parameter_settings[label][preset]``. Add new presets under the appropriate
 # model label and keep labels consistent across both dictionaries.
 parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
-    "ar_full": {
+    "ar-full": {
         "base": ar.ARParameters(
             ar=jnp.array(0.8),
             observation_std=jnp.array(0.1),
             transition_std=jnp.array(0.5),
         ),
-        "lower_ar": ar.ARParameters(
+        "lower-ar": ar.ARParameters(
             ar=jnp.array(0.5),
             observation_std=jnp.array(0.1),
             transition_std=jnp.array(0.5),
         ),
     },
-    "svar_full": {
+    "svar-full": {
         "base": stochastic_vol.simple_var.LogVarParams(
             ar=jnp.array(0.6),
             std_log_var=jnp.array(3.2),
@@ -93,10 +93,10 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
 }
 
 hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = {
-    "ar_full": {
+    "ar-full": {
         "base": NoHyper(),
     },
-    "svar_full": {
+    "svar-full": {
         "base": NoHyper(),
     }
 }
