@@ -207,6 +207,10 @@ class NoCondition(Condition):
 
 class Parameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 
+class NoParam(Parameters):
+    __slots__ = ()
+    _shape_template = OrderedDict()
+
 
 class HyperParameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
 

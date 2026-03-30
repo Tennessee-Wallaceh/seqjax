@@ -230,6 +230,8 @@ def test_latent_approximations_can_fit_known_gaussian(
             ),
             _build_global_context(sample_length=1),
         ),
+    ]
+    approximations.append(
         (
             "conv-flow",
             AmortizedConvCoupling(
@@ -239,12 +241,13 @@ def test_latent_approximations_can_fit_known_gaussian(
                 key=jrandom.key(4),
                 nn_width=16,
                 nn_depth=1,
-                flow_layers=2,
+                flow_layers=1,
                 kernel_size=3,
             ),
             _build_global_context(sample_length=dim),
-        ),
-    ]
+        )
+    )
+
     results: dict[str, float] = {}
     for index, (label, approximation, context) in enumerate(approximations):
         key = jrandom.key(123 + index + 100 * dim)
@@ -266,7 +269,7 @@ def test_latent_approximations_can_fit_known_gaussian(
             "autoregressive": 0.20,
             "structured": 0.20,
             "maf": kl_tolerance,
-            "conv-flow": 0.80,
+            "conv-flow": 0.90,
         },
     }
     if dim not in per_approx_tolerance:

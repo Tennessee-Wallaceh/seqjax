@@ -10,7 +10,7 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
-from .interface import Embedder, LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
+from .interface import LatentContextDims, LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 
 
 _LOG_2PI = jnp.log(2.0 * jnp.pi)
@@ -133,7 +133,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
         target_struct_cls,
         *,
         sample_length: int,
-        embedder: Embedder,
+        latent_context_dims: LatentContextDims,
         lag_order: int,
     ) -> None:
         super().__init__(
@@ -141,9 +141,9 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
             (sample_length, target_struct_cls.flat_dim),
             sample_length,
         )
-        self.context_dim = embedder.sequence_embedded_context_dim
-        self.parameter_dim = embedder.parameter_context_dim
-        self.condition_dim = embedder.condition_context_dim
+        self.context_dim = latent_context_dims.sequence_embedded_context_dim
+        self.parameter_dim = latent_context_dims.parameter_context_dim
+        self.condition_dim = latent_context_dims.condition_context_dim
         self.lag_order = lag_order
 
     def conditional(
@@ -225,7 +225,7 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
         target_struct_cls,
         *,
         sample_length: int,
-        embedder: Embedder,
+        latent_context_dims: LatentContextDims,
         lag_order: int,
         nn_width: int,
         nn_depth: int,
@@ -238,7 +238,7 @@ class AmortizedUnivariateAutoregressor(AutoregressiveApproximation):
         super().__init__(
             target_struct_cls,
             sample_length=sample_length,
-            embedder=embedder,
+            latent_context_dims=latent_context_dims,
             lag_order=lag_order,
         )
         input_dim = lag_order * 2 + self.context_dim + self.parameter_dim + self.condition_dim
@@ -294,7 +294,7 @@ class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
         model: BayesianSequentialModelProtocol,
         *,
         sample_length: int,
-        embedder: Embedder,
+        latent_context_dims: LatentContextDims,
         lag_order: int,
         nn_width: int,
         nn_depth: int,
@@ -307,7 +307,7 @@ class AmortizedInnovationUnivariateAutoregressor(AutoregressiveApproximation):
         super().__init__(
             model.target.latent_cls,
             sample_length=sample_length,
-            embedder=embedder,
+            latent_context_dims=latent_context_dims,
             lag_order=lag_order,
         )
         input_dim = lag_order * 2 + self.context_dim + self.parameter_dim + self.condition_dim
@@ -398,7 +398,7 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
         target_struct_cls,
         *,
         sample_length: int,
-        embedder: Embedder,
+        latent_context_dims: LatentContextDims,
         lag_order: int,
         nn_width: int,
         nn_depth: int,
@@ -407,7 +407,7 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
         super().__init__(
             target_struct_cls,
             sample_length=sample_length,
-            embedder=embedder,
+            latent_context_dims=latent_context_dims,
             lag_order=lag_order,
         )
 

@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import typing
 
-from .interface import Embedder, LatentContext, VariationalApproximationFactory, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
+from .interface import LatentContextDims, LatentContext, VariationalApproximationFactory, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
 
 
 class MaskedAutoregressiveFlow[
@@ -112,7 +112,7 @@ class AmortizedMAF[
         target_struct_cls: type[TargetStructT],
         *,
         sample_length: int,
-        embedder: Embedder,
+        latent_context_dims: LatentContextDims,
         key: jaxtyping.PRNGKeyArray,
         nn_width: int,
         nn_depth: int,
@@ -139,9 +139,9 @@ class AmortizedMAF[
         scale = jnp.broadcast_to(jnp.asarray(base_scale), (flat_sample_dim,))
 
         cond_input_dim = (
-            embedder.parameter_context_dim
-            + embedder.condition_context_dim
-            + embedder.embedded_context_dim
+            latent_context_dims.parameter_context_dim
+            + latent_context_dims.condition_context_dim
+            + latent_context_dims.embedded_context_dim
         )
 
         self.distribution = masked_autoregressive_flow(

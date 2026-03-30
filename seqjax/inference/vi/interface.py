@@ -1,9 +1,10 @@
 from abc import abstractmethod
 import typing
-from dataclasses import dataclass, field
-from seqjax.model.interface import BayesianSequentialModelProtocol
+from dataclasses import dataclass
+
+from seqjax.model.interface import SequentialModelProtocol
+
 import jax
-import jax.numpy as jnp
 import equinox as eqx
 import jaxtyping
 import seqjax.model.typing as seqjtyping
@@ -27,6 +28,52 @@ class VariationalApproximation[
         jaxtyping.Scalar,
         typing.Any,
     ]: ...
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True, kw_only=True)
+class LatentContextDims:
+    observation_context_dim: int
+    condition_context_dim: int
+    parameter_context_dim: int
+    embedded_context_dim: int
+    sequence_embedded_context_dim: int
+
+    @classmethod
+    def from_sequence_context_dims(
+        cls, 
+        target: SequentialModelProtocol,
+        parameter_cls: type[seqjtyping.Parameters],
+        sample_length: int,
+        per_step_dim: int,
+    ) -> tuple[int, int, int, int]:
+        return cls(
+            observation_context_dim=target.observation_cls.flat_dim * sample_length,
+            condition_context_dim=target.condition_cls.flat_dim * sample_length,
+            parameter_context_dim=parameter_cls.flat_dim,
+            embedded_context_dim=target.observation_cls.flat_dim * sample_length,
+            sequence_embedded_context_dim=per_step_dim
+        )
+
+
+    @classmethod
+    def from_sequence_and_embedded_dims(
+        cls,
+        target: SequentialModelProtocol,
+        parameter_cls: type[seqjtyping.Parameters],
+        sample_length: int,
+        embedded_dim: int,
+        per_step_dim: int,
+    ) -> tuple[int, int, int]:
+        return cls(
+            observation_context_dim=target.observation_cls.flat_dim * sample_length,
+            condition_context_dim=target.condition_cls.flat_dim * sample_length,
+            parameter_context_dim=parameter_cls.flat_dim,
+            embedded_context_dim=embedded_dim,
+            sequence_embedded_context_dim=per_step_dim
+        )
+    
+
+
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
@@ -71,26 +118,6 @@ class LatentContext[
         )
     
     @classmethod
-    def from_sequence_context_dims(
-        cls, 
-        target_posterior: BayesianSequentialModelProtocol[
-            typing.Any,
-            ObservationT,
-            ConditionT,
-            typing.Any,
-            InferenceParameterT,
-            typing.Any,
-        ], 
-        sample_length: int
-    ) -> tuple[int, int, int, int]:
-        return (
-            target_posterior.target.observation_cls.flat_dim * sample_length,
-            target_posterior.target.condition_cls.flat_dim * sample_length,
-            target_posterior.parameterization.inference_parameter_cls.flat_dim,
-            target_posterior.target.observation_cls.flat_dim * sample_length
-        )
-
-    @classmethod
     def build_from_sequence_context(
         cls, 
         sequence_embedded_context: HiddenT,
@@ -105,25 +132,6 @@ class LatentContext[
             parameter_context=parameters,
             embedded_context=observations.ravel(),
             sequence_embedded_context=sequence_embedded_context,
-        )
-
-    @classmethod
-    def from_sequence_and_embedded_dims(
-        cls,
-        target_posterior: BayesianSequentialModelProtocol[
-            typing.Any,
-            ObservationT,
-            ConditionT,
-            typing.Any,
-            InferenceParameterT,
-            typing.Any,
-        ], 
-        sample_length: int
-    ) -> tuple[int, int, int]:
-        return (
-            target_posterior.target.observation_cls.flat_dim * sample_length,
-            target_posterior.target.condition_cls.flat_dim * sample_length,
-            target_posterior.parameterization.inference_parameter_cls.flat_dim,
         )
 
     @classmethod
@@ -142,6 +150,7 @@ class LatentContext[
             embedded_context=embedded_context,
             sequence_embedded_context=sequence_embedded_context,
         )
+
 
 
 class SequenceAggregator(typing.Protocol):
@@ -163,14 +172,11 @@ class Embedder[
     """
     Maps observation sequence to various embeddings.
     """
-    target_posterior: BayesianSequentialModelProtocol
+    target: SequentialModelProtocol
+    parameter_cls: InferenceParameterT
     sample_length: int
     sequence_length: int
-    observation_context_dim: int = field(init=False)
-    condition_context_dim: int = field(init=False)
-    parameter_context_dim: int = field(init=False)
-    embedded_context_dim: int = field(init=False)
-    sequence_embedded_context_dim: int = field(init=False) # per step
+    latent_context_dims: LatentContextDims
 
     @abstractmethod
     def embed(
@@ -201,6 +207,7 @@ class AmortizedVariationalApproximation[
     LatentContext,
 ]):
     sample_length: int
+
 
 class UnconditionalVariationalApproximation[
     TargetStructT: seqjtyping.Packable,

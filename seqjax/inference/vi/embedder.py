@@ -5,10 +5,11 @@ import jax
 import typing
 from dataclasses import field
 
-from seqjax.model.interface import BayesianSequentialModelProtocol
-from .interface import LatentContext, Embedder, SequenceAggregator
+from seqjax.model.interface import SequentialModelProtocol
+from .interface import LatentContext, LatentContextDims, Embedder, SequenceAggregator
 from .aggregation import AggregationKind, build_sequence_aggregator
 from .norm import EMAParamNorm
+import seqjax.model.typing as seqjtyping
 
 PositionMode = typing.Literal["sample", "sequence"]
 
@@ -81,7 +82,8 @@ class PositionalEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModelProtocol,
+        target: SequentialModelProtocol,
+        parameter_cls: Parameters,
         sample_length: int,
         sequence_length: int,
         n_pos_embedding: int = 8,
@@ -106,13 +108,9 @@ class PositionalEmbedder(Embedder):
             else None
         )
 
-        self.sequence_embedded_context_dim = 1 + 2 * self.n_pos_embedding
-        (
-            self.observation_context_dim,
-            self.condition_context_dim,
-            self.parameter_context_dim,
-            self.embedded_context_dim,
-        ) = LatentContext.from_sequence_context_dims(target_posterior, sample_length)
+        self.latent_context_dims = LatentContextDims.from_sequence_context_dims(
+            target_posterior, sample_length, 1 + 2 * self.n_pos_embedding
+        )
 
         super().__init__(target_posterior, sample_length, sequence_length)
 
@@ -165,7 +163,8 @@ class WindowEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModelProtocol,
+        target: SequentialModelProtocol,
+        parameter_cls: type[seqjtyping.Parameters],
         sample_length: int,
         sequence_length: int,
         prev_window: int,
@@ -181,24 +180,13 @@ class WindowEmbedder(Embedder):
         self.positional_basis = positional_basis
 
         self.window_size = self.prev_window + self.post_window + 1
-        self.y_dimension = target_posterior.target.observation_cls.flat_dim
-        (
-            self.observation_context_dim,
-            self.condition_context_dim,
-            self.parameter_context_dim,
-            self.embedded_context_dim,
-        ) = LatentContext.from_sequence_context_dims(
-            target_posterior,
-            sample_length,
-        )
+        self.y_dimension = target.observation_cls.flat_dim
 
         _validate_position_mode(self.position_mode)
         if self.n_pos_embedding < 1:
             raise ValueError(f"n_pos_embedding must be >= 1, got {self.n_pos_embedding}")
 
-        pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
-        self.sequence_embedded_context_dim = self.y_dimension * self.window_size + pos_dim
-
+        
         self.pos_context = None
         if self.position_mode == "sample":
             positions = (jnp.arange(sample_length, dtype=jnp.float32) + 0.5) / jnp.asarray(
@@ -206,6 +194,10 @@ class WindowEmbedder(Embedder):
                 dtype=jnp.float32,
             )
             self.pos_context = self.positional_basis(positions, self.n_pos_embedding)
+
+        pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
+
+        sequence_embedded_context_dim = self.y_dimension * self.window_size + pos_dim
 
         sample_path_ix = jnp.arange(sample_length).reshape(-1, 1)
         self.indexer = (
@@ -217,7 +209,17 @@ class WindowEmbedder(Embedder):
             + self.prev_window
         )
 
-        super().__init__(target_posterior, sample_length, sequence_length)
+        super().__init__(
+            target, 
+            sample_length, 
+            sequence_length,
+            LatentContextDims.from_sequence_context_dims(
+                target,
+                parameter_cls,
+                sample_length,
+                sequence_embedded_context_dim,
+            )
+        )
 
     def _pad(self, observations):
         return jnp.pad(
@@ -281,7 +283,8 @@ class RNNEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModelProtocol,
+        target: SequentialModelProtocol,
+        parameter_cls: type[seqjtyping.Parameters],
         sample_length: int,
         sequence_length: int,
         hidden: int,
@@ -292,7 +295,7 @@ class RNNEmbedder(Embedder):
         *,
         key,
     ):
-        y_dim = target_posterior.target.observation_cls.flat_dim
+        y_dim = target.observation_cls.flat_dim
         k1, k2 = jax.random.split(key)
         self.cell_fwd = eqx.nn.GRUCell(y_dim, hidden, key=k1)
         self.cell_rev = eqx.nn.GRUCell(y_dim, hidden, key=k2)
@@ -307,7 +310,7 @@ class RNNEmbedder(Embedder):
             raise ValueError(f"n_pos_embedding must be >= 1, got {self.n_pos_embedding}")
 
         pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
-        self.sequence_embedded_context_dim = self.hidden * 2 + pos_dim
+        sequence_embedded_context_dim = self.hidden * 2 + pos_dim
         self.pos_context = None
         if self.position_mode == "sample":
             positions = (jnp.arange(sample_length, dtype=jnp.float32) + 0.5) / jnp.asarray(
@@ -316,21 +319,25 @@ class RNNEmbedder(Embedder):
             )
             self.pos_context = self.positional_basis(positions, self.n_pos_embedding)
 
-        observation_dim = target_posterior.target.observation_cls.flat_dim
         self.aggregator = build_sequence_aggregator(
             aggregation_kind,
             sample_length=sample_length,
-            sequence_dim=self.sequence_embedded_context_dim,
-            observation_dim=observation_dim,
+            sequence_dim=sequence_embedded_context_dim,
+            observation_dim=y_dim,
         )
-        self.embedded_context_dim = self.aggregator.output_dim
-        (
-            self.observation_context_dim,
-            self.condition_context_dim,
-            self.parameter_context_dim,
-        ) = LatentContext.from_sequence_and_embedded_dims(target_posterior, sample_length)
 
-        super().__init__(target_posterior, sample_length, sequence_length)
+        super().__init__(
+            target, 
+            sample_length, 
+            sequence_length,
+            LatentContextDims.from_sequence_and_embedded_dims(
+                target, 
+                parameter_cls,
+                sample_length, 
+                self.aggregator.output_dim, 
+                sequence_embedded_context_dim,
+            )
+        )
 
     def _scan(self, cell, seq):
         def step(carry, x):
@@ -432,7 +439,8 @@ class Conv1DEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModelProtocol,
+        target: SequentialModelProtocol,
+        parameter_cls: type[seqjtyping.Parameters],
         sample_length: int,
         sequence_length: int,
         hidden: int,
@@ -451,7 +459,7 @@ class Conv1DEmbedder(Embedder):
         k_in, *k_layers = jax.random.split(key, depth + 1)
 
         self.in_proj = eqx.nn.Conv1d(
-            in_channels=target_posterior.target.observation_cls.flat_dim,
+            in_channels=target.observation_cls.flat_dim,
             out_channels=hidden,
             kernel_size=1,
             padding="SAME",
@@ -486,7 +494,7 @@ class Conv1DEmbedder(Embedder):
             raise ValueError(f"n_pos_embedding must be >= 1, got {self.n_pos_embedding}")
 
         pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
-        self.sequence_embedded_context_dim = self.hidden + pos_dim
+        sequence_embedded_context_dim = self.hidden + pos_dim
         self.pos_context = None
         if self.position_mode == "sample":
             positions = (jnp.arange(sample_length, dtype=jnp.float32) + 0.5) / jnp.asarray(
@@ -495,20 +503,15 @@ class Conv1DEmbedder(Embedder):
             )
             self.pos_context = self.positional_basis(positions, self.n_pos_embedding)
 
-        observation_dim = target_posterior.target.observation_cls.flat_dim
+        observation_dim = target.observation_cls.flat_dim
         self.aggregator = build_sequence_aggregator(
             self.aggregation_kind,
             sample_length=sample_length,
-            sequence_dim=self.sequence_embedded_context_dim,
+            sequence_dim=sequence_embedded_context_dim,
             observation_dim=observation_dim,
             pool_dim=pool_dim,
         )
-        self.embedded_context_dim = self.aggregator.output_dim
-        (
-            self.observation_context_dim,
-            self.condition_context_dim,
-            self.parameter_context_dim,
-        ) = LatentContext.from_sequence_and_embedded_dims(target_posterior, sample_length)
+
 
         if embed_norm_kind == "layer-norm":
             self.embedding_norm = eqx.filter_vmap(
@@ -522,7 +525,18 @@ class Conv1DEmbedder(Embedder):
         else:
             self.param_norm = None
 
-        super().__init__(target_posterior, sample_length, sequence_length)
+        super().__init__(
+            target, 
+            sample_length, 
+            sequence_length,
+            LatentContextDims.from_sequence_and_embedded_dims(
+                target, 
+                parameter_cls,
+                sample_length, 
+                self.aggregator.output_dim, 
+                sequence_embedded_context_dim,
+            )
+        )
 
     def convolve(self, observations):
         seq = observations.ravel()
@@ -629,7 +643,8 @@ class TransformerEmbedder(Embedder):
 
     def __init__(
         self,
-        target_posterior: BayesianSequentialModelProtocol,
+        target: SequentialModelProtocol,
+        parameter_cls: type[seqjtyping.Parameters],
         sample_length: int,
         sequence_length: int,
         hidden: int,
@@ -643,7 +658,7 @@ class TransformerEmbedder(Embedder):
         positional_basis: PositionalBasis = _fourier_positional_basis,
         key,
     ):
-        y_dim = target_posterior.target.observation_cls.flat_dim
+        y_dim = target.observation_cls.flat_dim
         k_proj, *k_blocks = jax.random.split(key, depth + 1)
 
         self.in_proj = eqx.nn.Linear(y_dim, hidden, key=k_proj)
@@ -670,8 +685,8 @@ class TransformerEmbedder(Embedder):
             raise ValueError(f"n_pos_embedding must be >= 1, got {self.n_pos_embedding}")
 
         pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
-        self.sequence_embedded_context_dim = hidden + pos_dim
-        self.embedded_context_dim = self.pooling.target_shape[0] * self.sequence_embedded_context_dim
+        sequence_embedded_context_dim = hidden + pos_dim
+        embedded_context_dim = self.pooling.target_shape[0] * self.sequence_embedded_context_dim
 
         self.pos_context = None
         if self.position_mode == "sample":
@@ -681,13 +696,18 @@ class TransformerEmbedder(Embedder):
             )
             self.pos_context = self.positional_basis(positions, self.n_pos_embedding)
 
-        (
-            self.observation_context_dim,
-            self.condition_context_dim,
-            self.parameter_context_dim,
-        ) = LatentContext.from_sequence_and_embedded_dims(target_posterior, sample_length)
-
-        super().__init__(target_posterior, sample_length, sequence_length)
+        super().__init__(
+            target, 
+            sample_length, 
+            sequence_length,
+            LatentContextDims.from_sequence_and_embedded_dims(
+                target,
+                parameter_cls,
+                sample_length, 
+                embedded_context_dim, 
+                sequence_embedded_context_dim
+            )
+        )
 
     def encode(self, observations):
         seq = observations.ravel()
