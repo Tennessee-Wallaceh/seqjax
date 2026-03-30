@@ -73,7 +73,11 @@ class StructuredPrecisionGaussian[
         self.latent_context_dims = latent_context_dims
 
         diag_key, subdiag_key, mean_key = jrandom.split(key, 3)
-        in_dim = self.context_dim + self.parameter_dim + self.condition_dim
+        in_dim = (
+            self.latent_context_dims.sequence_embedded_context_dim 
+            + self.latent_context_dims.parameter_context_dim 
+            + self.latent_context_dims.condition_context_dim
+        )
         self.chol_diagonal_net = eqx.nn.MLP(
             in_size=in_dim,
             out_size=self.x_dim * self.x_dim,
@@ -103,8 +107,14 @@ class StructuredPrecisionGaussian[
         seq_ctx = condition.sequence_embedded_context
         theta_vec = condition.parameter_context.ravel().reshape(-1)
         cond_vec = condition.condition_context.ravel().reshape(-1)
-        theta = jnp.broadcast_to(theta_vec, (seq_ctx.shape[0], self.parameter_dim))
-        cond_ctx = jnp.broadcast_to(cond_vec, (seq_ctx.shape[0], self.condition_dim))
+        theta = jnp.broadcast_to(
+            theta_vec, 
+            (seq_ctx.shape[0], self.latent_context_dims.parameter_context_dim)
+        )
+        cond_ctx = jnp.broadcast_to(
+            cond_vec, 
+            (seq_ctx.shape[0], self.latent_context_dims.condition_context_dim)
+        )
         return jnp.concatenate([seq_ctx, theta, cond_ctx], axis=-1)
 
     def _covariance_cholesky_blocks(

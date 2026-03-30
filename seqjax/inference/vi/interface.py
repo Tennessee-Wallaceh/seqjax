@@ -130,7 +130,7 @@ class LatentContext[
             observation_context=observations,
             condition_context=conditions,
             parameter_context=parameters,
-            embedded_context=observations.ravel(),
+            embedded_context=observations.ravel().flatten(),
             sequence_embedded_context=sequence_embedded_context,
         )
 

@@ -83,7 +83,7 @@ class PositionalEmbedder(Embedder):
     def __init__(
         self,
         target: SequentialModelProtocol,
-        parameter_cls: Parameters,
+        parameter_cls: type[seqjtyping.Parameters],
         sample_length: int,
         sequence_length: int,
         n_pos_embedding: int = 8,
@@ -108,11 +108,19 @@ class PositionalEmbedder(Embedder):
             else None
         )
 
-        self.latent_context_dims = LatentContextDims.from_sequence_context_dims(
-            target_posterior, sample_length, 1 + 2 * self.n_pos_embedding
-        )
+        super().__init__(
+            target, 
+            parameter_cls,
+            sample_length, 
+            sequence_length,
+            LatentContextDims.from_sequence_context_dims(
+                target,
+                parameter_cls, 
+                sample_length, 
+                1 + 2 * self.n_pos_embedding
+            )
 
-        super().__init__(target_posterior, sample_length, sequence_length)
+    )
 
     def embed(
         self,
@@ -155,10 +163,10 @@ class WindowEmbedder(Embedder):
     position_mode: None | PositionMode = eqx.field(static=True)
     n_pos_embedding: int = eqx.field(static=True)
     positional_basis: PositionalBasis = eqx.field(static=True, default=_fourier_positional_basis)
-    pos_context: None | Array = field(init=False, default=None)
+    pos_context: None | Array = eqx.field(init=False, default=None)
 
-    y_dimension: int = field(init=False)
-    window_size: int = field(init=False)
+    y_dimension: int = eqx.field(init=False)
+    window_size: int = eqx.field(init=False)
     indexer: Int[Array, "sample_length window_size"] = field(init=False)
 
     def __init__(
@@ -211,6 +219,7 @@ class WindowEmbedder(Embedder):
 
         super().__init__(
             target, 
+            parameter_cls,
             sample_length, 
             sequence_length,
             LatentContextDims.from_sequence_context_dims(
@@ -328,6 +337,7 @@ class RNNEmbedder(Embedder):
 
         super().__init__(
             target, 
+            parameter_cls,
             sample_length, 
             sequence_length,
             LatentContextDims.from_sequence_and_embedded_dims(
@@ -527,6 +537,7 @@ class Conv1DEmbedder(Embedder):
 
         super().__init__(
             target, 
+            parameter_cls,
             sample_length, 
             sequence_length,
             LatentContextDims.from_sequence_and_embedded_dims(
@@ -698,6 +709,7 @@ class TransformerEmbedder(Embedder):
 
         super().__init__(
             target, 
+            parameter_cls,
             sample_length, 
             sequence_length,
             LatentContextDims.from_sequence_and_embedded_dims(
