@@ -119,7 +119,8 @@ embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
 
 def _build_embedder(
     embedder_config: EmbedderConfig,
-    target_posterior: BayesianSequentialModelProtocol,
+    target: model_interface.SequentialModelProtocol,
+    parameter_cls: type[seqjtyping.Parameters],
     sequence_length: int,
     sample_length: int,
     embedding_key: jaxtyping.PRNGKeyArray,
@@ -127,7 +128,8 @@ def _build_embedder(
     embed: embedder.Embedder
     if isinstance(embedder_config, ShortContextEmbedder):
         embed = embedder.WindowEmbedder(
-            target_posterior=target_posterior,
+            target=target,
+            parameter_cls=parameter_cls,
             sample_length=sample_length,
             sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
@@ -137,7 +139,8 @@ def _build_embedder(
         )
     elif isinstance(embedder_config, PassthroughEmbedder):
         embed = embedder.WindowEmbedder(
-            target_posterior=target_posterior,
+            target=target,
+            parameter_cls=parameter_cls,
             sample_length=sample_length,
             sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
@@ -147,7 +150,8 @@ def _build_embedder(
         )
     elif isinstance(embedder_config, LongContextEmbedder):
         embed = embedder.WindowEmbedder(
-            target_posterior=target_posterior,
+            target=target,
+            parameter_cls=parameter_cls,
             sample_length=sample_length,
             sequence_length=sequence_length,
             prev_window=embedder_config.prev_window,
@@ -157,7 +161,8 @@ def _build_embedder(
         )
     elif isinstance(embedder_config, Conv1DEmbedderConfig):
         embed = embedder.Conv1DEmbedder(
-            target_posterior=target_posterior,
+            target=target,
+            parameter_cls=parameter_cls,
             sample_length=sample_length,
             sequence_length=sequence_length,
             hidden=embedder_config.hidden_dim,
@@ -173,7 +178,8 @@ def _build_embedder(
         )
     elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
-            target_posterior=target_posterior,
+            target=target,
+            parameter_cls=parameter_cls,
             sample_length=sample_length,
             sequence_length=sequence_length,
             hidden=embedder_config.hidden_dim,
@@ -184,7 +190,8 @@ def _build_embedder(
         )
     elif isinstance(embedder_config, TransformerEmbedderConfig):
         embed = embedder.TransformerEmbedder(
-            target_posterior=target_posterior,
+            target=target,
+            parameter_cls=parameter_cls,
             sample_length=sample_length,
             sequence_length=sequence_length,
             hidden=embedder_config.hidden_dim,
@@ -198,7 +205,8 @@ def _build_embedder(
         )
     elif isinstance(embedder_config, PositionalEmbedderConfig):
         embed = embedder.PositionalEmbedder(
-            target_posterior=target_posterior,
+            target=target,
+            parameter_cls=parameter_cls,
             sample_length=sample_length,
             sequence_length=sequence_length,
             n_pos_embedding=embedder_config.n_pos_embedding,
@@ -207,14 +215,6 @@ def _build_embedder(
     else:
         raise ValueError(f"Unknown embedder type: {embedder_config.label}")
 
-   
-    print(
-        f"observation_context_dim: {embed.observation_context_dim} \n",
-        f"condition_context_dim: {embed.condition_context_dim} \n",
-        f"parameter_context_dim: {embed.parameter_context_dim} \n",
-        f"embedded_context_dim: {embed.embedded_context_dim} \n",
-        f"sequence_embedded_context_dim: {embed.sequence_embedded_context_dim} \n",
-    )
     return embed
 
 
@@ -568,7 +568,8 @@ def build_approximation(
     if isinstance(config, FullVIConfig):
         embed = _build_embedder(
             config.embedder,
-            target_posterior,
+            target_posterior.target,
+            target_posterior.parameterization.inference_parameter_cls,
             sample_length=sequence_length,
             sequence_length=sequence_length,
             embedding_key=embedding_key,
@@ -576,7 +577,8 @@ def build_approximation(
     elif isinstance(config, BufferedVIConfig):
         embed = _build_embedder(
             config.embedder,
-            target_posterior,
+            target_posterior.target,
+            target_posterior.parameterization.inference_parameter_cls,
             sequence_length=sequence_length,
             sample_length=config.batch_length + 2 * config.buffer_length,
             embedding_key=embedding_key,
