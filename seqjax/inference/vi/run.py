@@ -208,6 +208,8 @@ def run_buffered_vi[
             model_state=model_state,
             time_limit_s=config.prior_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
+            unroll=config.unroll,
+            compiled_steps=config.compiled_steps,
         )
 
     if config.pre_training_optimization and not isinstance(
@@ -230,6 +232,9 @@ def run_buffered_vi[
             model_state=model_state,
             time_limit_s=config.pre_training_optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
+            unroll=config.unroll,
+            compiled_steps=config.compiled_steps,
+            
         )
 
     if isinstance(
@@ -254,6 +259,8 @@ def run_buffered_vi[
             model_state=model_state,
             time_limit_s=config.optimization.time_limit_s,
             sync_interval_s=sync_interval_s,
+            unroll=config.unroll,
+            compiled_steps=config.compiled_steps,
         )
     
     # run sample again for testing purposes

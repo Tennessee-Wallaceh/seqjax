@@ -340,6 +340,8 @@ def train(
     model_state: typing.Any = None,
     time_limit_s: int | None = None,
     sync_interval_s: float | None = None,
+    compiled_steps: int = 1,
+    unroll: int = 1,
 ) -> tuple[SSMApproximationT, OptStateT, typing.Any]:
     # check for valid set up
     if num_steps is None and time_limit_s is None:
@@ -378,7 +380,7 @@ def train(
     loss_and_grad: LossAndGradFn = jax.value_and_grad(loss_fn, has_aux=True)
 
     # main training step
-    def make_step(
+    def k_steps(
         trainable_in: TrainableModuleT,
         static_in: StaticModuleT,
         opt_state_in: OptStateT,
@@ -386,29 +388,71 @@ def train(
         key_in: jaxtyping.PRNGKeyArray,
         state_in: typing.Any,
     ) -> tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT, typing.Any]:
-        (loss, next_state), grads = loss_and_grad(
-            trainable_in,
-            static_in,
-            dataset_in,
-            key_in,
-            state_in,
-        )
-        updates, opt_state_next = optim.update(grads, opt_state_in, params=trainable_in)
-        trainable_next = eqx.apply_updates(trainable_in, updates)
-        return (
-            loss,
-            typing.cast(TrainableModuleT, trainable_next),
-            typing.cast(OptStateT, opt_state_next),
-            next_state,
+        def body(
+            carry: tuple[
+                TrainableModuleT,
+                OptStateT,
+                InferenceDataset[ObservationT, ConditionT],
+                jaxtyping.PRNGKeyArray,
+                typing.Any,
+            ],
+            _,
+        ):
+            trainable, opt_state, dataset, key, state = carry
+            key, subkey = jrandom.split(key)
+
+            (loss, next_state), grads = loss_and_grad(
+                trainable,
+                static_in,
+                dataset,
+                subkey,
+                state,
+            )
+            updates, opt_state_next = optim.update(
+                grads,
+                opt_state,
+                params=trainable,
+            )
+            trainable_next = eqx.apply_updates(trainable, updates)
+
+            next_carry = (
+                typing.cast(TrainableModuleT, trainable_next),
+                typing.cast(OptStateT, opt_state_next),
+                dataset,
+                key,
+                next_state,
+            )
+            return next_carry, loss
+
+        (
+            trainable_out,
+            opt_state_out,
+            _dataset_out,
+            _key_out,
+            state_out,
+        ), losses = jax.lax.scan(
+            body,
+            (
+                trainable_in,
+                opt_state_in,
+                dataset_in,
+                key_in,
+                state_in,
+            ),
+            xs=None,
+            length=compiled_steps,
+            unroll=unroll,
         )
 
+        return losses[-1], trainable_out, opt_state_out, state_out
+
+
+    
     # compile
-    compiled_make_step = typing.cast(
-        CompiledStepFn,
-        typing.cast(Any, eqx.filter_jit(make_step))
-        .lower(trainable, static, opt_state, dataset, key, model_state)
-        .compile(),
-    )
+    compiled_make_step = eqx.filter_jit(k_steps).lower(
+        trainable, static, opt_state, dataset, key, model_state
+    ).compile()
+    
 
     # train loop
     loop: _ProgressIterator
@@ -478,7 +522,7 @@ def train(
 
             phase_start = time.perf_counter()
 
-        opt_step += 1
+        opt_step += compiled_steps
 
     # add final record
     run_tracker.track_step(

@@ -531,6 +531,8 @@ class BufferedVIConfig(VISampleConfig):
     )
     prior_training_optimization: None | optimization_registry.OptConfig = None
     loss_style: str = "standard"
+    unroll: int = 1
+    compiled_steps: int = 1
 
     def training_sampling_kwargs(self, *, loss_label: str) -> VISamplingKwargs:
         return {
