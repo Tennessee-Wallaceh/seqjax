@@ -89,7 +89,7 @@ def run_sgld[ParametersT: seqjtyping.Parameters](
         # norm = jnp.linalg.norm(g)
         # scale = jnp.minimum(1.0, g_max / (norm + 1e-8))
         g = g
-        return (s * g + jnp.sqrt(2.0 * s) * n) * noise_rescale
+        return s * g * noise_rescale + jnp.sqrt(2.0 * s * noise_rescale) * n
     
     @scan_tqdm(num_samples)
     def step(
