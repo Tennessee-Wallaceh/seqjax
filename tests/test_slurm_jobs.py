@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from _pytest.capture import CaptureFixture
+from typer.testing import CliRunner
 
+from seqjax.cli.cli import app
 from seqjax.cli import slurm_jobs
 
 
@@ -14,7 +17,7 @@ PLAN = {
     "experiment_name": "demo-experiment",
     "output_root": "jobs",
     "shared": {
-        "model": "aicher_stochastic_vol",
+        "model": "ar-full",
         "inference": "buffer-vi",
         "sequence_length": 25,
         "wall_time": "00:30:00",
@@ -39,6 +42,39 @@ PLAN = {
 """,
         encoding="utf-8",
     )
+
+
+def _extract_cli_argv(script_text: str) -> list[str]:
+    lines = script_text.splitlines()
+    cmd_start_ix = next(ix for ix, line in enumerate(lines) if line.startswith("CMD=("))
+    cmd_end_ix = next(ix for ix in range(cmd_start_ix + 1, len(lines)) if lines[ix] == ")")
+    cmd_lines = lines[cmd_start_ix:cmd_end_ix]
+    cmd_lines[0] = cmd_lines[0].removeprefix("CMD=(")
+    command_tokens = shlex.split(" ".join(line.strip() for line in cmd_lines))
+    assert command_tokens[:3] == ["python", "-m", "seqjax.cli"]
+
+    experiment_line = lines[cmd_end_ix + 1]
+    assert experiment_line.startswith("CMD+=(") and experiment_line.endswith(")")
+    experiment_tokens = shlex.split(experiment_line[len("CMD+=(") : -1])
+    argv = [*command_tokens[3:], *experiment_tokens]
+    return [
+        "101" if token == "$DATA_SEED" else "7" if token == "$FIT_SEED" else token
+        for token in argv
+    ]
+
+
+def _drop_code_args(argv: list[str]) -> list[str]:
+    filtered: list[str] = []
+    skip_next = False
+    for token in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if token == "--code":
+            skip_next = True
+            continue
+        filtered.append(token)
+    return filtered
 
 
 def test_generate_slurm_jobs_one_script_per_configuration(tmp_path: Path, capsys: CaptureFixture[str]) -> None:
@@ -68,6 +104,83 @@ def test_generate_slurm_jobs_one_script_per_configuration(tmp_path: Path, capsys
     output = capsys.readouterr().out
     assert "Total requested wall time across generated jobs: 03:00:00" in output
     assert "gpu-hours: 3.00" in output
+
+    runner = CliRunner()
+    parsed = runner.invoke(app, [*(_drop_code_args(_extract_cli_argv(script))), "--dry-run"])
+    assert parsed.exit_code == 0, parsed.stdout
+
+
+def test_generate_slurm_jobs_latent_fit_mode_script_parses_cli(tmp_path: Path) -> None:
+    plan_file = tmp_path / "plan.py"
+    plan_file.write_text(
+        """
+PLAN = {
+    "experiment_name": "latent-demo",
+    "shared": {
+        "mode": "latent-fit",
+        "model": "ar-full",
+        "parameters": "base",
+        "sequence_length": 25,
+        "num_sequences": 1,
+        "fit_seed_repeats": 1,
+        "data_seed_repeats": 1,
+    },
+    "studies": [
+        {
+            "name": "latent_study",
+            "axes": {"a": [["OPT.ADAM", "OPT.ADAM.LR-1e-2"], ["OPT.ADAM", "OPT.ADAM.LR-5e-3"]]},
+        }
+    ],
+}
+""",
+        encoding="utf-8",
+    )
+
+    outputs = slurm_jobs.generate_slurm_jobs(
+        plan_file=str(plan_file),
+        output_root_override=str(tmp_path / "out"),
+        dry_run=False,
+    )
+
+    script = outputs[0].read_text(encoding="utf-8")
+    assert "CMD=(python -m seqjax.cli latent-fit" in script
+    assert "  --inference " not in script
+    assert "  --test-samples " not in script
+
+    runner = CliRunner()
+    parsed = runner.invoke(app, [*(_extract_cli_argv(script)), "--dry-run"])
+    assert parsed.exit_code == 0, parsed.stdout
+
+
+def test_generate_slurm_jobs_latent_fit_rejects_inference(tmp_path: Path) -> None:
+    plan_file = tmp_path / "plan.py"
+    plan_file.write_text(
+        """
+PLAN = {
+    "experiment_name": "latent-demo",
+    "shared": {
+        "mode": "latent-fit",
+        "model": "aicher_stochastic_vol",
+        "parameters": "base",
+        "inference": "buffer-vi",
+        "sequence_length": 25,
+    },
+    "studies": [{"name": "latent_study", "axes": {"a": [["OPT.ADAM"]]}}],
+}
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        slurm_jobs.generate_slurm_jobs(
+            plan_file=str(plan_file),
+            output_root_override=str(tmp_path / "out"),
+            dry_run=True,
+        )
+    except ValueError as exc:
+        assert "does not accept shared.inference" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for latent-fit plan with shared.inference")
 
 
 def test_generate_slurm_jobs_study_overrides_repeats(tmp_path: Path) -> None:
