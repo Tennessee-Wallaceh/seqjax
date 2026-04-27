@@ -332,7 +332,11 @@ codes["buffer-vi"]["LAX"] = {
     "field": "latent_approximation",
     "registry": vi.registry.latent_approximation_registry,
     "options": {
-        "SEQ": ("autoregressive", {}),
+        "SEQ": ("autoregressive", {
+            "W": ("nn_width", parse_int_required, "32"),
+            "D": ("nn_depth", parse_int_required, "2"),
+            "L": ("lag_order", parse_int_required, "1"),
+        }),
         "MAF": ("masked-autoregressive-flow", {
             "W": ("nn_width", parse_int_required, "20"),
             "D": ("nn_depth", parse_int_required, "2"),

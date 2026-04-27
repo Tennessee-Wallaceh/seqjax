@@ -1,7 +1,7 @@
 """Command line interface for running ``seqjax`` experiments."""
 import json
 import typing
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 import typer
 
 from seqjax.cli import slurm_jobs
@@ -69,6 +69,35 @@ def parse_straight_codes(code_tokens, available_codes):
 
     return dict_config
 
+
+@dataclass(frozen=True)
+class LatentInferenceConfig:
+    optimization: typing.Any
+    embedder: typing.Any
+    latent_approximation: typing.Any
+    batch_length: int
+    samples_per_context: int
+    unroll: int
+    compiled_steps: int
+
+    @property
+    def label(self) -> str:
+        return self.latent_approximation.label
+
+
+def build_latent_inference_config(code_tokens: list[str]) -> LatentInferenceConfig:
+    inference_config = build_inference_config("buffer-vi", code_tokens)
+    vi_config = inference_config.config
+    return LatentInferenceConfig(
+        optimization=vi_config.optimization,
+        embedder=vi_config.embedder,
+        latent_approximation=vi_config.latent_approximation,
+        batch_length=vi_config.batch_length,
+        samples_per_context=vi_config.samples_per_context,
+        unroll=vi_config.unroll,
+        compiled_steps=vi_config.compiled_steps,
+    )
+
 def build_inference_config(
     method: str,
     code_tokens: list[str]
@@ -94,7 +123,7 @@ def build_inference_config(
     nested_code_groups: dict[str, list[str]] = {}
     nested_code_value = {}
     for code_token in nested_code_tokens:
-        nested_code_config = code_token.split(".")
+        nested_code_config = code_token.split(".", 2)
         if len(nested_code_config) == 2:
             code, group_value = nested_code_config
             sub_code = None
@@ -362,4 +391,182 @@ def main() -> None:
     app()
 
 
-__all__ = ["app", "main", "run", "list_models", "list_inference", "show_config"]
+@app.command("latent-fit")
+def latent_fit(
+    experiment_name: str = typer.Argument(..., help="W&B project name for the run."),
+    model: str | None = typer.Option(None, "--model", help="Target model label."),
+    generative_parameters: str | None = typer.Option(
+        "base", "--parameters", "--params", help="Parameter preset to use."
+    ),
+    sequence_length: int | None = typer.Option(
+        1000, "--sequence-length", min=1, help="Number of observations to simulate."
+    ),
+    num_sequences: int | None = typer.Option(
+        1,
+        "--num-sequences",
+        min=1,
+        help="Number of independent observation sequences to simulate.",
+    ),
+    data_seed: int | None = typer.Option(None, "--data-seed", help="Seed for data simulation."),
+    fit_seed: int = typer.Option(..., "--fit-seed", help="Seed for inference."),
+    code_tokens: typing.List[str] = typer.Option(
+        [],
+        "--code",
+        "-c",
+        help=(
+            "Shorthand configuration codes like LR-1e-3,MC-10. "
+            "Repeat the option or use comma-separated values."
+        ),
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the resolved configuration and exit without fitting.",
+    ),
+    storage_mode: StorageMode = typer.Option(
+        "wandb",
+        "--storage-mode",
+        help="Storage backend mode: wandb uploads remotely, wandb-offline stores locally.",
+    ),
+    local_root: str = typer.Option(
+        "./wandb",
+        "--local-root",
+        help="Local directory used by W&B offline mode.",
+    ),
+) -> None:
+    """Fit a latent variational approximation on synthetic data only."""
+    from dataclasses import asdict
+
+    import jax.random as jrandom
+    import wandb
+
+    from seqjax import io
+    from seqjax.experiment import RuntimeConfig, configure_wandb_runtime
+    from seqjax.inference.interface import ObservationDataset
+    from seqjax.inference.optimization import registry as optimization_registry
+    from seqjax.inference.vi import registry as vi_registry
+    from seqjax.inference.vi import train_latent
+    from seqjax.model import registry as model_registry
+    import seqjax.model.typing as seqjtyping
+    from .latent_fit import WandbLatentFitArtifactSink
+
+    if model is None:
+        raise typer.BadParameter("--model is required.")
+    if generative_parameters is None:
+        raise typer.BadParameter("--parameters is required.")
+    if sequence_length is None:
+        raise typer.BadParameter("--sequence-length is required.")
+    if data_seed is None:
+        raise typer.BadParameter("--data-seed is required.")
+    if num_sequences is None:
+        num_sequences = 1
+    if num_sequences != 1:
+        raise typer.BadParameter(
+            "latent-fit currently supports exactly one sequence (--num-sequences=1)."
+        )
+
+    canonical_model = _resolve_model_label(model)
+
+    data_config = model_registry.SyntheticDataConfig(
+        target_model_label=canonical_model,
+        generative_parameter_label=generative_parameters,
+        sequence_length=sequence_length,
+        num_sequences=num_sequences,
+        seed=data_seed,
+    )
+
+    latent_inference_config = build_latent_inference_config(code_tokens)
+
+    if isinstance(latent_inference_config.optimization, optimization_registry.NoOpt):
+        raise typer.BadParameter(
+            "latent-fit requires an optimizer; received OPT.NO from --code."
+        )
+
+    runtime_config = RuntimeConfig(storage_mode=storage_mode, local_root=local_root)
+
+    if dry_run:
+        payload = {
+            "experiment_name": experiment_name,
+            "mode": "latent-fit",
+            "data_config": _structure_to_dict(data_config),
+            "latent_inference_config": _structure_to_dict(latent_inference_config),
+            "runtime": _structure_to_dict(runtime_config),
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        raise typer.Exit(code=0)
+
+    storage = io.LocalFilesystemDataStorage(local_root)
+    _x_paths, observation_paths, conditions = storage.get_data(data_config)
+
+    condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
+    dataset = ObservationDataset(
+        observations=typing.cast(seqjtyping.Observation, observation_paths),
+        conditions=typing.cast(seqjtyping.Condition, condition_paths),
+    )
+
+    target = data_config.target
+    params = data_config.generative_parameters
+
+    key = jrandom.key(fit_seed)
+    key, embed_key, latent_key, train_key = jrandom.split(key, 4)
+
+    embed = vi_registry._build_embedder(
+        latent_inference_config.embedder,
+        target,
+        seqjtyping.NoParam,
+        dataset.sequence_length,
+        latent_inference_config.batch_length,
+        embed_key,
+    )
+    latent_approximation = vi_registry.build_latent_approximation(
+        latent_inference_config.latent_approximation,
+        sample_length=latent_inference_config.batch_length,
+        target_model=target,
+        key=latent_key,
+        latent_context_dims=embed.latent_context_dims,
+    )
+
+    optim = optimization_registry.build_optimizer(latent_inference_config.optimization)
+    latent_sampling_kwargs: typing.Any = {
+        "mc-samples": latent_inference_config.samples_per_context
+    }
+    fitted_approximation, opt_state, tracker = train_latent.train(
+        model=latent_approximation,
+        embedder=embed,
+        dataset=dataset,
+        target=target,
+        params=params,
+        key=train_key,
+        optim=optim,
+        run_tracker=None,
+        num_steps=latent_inference_config.optimization.total_steps,
+        time_limit_s=latent_inference_config.optimization.time_limit_s,
+        sample_kwargs=latent_sampling_kwargs,
+        unroll=latent_inference_config.unroll,
+        compiled_steps=latent_inference_config.compiled_steps,
+    )
+
+    configure_wandb_runtime(runtime_config)
+    wandb_run = typing.cast(
+        io.WandbRun,
+        wandb.init(
+            project=experiment_name,
+            config={
+                "mode": "latent-fit",
+                "data_config": asdict(data_config),
+                "latent_inference_config": asdict(latent_inference_config),
+                "fit_seed": fit_seed,
+            },
+        ),
+    )
+    sink = WandbLatentFitArtifactSink(wandb_run)
+    sink.save(
+        run_name=wandb_run.name,
+        fitted_approximation=fitted_approximation,
+        optimization_state=opt_state,
+        tracker_rows=tracker.update_rows,
+    )
+    wandb_run.finish()
+
+
+__all__ = ["app", "main", "run", "latent_fit", "list_models", "list_inference", "show_config"]
