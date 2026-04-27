@@ -443,11 +443,14 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
                 f"expected {self._n_tril}, got {unconstrained_chol.shape[-1]}"
             )
 
-        tri = jnp.zeros((self._x_dim, self._x_dim), dtype=unconstrained_chol.dtype)
+        tri = jnp.zeros(
+            (self._x_dim, self._x_dim), 
+            dtype=unconstrained_chol.dtype
+        )
         tril_ix = jnp.tril_indices(self._x_dim)
         tri = tri.at[tril_ix].set(unconstrained_chol)
         diag_ix = jnp.diag_indices(self._x_dim)
-        tri = tri.at[diag_ix].set(jax.nn.softplus(tri[diag_ix]) + 1e-4)
+        tri = tri.at[diag_ix].set(jax.nn.softplus(tri[diag_ix]) + 1e-6)
         return tri
 
     def conditional(
@@ -472,6 +475,7 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
 
         z = jrandom.normal(key, shape=(self._x_dim,))
         trans_params = self.amortizer_mlp(inputs)
+
         loc = trans_params[: self._x_dim]
         unconstrained_chol = trans_params[self._x_dim :]
 

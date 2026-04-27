@@ -167,7 +167,7 @@ class WindowEmbedder(Embedder):
 
     y_dimension: int = eqx.field(init=False)
     window_size: int = eqx.field(init=False)
-    indexer: Int[Array, "sample_length window_size"] = field(init=False)
+    indexer: Int[Array, "sample_length window_size"] = eqx.field(init=False)
 
     def __init__(
         self,

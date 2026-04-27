@@ -133,9 +133,8 @@ def run_latent_nuts[
     observations = dataset.observations
     conditions = dataset.conditions
     num_sequences = dataset.num_sequences
-
     fixed_parameters = config.fixed_parameters
-
+    
     def logdensity(latents: LatentPathT) -> jaxtyping.Scalar:
         _validate_dataset_and_latents(latents=latents, dataset=dataset)
 
@@ -150,9 +149,9 @@ def run_latent_nuts[
                 fixed_parameters,
             ),
             in_axes=(0, 0, condition_in_axes),
-        )(latents, observations, conditions).sum()
+        )(latents, observations, conditions)
 
-        return log_like
+        return jnp.sum(log_like)
 
     def initial_latents(sample_key: jaxtyping.PRNGKeyArray) -> LatentPathT:
         if config.initial_latents is not None:
@@ -160,27 +159,19 @@ def run_latent_nuts[
             _validate_dataset_and_latents(latents=init_latents, dataset=dataset)
             return init_latents
 
+        condition_in_axes = None if isinstance(conditions, seqjtyping.NoCondition) else 0
         simulation_keys = jrandom.split(sample_key, num_sequences)
-        if isinstance(conditions, seqjtyping.NoCondition):
-            simulated_latents, _ = jax.vmap(
-                lambda sim_key: simulate(
-                    sim_key,
-                    target,
-                    fixed_parameters,
-                    dataset.sequence_length,
-                    condition=conditions,
-                )
-            )(simulation_keys)
-        else:
-            simulated_latents, _ = jax.vmap(
-                lambda sim_key, condition_path: simulate(
-                    sim_key,
-                    target,
-                    fixed_parameters,
-                    dataset.sequence_length,
-                    condition=condition_path,
-                )
-            )(simulation_keys, conditions)
+
+        simulated_latents, _ = jax.vmap(
+            lambda sim_key, condition_path: simulate(
+                sim_key,
+                target,
+                fixed_parameters,
+                dataset.sequence_length,
+                condition=condition_path,
+            ),
+            in_axes=(0, condition_in_axes)
+        )(simulation_keys, conditions)
 
         _validate_dataset_and_latents(latents=simulated_latents, dataset=dataset)
         return simulated_latents

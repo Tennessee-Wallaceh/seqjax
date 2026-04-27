@@ -78,12 +78,9 @@ def broadcast_packable[
     - If a leaf is already shaped (leading_axis_len, ...) it is left as-is.
     - Otherwise it is broadcast to (leading_axis_len, ...) using jnp.broadcast_to.
     """
-
+    
     def _broadcast_leaf(p):
         if not isinstance(p, jax.Array):
-            return p
-
-        if p.ndim > 0 and p.shape[0] == leading_axis_len:
             return p
 
         # Non-batched: broadcast over a new leading time axis

@@ -262,7 +262,7 @@ class Tracker:
 
     def __init__(
         self,
-        metric_samples: int = 100,
+        metric_samples: int,
         record_trigger=None,
         custom_record_fcns=None,
     ) -> None:

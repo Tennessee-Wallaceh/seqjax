@@ -101,6 +101,7 @@ def _batched_latent_history[
     order: int,
     sequence_length: int,
 ) -> model_interface.LatentContext[LatentT]:
+
     return target.latent_context(
         tuple(
             util.slice_pytree(
@@ -160,10 +161,13 @@ def log_prob_x[
     """Return ``log p(x)`` for a latent sequence."""
     sequence_length = _validate_x_sequence_lengths(target, x_path, condition)
 
-    parameters_batched = util.broadcast_packable(
-        parameters,
-        leading_axis_len=sequence_length,
-    )
+    if len(parameters.batch_shape) == 0:
+        parameters_batched = util.broadcast_packable(
+            parameters,
+            leading_axis_len=sequence_length,
+        )
+    else:
+        parameters_batched = parameters
 
     prior_latent = target.latent_context(
         tuple(util.index_pytree(x_path, ix) for ix in range(target.prior_order))
@@ -246,10 +250,13 @@ def log_prob_y_given_x[
         condition,
     )
 
-    parameters_batched = util.broadcast_packable(
-        parameters,
-        leading_axis_len=sequence_length,
-    )
+    if len(parameters.batch_shape) == 0:
+        parameters_batched = util.broadcast_packable(
+            parameters,
+            leading_axis_len=sequence_length,
+        )
+    else:
+        parameters_batched = parameters
 
     emission_latent_history = _batched_latent_history(
         target,
@@ -257,6 +264,7 @@ def log_prob_y_given_x[
         target.emission_order,
         sequence_length,
     )
+
     observation_start = target.observation_dependency
     observations = util.slice_pytree(
         observation_path,
@@ -297,7 +305,6 @@ def log_prob_y_given_x[
             observation_condition,
             parameters_batched,
         )
-
     return emission_log_ps.sum()
 
 

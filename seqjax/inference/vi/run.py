@@ -174,7 +174,7 @@ def run_buffered_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided
     if tracker is None:
-        tracker = train_bayesian.Tracker(metric_samples=5000)
+        tracker = train_bayesian.Tracker(metric_samples=10000)
 
     sync_interval_s = None
 
