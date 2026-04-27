@@ -5,10 +5,13 @@ from __future__ import annotations
 import importlib.util
 import itertools
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
+
+SlurmMode = Literal["run", "latent-fit"]
 
 
 class SharedPlan(TypedDict, total=False):
+    mode: SlurmMode
     model: str
     parameters: str
     sequence_length: int
@@ -24,6 +27,14 @@ class SharedPlan(TypedDict, total=False):
     data_seed_repeats: int
     base_fit_seed: int
     base_data_seed: int
+
+
+def _parse_mode(raw_mode: object, *, location: str) -> SlurmMode:
+    if raw_mode == "run" or raw_mode == "latent-fit":
+        return raw_mode
+    raise ValueError(
+        f"Invalid mode {raw_mode!r} in {location}; expected one of: 'run', 'latent-fit'"
+    )
 
 
 def _quote(token: str) -> str:
@@ -82,6 +93,7 @@ def _validate_code_tokens(code_tokens: list[str]) -> None:
 
 def _render_script(
     *,
+    mode: SlurmMode,
     experiment_name: str,
     study_name: str,
     output_pattern: str,
@@ -94,7 +106,7 @@ def _render_script(
     sequence_length: int,
     num_sequences: int,
     base_data_seed: int,
-    inference: str,
+    inference: str | None,
     fixed_codes: list[str],
     combination: tuple[str, ...],
     fit_seed_repeats: int,
@@ -102,6 +114,13 @@ def _render_script(
     base_fit_seed: int,
     test_samples: int | None,
 ) -> str:
+    if mode == "run" and inference is None:
+        raise ValueError("mode='run' requires shared.inference to be set")
+    if mode == "latent-fit" and inference is not None:
+        raise ValueError("mode='latent-fit' does not accept shared.inference")
+    if mode == "latent-fit" and test_samples is not None:
+        raise ValueError("mode='latent-fit' does not accept shared.test_samples")
+
     total_repeats = fit_seed_repeats * data_seed_repeats
     if total_repeats <= 0:
         raise ValueError("fit_seed_repeats * data_seed_repeats must be positive")
@@ -133,18 +152,20 @@ def _render_script(
 
     lines.extend(
         [
-            "CMD=(python -m seqjax.cli run",
+            f"CMD=(python -m seqjax.cli {mode}",
             f"  --model {model}",
             f"  --parameters {_quote(generative_parameters)}",
             f"  --sequence-length {sequence_length}",
             f"  --num-sequences {num_sequences}",
             '  --data-seed "$DATA_SEED"',
             '  --fit-seed "$FIT_SEED"',
-            f"  --inference {inference}",
         ]
     )
 
-    if test_samples is not None:
+    if mode == "run":
+        lines.append(f"  --inference {inference}")
+
+    if mode == "run" and test_samples is not None:
         lines.append(f"  --test-samples {test_samples}")
 
     for token in fixed_codes:
@@ -207,6 +228,7 @@ def generate_slurm_jobs(
     logs_dir = experiment_dir / "logs"
 
     shared = cast(SharedPlan, dict(plan.get("shared", {})))
+    shared_mode = _parse_mode(shared.get("mode", "run"), location="PLAN.shared.mode")
     generative_parameters = str(shared.get("parameters", "base"))
     if not generative_parameters:
         raise ValueError("shared.parameters must be a non-empty string when provided")
@@ -222,6 +244,7 @@ def generate_slurm_jobs(
     for study in plan["studies"]:
         study_name = study["name"]
         study_dir_name = str(study_name).replace(" ", "-")
+        mode = _parse_mode(study.get("mode", shared_mode), location=f"study {study_name!r}.mode")
 
         fixed_codes = list(shared.get("fixed_codes", [])) + list(study.get("fixed_codes", []))
         axes = study.get("axes", {})
@@ -254,6 +277,7 @@ def generate_slurm_jobs(
                 ) from exc
 
             script_text = _render_script(
+                mode=mode,
                 experiment_name=experiment_name,
                 study_name=str(study.get("job_name", study_dir_name)),
                 output_pattern=output_pattern,
@@ -266,7 +290,7 @@ def generate_slurm_jobs(
                 sequence_length=int(shared["sequence_length"]),
                 num_sequences=int(shared.get("num_sequences", 1)),
                 base_data_seed=base_data_seed,
-                inference=str(shared["inference"]),
+                inference=cast(str | None, shared.get("inference")),
                 fixed_codes=fixed_codes,
                 combination=combination,
                 fit_seed_repeats=fit_seed_repeats,
