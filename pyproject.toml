@@ -33,7 +33,7 @@ dependencies = [
     "typer>=0.12",
     "quantiphy",
     "pytimeparse2",
-    "arviz==0.20.0",
+    "arviz==0.22.0",
 ]
 
 [project.optional-dependencies]
