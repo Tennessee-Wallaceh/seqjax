@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 import typer
 
 from seqjax.cli import slurm_jobs
+from seqjax.experiment import make_record_trigger
 
 if typing.TYPE_CHECKING:
     from seqjax.inference import registry as inference_registry
@@ -162,7 +163,6 @@ def build_inference_config(
         dict_config[subconfig["field"]] = subconfig["registry"][selected_option](
             **parse_straight_codes([], selected_option_codes)
         )
-
     return inference_registry.inference_registry[canonical_method].build_config(dict_config)
 
 @app.command("list-models")
@@ -515,12 +515,12 @@ def latent_fit(
         target,
         seqjtyping.NoParam,
         dataset.sequence_length,
-        latent_inference_config.batch_length,
+        dataset.sequence_length,
         embed_key,
     )
     latent_approximation = vi_registry.build_latent_approximation(
         latent_inference_config.latent_approximation,
-        sample_length=latent_inference_config.batch_length,
+        sample_length=dataset.sequence_length,
         target_model=target,
         key=latent_key,
         latent_context_dims=embed.latent_context_dims,
@@ -530,22 +530,11 @@ def latent_fit(
     latent_sampling_kwargs: typing.Any = {
         "mc-samples": latent_inference_config.samples_per_context
     }
-    fitted_approximation, opt_state, tracker = train_latent.train(
-        model=latent_approximation,
-        embedder=embed,
-        dataset=dataset,
-        target=target,
-        params=params,
-        key=train_key,
-        optim=optim,
-        run_tracker=None,
-        num_steps=latent_inference_config.optimization.total_steps,
-        time_limit_s=latent_inference_config.optimization.time_limit_s,
-        sample_kwargs=latent_sampling_kwargs,
-        unroll=latent_inference_config.unroll,
-        compiled_steps=latent_inference_config.compiled_steps,
-    )
 
+
+    """
+    build tracker connecting to wandb
+    """
     configure_wandb_runtime(runtime_config)
     wandb_run = typing.cast(
         io.WandbRun,
@@ -559,12 +548,45 @@ def latent_fit(
             },
         ),
     )
+    def wandb_update(
+        update
+    ):
+        wandb_update = {
+            "step": update["opt_step"],
+            "elapsed_time_s": update["elapsed_time_s"],
+            "loss": update["loss"],
+        }
+
+        wandb_run.log(wandb_update)
+
+    run_tracker = train_latent.LatentFitTracker(
+        record_trigger=make_record_trigger(10),
+        custom_record_fcns=[wandb_update],
+    )
+    
+    fitted_approximation, opt_state, tracker, is_diagnostics = train_latent.train(
+        model=latent_approximation,
+        embedder=embed,
+        dataset=dataset,
+        target=target,
+        params=params,
+        key=train_key,
+        optim=optim,
+        run_tracker=run_tracker,
+        num_steps=latent_inference_config.optimization.total_steps,
+        time_limit_s=latent_inference_config.optimization.time_limit_s,
+        sample_kwargs=latent_sampling_kwargs,
+        unroll=latent_inference_config.unroll,
+        compiled_steps=latent_inference_config.compiled_steps,
+    )
+
     sink = WandbLatentFitArtifactSink(wandb_run)
     sink.save(
         run_name=wandb_run.name,
         fitted_approximation=fitted_approximation,
         optimization_state=opt_state,
         tracker_rows=tracker.update_rows,
+        is_diagnostics=is_diagnostics,
     )
     wandb_run.finish()
 

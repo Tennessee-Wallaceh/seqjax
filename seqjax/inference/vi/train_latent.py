@@ -20,6 +20,10 @@ import seqjax.model.typing as seqjtyping
 import seqjax.model.interface as model_interface
 from seqjax.model.evaluate import log_prob_joint
 
+import numpy as np
+import arviz as az
+from scipy.special import logsumexp
+
 DEFAULT_SYNC_INTERVAL_S = 5
 
 LatentT = typing.TypeVar("LatentT", bound=seqjtyping.Latent)
@@ -28,6 +32,166 @@ ConditionT = typing.TypeVar("ConditionT", bound=seqjtyping.Condition)
 ParametersT = typing.TypeVar("ParametersT", bound=seqjtyping.Parameters)
 OptStateT = typing.TypeVar("OptStateT")
 TrainableModuleT = typing.TypeVar("TrainableModuleT")
+
+
+def compute_log_iw(
+    trainable,
+    key,
+    *,
+    static,
+    sample_kwargs,
+    y,
+    c,
+    context,
+    target,
+    params,
+):
+    approximation = eqx.combine(trainable, static)
+
+    x, loq_q_x, _ = jax.vmap(
+        approximation.sample_and_log_prob,
+        in_axes=(0, None, None),
+    )(
+        jrandom.split(key, sample_kwargs["mc-samples"]),
+        context,
+        None
+    )
+
+    log_p_x_y = jax.vmap(
+        log_prob_joint,
+        in_axes=(None, 0, None, None, None)
+    )(
+        target,
+        x,
+        y,
+        c,
+        params,
+    )
+
+    return log_p_x_y - loq_q_x
+
+
+def log_ess_np(log_iw, axis=-1):
+    """
+    ESS from unnormalised log importance weights.
+
+    Parameters
+    ----------
+    log_iw:
+        Unnormalised log importance weights, log p(x) - log q(x).
+    axis:
+        Sample axis.
+
+    Returns
+    -------
+    ess:
+        Absolute effective sample size.
+    rel_ess:
+        Relative effective sample size, ESS / n.
+    """
+    log_iw = np.asarray(log_iw)
+
+    n = log_iw.shape[axis]
+    log_ess = (
+        2.0 * logsumexp(log_iw, axis=axis)
+        - logsumexp(2.0 * log_iw, axis=axis)
+    )
+
+    ess = np.exp(log_ess)
+    rel_ess = ess / n
+
+    return ess, rel_ess
+
+
+def elbo_estimate_np(log_iw, axis=-1):
+    """
+    Monte Carlo ELBO estimate under q.
+
+    Since log_iw = log p(x, y) - log q(x), or log p(x) - log q(x)
+    depending on context, the simple VI/IS ELBO estimate is:
+
+        E_q[log_iw]
+
+    This is not the log marginal likelihood estimate. The IS estimate of
+    log normalising constant would be:
+
+        logmeanexp(log_iw)
+    """
+    log_iw = np.asarray(log_iw)
+    return np.mean(log_iw, axis=axis)
+
+
+def logz_is_estimate_np(log_iw, axis=-1):
+    """
+    Self-normalised-free importance sampling estimate of log Z:
+
+        log mean_i exp(log_iw_i)
+
+    This estimates log E_q[p/q], not E_q[log p/q].
+    It is upward-biased on the log scale for finite N, but consistent.
+    """
+    log_iw = np.asarray(log_iw)
+    n = log_iw.shape[axis]
+
+    return logsumexp(log_iw, axis=axis) - np.log(n)
+
+
+def importance_diagnostics(log_iw, axis=-1):
+    """
+    Diagnostics for unnormalised log importance weights.
+
+    Uses ArviZ PSIS rather than a homebrew GPD fit.
+
+    Parameters
+    ----------
+    log_iw:
+        Array of log importance weights.
+    axis:
+        Sample axis over which to run PSIS / ESS / ELBO.
+
+    Returns
+    -------
+    dict with:
+        k_hat:
+            Pareto k estimate from ArviZ.
+        ess_raw:
+            ESS of raw importance weights.
+        rel_ess_raw:
+            ESS / n for raw importance weights.
+        ess_psis:
+            ESS of Pareto-smoothed weights.
+        rel_ess_psis:
+            ESS / n for Pareto-smoothed weights.
+        elbo:
+            mean(log_iw).
+        logz_is:
+            logmeanexp(log_iw).
+        log_iw_psis:
+            Pareto-smoothed log weights.
+    """
+    log_iw = np.asarray(log_iw)
+
+    ess_raw, rel_ess_raw = log_ess_np(log_iw, axis=axis)
+
+    log_iw_psis, k_hat = az.psislw(log_iw)
+
+    ess_psis, rel_ess_psis = log_ess_np(log_iw_psis, axis=axis)
+
+    elbo = elbo_estimate_np(log_iw, axis=axis)
+    logz_is = logz_is_estimate_np(log_iw, axis=axis)
+
+    return {
+        "k_hat": k_hat,
+        "ess_raw": ess_raw,
+        "rel_ess_raw": rel_ess_raw,
+        "ess_psis": ess_psis,
+        "rel_ess_psis": rel_ess_psis,
+        "elbo": elbo,
+        "logz_is": logz_is,
+        "elbo_gap_estimate": logz_is - elbo,
+    }
+
+
 
 def loss_neg_elbo(
     trainable,
@@ -71,15 +235,31 @@ losses: dict[LossLabels, typing.Any] = {
 }
 
 class LatentFitTracker:
-    def __init__(self):
+    def __init__(
+        self,
+        record_trigger=None,
+        custom_record_fcns=None,
+    ):
         self.update_rows = []
+        self.record_trigger = record_trigger or (lambda step, elapsed_time_s: True)
+        self.custom_record_fcns = custom_record_fcns or []
 
-    def record(self, opt_step, elapsed_time_s,  loss):
-        self.update_rows.append({
-            "loss": float(loss),
-            "opt_step": opt_step,
-            "elapsed_time_s": elapsed_time_s,
-        })
+    def record(self, opt_step, elapsed_time_s,  loss, force_record=False):
+        if force_record or self.record_trigger(opt_step, elapsed_time_s):
+            update = {
+                "loss": float(loss),
+                "opt_step": opt_step,
+                "elapsed_time_s": elapsed_time_s,
+            }
+            for fcn in self.custom_record_fcns:
+                out = fcn(update)
+                if out is None:
+                    continue
+                labels, values = out
+                for label, value in zip(labels, values):
+                    update[label] = value
+
+            self.update_rows.append(update)
 
         return {"loss": float(loss)}
 
@@ -248,4 +428,17 @@ def train(
 
         opt_step += compiled_steps
 
-    return eqx.combine(static, trainable), opt_state, run_tracker
+    log_iw = compute_log_iw(
+        trainable,
+        key,
+        static=static,
+        sample_kwargs={"mc-samples": 10000},
+        y=y,
+        c=c,
+        context=context,
+        target=target,
+        params=params,
+    )
+    iw_diagnostics = importance_diagnostics(log_iw)
+
+    return eqx.combine(static, trainable), opt_state, run_tracker, iw_diagnostics

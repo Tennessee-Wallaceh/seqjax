@@ -78,6 +78,13 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
             transition_std=jnp.array(0.5),
         ),
     },
+    "ar-aronly": {
+        "base": ar.ARParameters(
+            ar=jnp.array(0.8),
+            observation_std=jnp.array(0.1),
+            transition_std=jnp.array(0.5),
+        ),
+    },
     "svar-full": {
         "base": stochastic_vol.simple_var.LogVarParams(
             ar=jnp.array(0.6),
@@ -95,6 +102,12 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
 hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = {
     "ar-full": {
         "base": NoHyper(),
+    },
+    "ar-aronly": {
+        "base": ar_bayesian.FixedARParams(
+            fixed_observation_std=parameter_settings["ar-aronly"]["base"].observation_std,
+            fixed_transition_std=parameter_settings["ar-aronly"]["base"].transition_std,
+        ),
     },
     "svar-full": {
         "base": NoHyper(),
