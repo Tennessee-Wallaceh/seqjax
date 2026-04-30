@@ -348,6 +348,10 @@ codes["buffer-vi"]["LAX"] = {
             "W": ("nn_width", parse_int_required, "32"),
             "D": ("nn_depth", parse_int_required, "2"),
         }),
+        "MEF": ("mean-field", {
+            "W": ("nn_width", parse_int_required, "32"),
+            "D": ("nn_depth", parse_int_required, "2"),
+        }),
         "CNF": ("conv-flow", {
             "W": ("nn_width", parse_int_required, "32"),
             "D": ("nn_depth", parse_int_required, "2"),

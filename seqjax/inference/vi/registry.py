@@ -38,7 +38,7 @@ class PassthroughEmbedder:
     prev_window: int = field(init=False, default=0)
     post_window: int = field(init=False, default=0)
     position_mode: None | PositionMode = None
-    n_pos_embedding: int = 8
+    n_pos_embedding: int = 8 
 
 @dataclass
 class ShortContextEmbedder:
@@ -357,6 +357,16 @@ class ConvNFLatentApproximation:
 @dataclass
 class StructuredPrecisionLatentApproximation:
     label: str = field(init=False, default="structured")
+    temporal_structure: str = field(init=False, default="bidiagonal")
+    within_time_structure: str = field(init=False, default="full")
+    nn_width: int = 32
+    nn_depth: int = 2
+
+@dataclass
+class MeanFieldLatentApproximation:
+    label: str = field(init=False, default="mean-field")
+    temporal_structure: str = field(init=False, default="mean_field")
+    within_time_structure: str = field(init=False, default="full")
     nn_width: int = 32
     nn_depth: int = 2
 
@@ -364,6 +374,7 @@ LatentApproximation = (
     AutoregressiveLatentApproximation 
     | MAFLatentApproximation
     | StructuredPrecisionLatentApproximation
+    | MeanFieldLatentApproximation
     | ConvNFLatentApproximation
 )
 LatentApproximationLabels = typing.Literal[
@@ -373,6 +384,7 @@ latent_approximation_registry: dict[LatentApproximationLabels, type[LatentApprox
     "autoregressive": AutoregressiveLatentApproximation,
     "masked-autoregressive-flow": MAFLatentApproximation,
     "structured": StructuredPrecisionLatentApproximation,
+    "mean-field": MeanFieldLatentApproximation,
     "conv-flow": ConvNFLatentApproximation,
 }
 
@@ -421,11 +433,16 @@ def build_latent_approximation(
             base_scale=latent_config.base_scale,
         )
 
-    elif isinstance(latent_config, StructuredPrecisionLatentApproximation):
+    elif (
+        isinstance(latent_config, StructuredPrecisionLatentApproximation)
+        or isinstance(latent_config, MeanFieldLatentApproximation)
+    ):
         latent_approximation = structured.StructuredPrecisionGaussian(
             target_latent_class,
             sample_length=sample_length,
             latent_context_dims=latent_context_dims,
+            temporal_structure=latent_config.temporal_structure,
+            within_time_structure=latent_config.within_time_structure,
             hidden_dim=latent_config.nn_width,
             depth=latent_config.nn_depth,
             key=key,
