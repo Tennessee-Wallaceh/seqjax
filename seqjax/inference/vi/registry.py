@@ -76,6 +76,7 @@ class BiRNNEmbedder:
     aggregation_kind: aggregation.AggregationKind = "observation-flatten"
     position_mode: None | PositionMode = None
     n_pos_embedding: int = 1
+    condition_on_parameters: bool = False
 
 
 @dataclass
@@ -186,6 +187,7 @@ def _build_embedder(
             aggregation_kind=embedder_config.aggregation_kind,
             position_mode=embedder_config.position_mode,
             n_pos_embedding=embedder_config.n_pos_embedding,
+            condition_on_parameters=embedder_config.condition_on_parameters,
             key=embedding_key,
         )
     elif isinstance(embedder_config, TransformerEmbedderConfig):

@@ -26,7 +26,7 @@ def _fourier_positional_basis(
     positions: Array,
     n_pos_embedding: int,
 ) -> Array:
-    freqs = (2.0 ** jnp.arange(n_pos_embedding)) * jnp.pi
+    freqs = (2.0 ** jnp.arange(n_pos_embedding)) * 2 * jnp.pi
     phase = positions[:, None] * freqs[None, :]
     return jnp.concatenate(
         [positions[:, None], jnp.sin(phase), jnp.cos(phase)],
@@ -289,11 +289,12 @@ class RNNEmbedder(Embedder):
     n_pos_embedding: int = eqx.field(static=True)
     positional_basis: PositionalBasis = eqx.field(static=True)
     pos_context: None | Array
+    condition_on_parameters: bool = False
 
     def __init__(
         self,
         target: SequentialModelProtocol,
-        parameter_cls: type[seqjtyping.Parameters],
+        parameter_cls: type[seqjtyping.Parameters], #TODO: Pretty sure this is inference params
         sample_length: int,
         sequence_length: int,
         hidden: int,
@@ -301,19 +302,28 @@ class RNNEmbedder(Embedder):
         position_mode: None | PositionMode = None,
         n_pos_embedding: int = 8,
         positional_basis: PositionalBasis = _fourier_positional_basis,
+        condition_on_parameters: bool = False,
         *,
         key,
     ):
         y_dim = target.observation_cls.flat_dim
+        param_dim = parameter_cls.flat_dim
         k1, k2 = jax.random.split(key)
-        self.cell_fwd = eqx.nn.GRUCell(y_dim, hidden, key=k1)
-        self.cell_rev = eqx.nn.GRUCell(y_dim, hidden, key=k2)
+
+        if condition_on_parameters:
+            input_dim = y_dim + param_dim
+        else:
+            input_dim = y_dim
+
+        self.cell_fwd = eqx.nn.GRUCell(input_dim, hidden, key=k1)
+        self.cell_rev = eqx.nn.GRUCell(input_dim, hidden, key=k2)
         self.hidden = hidden
         self.aggregation_kind = aggregation_kind
         self.position_mode = position_mode
         self.n_pos_embedding = n_pos_embedding
         self.positional_basis = positional_basis
-
+        self.condition_on_parameters = condition_on_parameters
+        
         _validate_position_mode(self.position_mode)
         if self.n_pos_embedding < 1:
             raise ValueError(f"n_pos_embedding must be >= 1, got {self.n_pos_embedding}")
@@ -349,9 +359,14 @@ class RNNEmbedder(Embedder):
             )
         )
 
-    def _scan(self, cell, seq):
+    def _scan(self, cell, seq, param_vec):
         def step(carry, x):
-            new_carry = cell(x, carry)
+            if self.condition_on_parameters:
+                cell_input = jnp.hstack([x, param_vec])
+            else:
+                cell_input = x
+            print(cell_input.shape)
+            new_carry = cell(cell_input, carry)
             return new_carry, new_carry
 
         h0 = jnp.zeros((cell.hidden_size,))
@@ -370,8 +385,10 @@ class RNNEmbedder(Embedder):
         training: bool = False,
     ):
         seq = observations.ravel()
-        h_fwd = self._scan(self.cell_fwd, seq)
-        h_rev = self._scan(self.cell_rev, seq[::-1])[::-1]
+        param_vec = parameters.ravel()
+
+        h_fwd = self._scan(self.cell_fwd, seq, param_vec)
+        h_rev = self._scan(self.cell_rev, seq[::-1], param_vec)[::-1]
         sequence_embedded_context = jnp.concatenate([h_fwd, h_rev], axis=-1)
 
         if self.position_mode is not None:
