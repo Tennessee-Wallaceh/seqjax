@@ -4,6 +4,8 @@ from typing import Any, Protocol
 import typing
 import json
 import pickle
+import os
+from pathlib import Path
 
 import wandb
 import wandb.errors
@@ -95,8 +97,8 @@ class PreparedDataStorage(Protocol):
     ) -> tuple[Packable, Packable, Packable | None]: ...
 
 
-SEQJAX_DATA_DIR = "../"
-
+SEQJAX_DATA_DIR = Path(os.environ.get("SEQJAX_DATA_DIR", "."))
+print(f"SEQJAX_DATA_DIR: {SEQJAX_DATA_DIR}")
 
 def _stack_packables(packables: list[Packable]) -> Packable:
     if len(packables) == 0:
@@ -237,7 +239,7 @@ def save_packable_artifact(
 ):
     artifact = wandb.Artifact(name=artifact_name, type=wandb_type)
     for file_name, packable, metadata in file_names_and_data:
-        file_loc = f"{SEQJAX_DATA_DIR}{file_name}.parquet"
+        file_loc = f"{SEQJAX_DATA_DIR}/{file_name}.parquet"
         df = packable_to_df(packable)
         df.write_parquet(file_loc, metadata=normalize_parquet_metadata(metadata))
         artifact.add_file(local_path=file_loc)

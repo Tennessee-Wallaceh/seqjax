@@ -304,6 +304,8 @@ codes["full-vi"] = {
             }),
         }
     },
+    "UNRLL": ("unroll", parse_int_required, "1"),
+    "COMPS": ("compiled_steps", parse_int_required, "1"),
 }
 
 codes["hybrid-vi"] = {
