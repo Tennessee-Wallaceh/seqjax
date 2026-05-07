@@ -28,14 +28,14 @@ LogDensity = typing.Callable[
 def run_random_walk_metropolis(
     key: jaxtyping.PRNGKeyArray,
     initial_parameters: seqjtyping.Parameters,
+    initial_logp: jaxtyping.Scalar,
     logdensity: LogDensity,
     config: RandomWalkConfig,
     num_samples: int,
 ) -> jax.Array | seqjtyping.Parameters:
     """Run Random Walk Metropolis sampling using ``blackjax`` utilities."""
 
-    init_key, *step_keys = jrandom.split(key, num_samples + 1)
-    init_logp = logdensity(initial_parameters, init_key)
+    step_keys = jrandom.split(key, num_samples)
     
     random_step = blackjax.random_walk.normal(jnp.array(config.step_size))
 
@@ -69,9 +69,9 @@ def run_random_walk_metropolis(
         step,
     )
 
-    _, samples = jax.lax.scan(
+    (_, final_p, final_logp), samples = jax.lax.scan(
         step,
-        (0, initial_parameters, init_logp),
+        (0, initial_parameters, initial_logp),
         (jnp.arange(num_samples), jnp.array(step_keys)),
     )
-    return samples
+    return samples, (final_p, final_logp)

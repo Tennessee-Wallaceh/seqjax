@@ -91,14 +91,14 @@ def _make_log_joint_estimator[
             InferenceParametersT,
         ],
         sequence_key: PRNGKeyArray,
-        params: InferenceParametersT,
+        inference_params: InferenceParametersT,
         observation_path: ObservationT,
         condition_path: ConditionT,
     ) -> jaxtyping.Array:
         _, _, (log_marginal_increments,) = run_filter(
             sequence_key,
             particle_filter,
-            params,
+            inference_params,
             observation_path,
             condition_path=condition_path,
             recorders=(log_marginal_increment,),
@@ -117,32 +117,29 @@ def _make_log_joint_estimator[
             ParametersT,
             InferenceParametersT,
         ],
-        params: InferenceParametersT,
+        inference_params: InferenceParametersT,
         key: PRNGKeyArray,
     ) -> jaxtyping.Array:
+        """
+        Sequences are treated as IID. So vmap down seed per sequence.
+        """
         sequence_keys = jrandom.split(key, num_sequences)
         if isinstance(conditions, seqjtyping.NoCondition):
-            log_marginal = jax.vmap(
-                lambda sequence_key, observation_path: sequence_log_marginal_estimator(
-                    particle_filter,
-                    sequence_key,
-                    params,
-                    observation_path,
-                    seqjtyping.NoCondition(),
-                )
-            )(sequence_keys, observations).sum()
+            in_axes = (None, 0, None, 0, None)
         else:
-            log_marginal = jax.vmap(
-                lambda sequence_key, observation_path, condition_path: sequence_log_marginal_estimator(
-                    particle_filter,
-                    sequence_key,
-                    params,
-                    observation_path,
-                    condition_path,
-                )
-            )(sequence_keys, observations, conditions).sum()
+            in_axes = (None, 0, None, 0, 0)
 
-        log_prior = target_posterior.parameterization.log_prob(params)
+        log_marginal = jax.vmap(
+            sequence_log_marginal_estimator,
+            in_axes=in_axes
+        )(
+            particle_filter,
+            sequence_keys,
+            inference_params,
+            observations,
+            conditions,
+        ).sum()
+        log_prior = target_posterior.parameterization.log_prob(inference_params)
         return log_marginal + log_prior
 
     return estimate_log_joint
@@ -185,6 +182,7 @@ def run_particle_mcmc[
     
     init_key, next_sample_key = jrandom.split(key)
     initial_parameters = target_posterior.parameterization.sample(init_key)
+    initial_logp = estimate_log_joint(target_posterior, initial_parameters, init_key)
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size
@@ -198,30 +196,24 @@ def run_particle_mcmc[
             num_samples=num_samples,
         )
     ).lower(
-        key, initial_parameters 
+        key, initial_parameters, initial_logp
     ).compile()
     print("compiled")  
     print("steps:", config.num_steps)
     print("seconds:", config.time_limit_s)
     print("="*20)
 
-    sample_blocks = [
-        # add a leading batch axis
-        jax.tree_util.tree_map(
-            functools.partial(jnp.expand_dims, axis=0), 
-            initial_parameters
-        )
-    ]
+    sample_blocks = []
     samples_taken = 0
     block_times_s = []
 
-
-
+    start_parameter = initial_parameters
+    start_logp = initial_logp
     inference_time_start = time.time()
     while True:
         sample_key, next_sample_key = jrandom.split(next_sample_key)
-        start_parameter = util.index_pytree(sample_blocks[-1], -1)
-        samples = compiled_run(sample_key, start_parameter)
+
+        samples, (start_parameter, start_logp) = compiled_run(sample_key, start_parameter, start_logp)
         samples_taken += num_samples
 
         elapsed_time_s = time.time() - inference_time_start
