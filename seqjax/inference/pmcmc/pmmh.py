@@ -182,7 +182,7 @@ def run_particle_mcmc[
     
     init_key, next_sample_key = jrandom.split(key)
     initial_parameters = target_posterior.parameterization.sample(init_key)
-    initial_logp = estimate_log_joint(target_posterior, initial_parameters, init_key)
+    initial_logp = estimate_log_joint(particle_filter, initial_parameters, init_key)
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size
