@@ -19,8 +19,7 @@ from seqjax.model.interface import (
 )
 from seqjax.model.typing import Parameters, NoCondition, NoHyper
 
-from .common import StochVarARPrior, StochVarFullPrior, StochVarPrior, lvar_from_ar_only, lvar_from_std_only
-from .types import LatentVar, LogReturnObs, LogVarAR, LogVarParams, LogVarStd
+from .types import LatentVar, LogReturnObs, LogVarParams
 
 
 prior_order = 1
@@ -167,17 +166,73 @@ class UncLogVarParams(Parameters):
     )
 
 @jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class LogVarPriorHyper:
+    # defaults correspond to a uniform
+    ar_mean: Scalar = field(default_factory=lambda: jnp.array(0.))
+    ar_std: Scalar = field(default_factory=lambda: jnp.sqrt(jnp.array(1 / 3)))
+
+    # note that the prior is a log-normal
+    long_term_vol_mean: Scalar = field(default_factory=lambda: jnp.array(0.16))
+    long_term_vol_std: Scalar = field(default_factory=lambda: jnp.array(0.3))
+
+    # again, a log-normal prior
+    std_log_var_mean: Scalar = field(default_factory=lambda: jnp.array(0.2))
+    std_log_var_std: Scalar = field(default_factory=lambda: jnp.array(0.1))
+
+    @property
+    def ar_beta_ab(self):
+        # map mean/std to beta parameters
+        m = 0.5 * (self.ar_mean + 1.0)
+        var_z = (self.ar_std / 2.0) ** 2
+        concentration = m * (1.0 - m) / var_z - 1.0
+        return m * concentration, (1.0 - m) * concentration
+    
+    @property
+    def long_term_log_var_mean_std(self):
+        # map to mean/std for gaussian in log var space
+        cv2 = jnp.square(self.long_term_vol_std / self.long_term_vol_mean)
+
+        log_vol_sd = jnp.sqrt(jnp.log1p(cv2))
+        log_vol_loc = jnp.log(self.long_term_vol_mean) - 0.5 * jnp.square(log_vol_sd)
+
+        long_term_log_var_mean = 2.0 * log_vol_loc
+        long_term_log_var_sd = 2.0 * log_vol_sd
+
+        return long_term_log_var_mean, long_term_log_var_sd
+    
+    @property
+    def std_log_var_log_mean_std(self):
+        # std_log_var ~ LogNormal(log_loc, log_sd)
+        cv2 = jnp.square(self.std_log_var_std / self.std_log_var_mean)
+
+        log_sd = jnp.sqrt(jnp.log1p(cv2))
+        log_loc = (
+            jnp.log(self.std_log_var_mean)
+            - 0.5 * jnp.square(log_sd)
+        )
+
+        return log_loc, log_sd
+    
+@jax.tree_util.register_dataclass
 @dataclass
 class FullVarParameterization(
     ParameterizationProtocol[
         LogVarParams,
         UncLogVarParams,
-        NoHyper,
+        LogVarPriorHyper,
     ]
 ):
-    inference_parameter_cls: type[UncLogVarParams] = UncLogVarParams
-    hyperparameters: NoHyper = field(default_factory=NoHyper)
+    """
+    
+    """
+    _hyperparameters: LogVarPriorHyper = field(default_factory=LogVarPriorHyper)
+    inference_parameter_cls: typing.ClassVar[type[UncLogVarParams]] = UncLogVarParams
 
+    @property
+    def hyperparameters(self):
+        return jax.lax.stop_gradient(self._hyperparameters)
+    
     def to_model_parameters(self, inference_parameters: UncLogVarParams) -> LogVarParams:
         return LogVarParams(
             std_log_var=jax.nn.softplus(inference_parameters.sft_inv_std_log_var),
@@ -193,39 +248,50 @@ class FullVarParameterization(
         )
 
     def sample(self, key: PRNGKeyArray) -> UncLogVarParams:
-        annual_vol_mean = 0.8
-        long_term_log_var_mean = 2 * jnp.log(jnp.array(annual_vol_mean))
         k1, k2, k3 = jrandom.split(key, 3)
+
+        ar_beta_a, ar_beta_b = self.hyperparameters.ar_beta_ab
+        long_term_log_var_mean, long_term_log_var_std = self.hyperparameters.long_term_log_var_mean_std
+        std_log_var_mean, std_log_var_std = self.hyperparameters.std_log_var_log_mean_std
+
         return self.from_model_parameters(LogVarParams(
-            std_log_var=jnp.exp(-2.0 + 0.5 * jrandom.normal(k1)),
-            ar=2 * jrandom.beta(k2, 20.0, 1.5) - 1.0,
-            long_term_log_var=long_term_log_var_mean + 0.5 * jrandom.normal(k3),
+            std_log_var=jnp.exp(std_log_var_mean + std_log_var_std * jrandom.normal(k1)),
+            ar=2 * jrandom.beta(k2, ar_beta_a, ar_beta_b) - 1.0,
+            long_term_log_var=long_term_log_var_mean + long_term_log_var_std * jrandom.normal(k3),
         ))
     
     def log_prob(self, inference_parameters: UncLogVarParams) -> Scalar:
-        annual_vol_mean = 0.8
-        long_term_log_var_mean = 2 * jnp.log(jnp.array(annual_vol_mean))
+        
         model_params = self.to_model_parameters(inference_parameters)
 
+        # std log var
+        std_log_var_mean, std_log_var_std = self.hyperparameters.std_log_var_log_mean_std
         std_lp = (
-            jstats.norm.logpdf(jnp.log(model_params.std_log_var), loc=-2.0, scale=0.5)
+            jstats.norm.logpdf(
+                jnp.log(model_params.std_log_var), 
+                loc=std_log_var_mean, 
+                scale=std_log_var_std
+            )
             - jnp.log(model_params.std_log_var)
         )
+        lad_std_log_var = jax.nn.log_sigmoid(inference_parameters.sft_inv_std_log_var)
 
-        ar01 = 0.5 * (model_params.ar + 1.0)
-        ar_lp = (
-            jstats.beta.logpdf(ar01, a=20.0, b=1.5)
-            - jnp.log(2.0)
-        )
-
+        # long lerm log var
+        long_term_log_var_mean, long_term_log_var_std = self.hyperparameters.long_term_log_var_mean_std
         long_term_lp = jstats.norm.logpdf(
             model_params.long_term_log_var,
             loc=long_term_log_var_mean,
-            scale=0.5,
+            scale=long_term_log_var_std,
         )
 
+        # ar
+        ar01 = 0.5 * (model_params.ar + 1.0)
+        ar_beta_a, ar_beta_b = self.hyperparameters.ar_beta_ab
+        ar_lp = (
+            jstats.beta.logpdf(ar01, a=ar_beta_a, b=ar_beta_b)
+            - jnp.log(2.0)
+        )
         lad_ar = jnp.log1p(-jnp.square(model_params.ar))
-        lad_std_log_var = jax.nn.log_sigmoid(inference_parameters.sft_inv_std_log_var)
 
         return (
             std_lp
@@ -242,7 +308,7 @@ class StochasticVarBayesian:
     parameterization : FullVarParameterization
 
 
-def svar_full(hyperparameters: typing.Any = NoHyper()) -> StochasticVarBayesian:
+def svar_full(hyperparameters: LogVarPriorHyper = LogVarPriorHyper()) -> StochasticVarBayesian:
     return StochasticVarBayesian(
-        parameterization=FullVarParameterization()
+        parameterization=FullVarParameterization(hyperparameters)
     )
