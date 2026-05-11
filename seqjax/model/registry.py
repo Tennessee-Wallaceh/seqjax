@@ -87,16 +87,16 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
     },
     "svar-full": {
         "base": stochastic_vol.simple_var.LogVarParams(
-            ar=jnp.array(0.6),
-            std_log_var=jnp.array(3.2),
+            ar=jnp.array(0.60),
+            std_log_var=jnp.array(0.20),
             long_term_log_var=2 * jnp.log(jnp.array(0.16)),
         ),
         "high-freq": stochastic_vol.simple_var.LogVarParams(
             ar=jnp.array(0.95),
-            std_log_var=jnp.array(0.1),
-            long_term_log_var=2 * jnp.log(jnp.array(0.6)),
-        )
-    }
+            std_log_var=jnp.array(0.10),
+            long_term_log_var=2 * jnp.log(jnp.array(0.60)),
+        ),
+    },
 }
 
 hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = {
@@ -110,8 +110,36 @@ hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = 
         ),
     },
     "svar-full": {
-        "base": NoHyper(),
-    }
+        "base": stochastic_vol.simple_var.LogVarPriorHyper(
+            # ar ~ Uniform(-1, 1)
+            ar_mean=jnp.array(0.0),
+            ar_std=jnp.sqrt(jnp.array(1.0 / 3.0)),
+
+            # broad prior over long-run annual vol
+            # mean 16%, but large uncertainty
+            long_term_vol_mean=jnp.array(0.16),
+            long_term_vol_std=jnp.array(0.30),
+
+            # broad-ish prior over log-vol innovation scale
+            # centred near 0.3, allows values around 0.1–1+ without being absurd
+            std_log_var_mean=jnp.array(0.3),
+            std_log_var_std=jnp.array(0.4),
+        ),
+        "high-freq": stochastic_vol.simple_var.LogVarPriorHyper(
+            # high persistence expected, but not fixed
+            ar_mean=jnp.array(0.85),
+            ar_std=jnp.array(0.25),
+
+            # high long-run annual vol, but still not too dogmatic
+            long_term_vol_mean=jnp.array(0.60),
+            long_term_vol_std=jnp.array(0.30),
+
+            # we expect high-frequency latent vol
+            # to probably be smoother per step
+            std_log_var_mean=jnp.array(0.15),
+            std_log_var_std=jnp.array(0.20),
+        ),
+    },
 }
 
 ConditionGenerator = typing.Callable[[int], typing.Any]
