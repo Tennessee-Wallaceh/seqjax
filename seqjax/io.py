@@ -22,6 +22,20 @@ from seqjax.model.registry import DataConfig, RealDataConfig, SyntheticDataConfi
 from seqjax.model import simulate
 from seqjax.inference.interface import ObservationDataset
 
+# setup data directories
+SEQJAX_DATA_DIR = Path(os.environ.get("SEQJAX_DATA_DIR", ".")).resolve()
+
+WANDB_ARTIFACT_ROOT = Path(
+    os.environ.get(
+        "WANDB_ARTIFACT_ROOT",
+        SEQJAX_DATA_DIR / ".wandb_artifacts",
+    )
+).resolve()
+
+print(f"SEQJAX_DATA_DIR: {SEQJAX_DATA_DIR}")
+print(f"WANDB_ARTIFACT_ROOT: {WANDB_ARTIFACT_ROOT}")
+
+
 class WandbRun(Protocol):
     """Subset of the :mod:`wandb` run API used by this module."""
 
@@ -97,8 +111,7 @@ class PreparedDataStorage(Protocol):
     ) -> tuple[Packable, Packable, Packable | None]: ...
 
 
-SEQJAX_DATA_DIR = Path(os.environ.get("SEQJAX_DATA_DIR", "."))
-print(f"SEQJAX_DATA_DIR: {SEQJAX_DATA_DIR}")
+
 
 def _stack_packables(packables: list[Packable]) -> Packable:
     if len(packables) == 0:
@@ -203,17 +216,27 @@ def _validate_dataset_manifest(
                 f"{field_name} expected {expected}, found {manifest.get(field_name)}."
             )
 
-def download_artifact(artifact: wandb.Artifact) -> str:
-    artifact_dir = artifact.download()
-    if os.path.isdir(artifact_dir) is False:
-        if os.path.isdir(artifact_dir.replace(":", "-")) is False:
-            raise ValueError(
-                f"could not locate {artifact_dir} or {artifact_dir.replace(':', '-')}!"
-            )
-        else:
-            artifact_dir = artifact_dir.replace(":", "-")
-    return artifact_dir
+def artifact_local_name(artifact: wandb.Artifact) -> str:
+    # Prefer immutable version if available, fallback to digest.
+    version = getattr(artifact, "version", None)
+    digest = getattr(artifact, "digest", None)
 
+    if version is not None:
+        name = f"{artifact.name.split(':')[0]}-{version}"
+    elif digest is not None:
+        name = f"{artifact.name.split(':')[0]}-{digest}"
+    else:
+        name = artifact.name
+
+    return name.replace(":", "-").replace("/", "__")
+
+def download_artifact(artifact: wandb.Artifact) -> str:
+    root = WANDB_ARTIFACT_ROOT / artifact_local_name(artifact)
+
+    if root.exists():
+        return str(root)
+
+    return artifact.download(root=str(root), skip_cache=False)
 
 def save_python_artifact(
     run: WandbRun,
