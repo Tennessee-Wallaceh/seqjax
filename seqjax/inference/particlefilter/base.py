@@ -315,30 +315,33 @@ def run_filter[
         initial_conditions,
         smc.parameterization.to_model_parameters(parameters),
     )
-    log_weights = smc.emission_log_prob(
+    log_uw = smc.emission_log_prob(
         init_particles,
         util.index_pytree(observation_path, 0),
         observation_history,
         initial_conditions,
         smc.parameterization.to_model_parameters(parameters),
     )
-    log_z_inc = jsp.logsumexp(log_weights) - jnp.log(smc.num_particles)
+
+    log_weight_norm = jsp.logsumexp(log_uw)
+    log_w = log_uw - log_weight_norm
+    log_z_inc = log_weight_norm - jnp.log(smc.num_particles)
 
     start_context = smc.filter_context(init_particles.values)
 
     filter_data = pf_interface.FilterData(
         step_ix=0,
-        start_log_w=log_weights,
-        resampled_log_w=log_weights,
-        log_w=log_weights-log_z_inc,
+        start_log_w=log_w,
+        resampled_log_w=log_w,
+        log_w=log_w,
         particles=start_context,
         resampled_particles=start_context,
         ancestor_ix=jnp.full((smc.num_particles,), -1, dtype=jnp.int32),
-        log_w_inc=log_weights,
+        log_w_inc=log_uw,
         observation=util.index_pytree(observation_path, 0),
-        condition=util.index_pytree(condition_path, 0),
+        condition=initial_conditions,
         inference_parameters=parameters,
-        log_z_inc=log_z_inc
+        log_z_inc=log_z_inc,
     )
     intial_record = (
         tuple(r(filter_data) for r in recorders) 

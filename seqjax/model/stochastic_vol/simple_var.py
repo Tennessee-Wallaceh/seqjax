@@ -27,6 +27,11 @@ transition_order = 1
 emission_order = 1
 observation_dependency = 0
 
+# latent state is an annualized variance
+# observations are in annualized terms
+# but sampling interval may be varying, as such ar + std_log_var parameters 
+# adjust for timescale -> minute sampling will be less varying + higher ar
+# than daily
 latent_cls = LatentVar
 observation_cls = LogReturnObs
 parameter_cls = LogVarParams

@@ -86,11 +86,16 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
         ),
     },
     "svar-full": {
+        # base is ~ equity like daily sampling
+        # annual log_vol_std ~ 0.2 * 16.
         "base": stochastic_vol.simple_var.LogVarParams(
-            ar=jnp.array(0.60),
-            std_log_var=jnp.array(0.20),
+            ar=jnp.array(0.90),
+            std_log_var=jnp.array(0.40),
             long_term_log_var=2 * jnp.log(jnp.array(0.16)),
         ),
+        # high-freq is similar to a minute level sampling
+        # much lower std log var + higher ar
+        # higher long term var as this is similar to crypto
         "high-freq": stochastic_vol.simple_var.LogVarParams(
             ar=jnp.array(0.95),
             std_log_var=jnp.array(0.10),
@@ -121,9 +126,9 @@ hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = 
             long_term_vol_std=jnp.array(0.30),
 
             # broad-ish prior over log-vol innovation scale
-            # centred near 0.3, allows values around 0.1–1+ without being absurd
-            std_log_var_mean=jnp.array(0.3),
-            std_log_var_std=jnp.array(0.4),
+            # centred near 0.5, allows values around 0.1–1+ without being absurd
+            std_log_var_mean=jnp.array(0.5),
+            std_log_var_std=jnp.array(0.5),
         ),
         "high-freq": stochastic_vol.simple_var.LogVarPriorHyper(
             # high persistence expected, but not fixed
