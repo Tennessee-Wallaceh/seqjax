@@ -220,7 +220,7 @@ def artifact_local_name(artifact: wandb.Artifact) -> str:
     # Prefer immutable version if available, fallback to digest.
     version = getattr(artifact, "version", None)
     digest = getattr(artifact, "digest", None)
-
+    print(version, digest, artifact.name)
     if version is not None:
         name = f"{artifact.name.split(':')[0]}-{version}"
     elif digest is not None:
@@ -232,8 +232,9 @@ def artifact_local_name(artifact: wandb.Artifact) -> str:
 
 def download_artifact(artifact: wandb.Artifact) -> str:
     root = WANDB_ARTIFACT_ROOT / artifact_local_name(artifact)
-
+    print(root)
     if root.exists():
+        print("found locally, skipping download...")
         return str(root)
 
     return artifact.download(root=str(root), skip_cache=False)

@@ -170,10 +170,12 @@ def run_particle_mcmc[
         target_posterior, 
         config=config.particle_filter_config
     )
-    
+
+    print("="*10, "initializing...", "="*10)
     init_key, init_logp_key, next_sample_key = jrandom.split(key, 3)
     initial_parameters = target_posterior.parameterization.sample(init_key)
-    initial_logp = estimate_log_joint(particle_filter, initial_parameters, init_logp_key)
+    initial_logp = jax.jit(functools.partial(estimate_log_joint, particle_filter))(initial_parameters, init_logp_key)
+    print("complete.")
 
     # by default sample in chunks of 1000
     num_samples = config.sample_block_size
@@ -190,7 +192,8 @@ def run_particle_mcmc[
         key, initial_parameters, initial_logp
     ).compile()
     print("compiled")  
-    print("steps:", config.num_steps)
+    print("sample_block_size:", config.sample_block_size)
+    print("max steps:", config.num_steps)
     print("seconds:", config.time_limit_s)
     print("="*20)
 
