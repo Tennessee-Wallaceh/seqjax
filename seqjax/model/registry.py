@@ -48,7 +48,7 @@ BayesianModelLabel = typing.Literal[
     "ar-aronly",
     "ar-full",
     "svar-full",
-    "lgssm-5-full",
+    "lgssm-5d-full",
 ]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
