@@ -306,6 +306,7 @@ def load_model_artifact(
 
     return model
 
+# important whether this is an active Run or a artifact run
 def load_python_object(
     run: WandbRun,
     artifact_name: str,
@@ -314,9 +315,22 @@ def load_python_object(
     print(
         f"Loading {artifact_name}:latest from wandb..."
     )
-    artifact = run.use_artifact(
-        f"{artifact_name}:latest", type="run_output"
+    e, p, i = run.path
+    artifact_ref = f"{e}/{p}/{artifact_name}:latest"
+
+    artifact = wandb.Api().artifact(
+        artifact_ref,
+        type="run_output",
     )
+
+    # if hasattr(run, "use_artifact"):
+    #     # active run
+    #     artifact = run.use_artifact(
+    #         f"{artifact_name}:latest", type="run_output"
+    #     )
+    # else:
+        
+
 
     artifact_dir = download_artifact(artifact)
     file_path = os.path.join(artifact_dir, f"{file_name}.pkl")
