@@ -161,6 +161,10 @@ def run_particle_mcmc[
 ) -> tuple[InferenceParametersT, typing.Any]:
     """Sample parameters using particle marginal Metropolis-Hastings."""
 
+    if tracker is None:
+        def tracker(*args, **kwargs):
+            pass
+
     estimate_log_joint = _make_log_joint_estimator(
         target_posterior,
         dataset,
@@ -211,6 +215,13 @@ def run_particle_mcmc[
         samples_taken += num_samples
 
         elapsed_time_s = time.time() - inference_time_start
+
+        tracker(
+            elapsed_time_s,
+            samples_taken,
+            samples,
+        )
+
         block_times_s.append((elapsed_time_s, samples_taken))
         sample_blocks.append(samples)
 

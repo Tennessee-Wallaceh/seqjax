@@ -456,4 +456,5 @@ codes["particle-mcmc"] = {
     },
     "MAXT": ("time_limit_s", parse_time_optional, "NO"),
     "NS": ("num_steps", parse_int_optional, "5k"),
+    "BLS": ("sample_block_size", parse_int_required, "1k")
 }

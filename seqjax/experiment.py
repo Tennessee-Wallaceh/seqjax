@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, replace
 import os
 from typing import Any, Literal, Protocol, cast
 
+import jax
+import jax.numpy as jnp
 import jax.random as jrandom
 import wandb
 
@@ -107,7 +109,7 @@ def process_results(
     )
 
 
-def build_tracker(experiment_config: ExperimentConfig, wandb_run):
+def build_tracker(experiment_config: ExperimentConfig, wandb_run, model):
     run_tracker = None
 
     if (
@@ -142,6 +144,40 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run):
             metric_samples=experiment_config.test_samples,
             custom_record_fcns=custom_record_fcns,
         )
+
+    if (
+        experiment_config.inference.label == "buffer-sgld"
+        or experiment_config.inference.label == "particle-mcmc"
+    ):
+        # down sample block to not do excessive q comp
+        down_sample = max(
+            experiment_config.inference.config.sample_block_size,
+            1000,
+        )
+        def down_sampled_qs(sample_path):
+            return jnp.quantile(
+                sample_path[:int(down_sample)], 
+                jnp.array([0.05, 0.95])
+            )
+        down_sampled_qs = jax.jit(down_sampled_qs)
+
+        def run_tracker(
+            elapsed_time_s,
+            num_samples_taken,
+            samples,
+        ):
+            update = {
+                "elapsed_time_s": elapsed_time_s,
+                "num_samples_taken": num_samples_taken,
+            }
+            model_p = model.parameterization.to_model_parameters(samples)
+            for f in model.target.parameter_cls.fields():
+                q05, q95 = down_sampled_qs(
+                    getattr(model_p, f)
+                )
+                update[f"{f}_q05"] = q05
+                update[f"{f}_q95"] = q95
+            wandb_run.log(update)
 
     return run_tracker
 
@@ -239,7 +275,7 @@ def run_experiment(
         dataset=dataset,
         test_samples=experiment_config.test_samples,
         config=experiment_config.inference.config,
-        tracker=build_tracker(experiment_config, wandb_run),
+        tracker=build_tracker(experiment_config, wandb_run, model),
     )
 
     wandb_run.finish()
