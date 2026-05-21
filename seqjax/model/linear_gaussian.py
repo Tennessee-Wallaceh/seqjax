@@ -199,13 +199,13 @@ def make_lgssm_parameters_cls(dim: int) -> type[_LGSSMParametersBase]:
             "emission_noise_cholesky": Array,
         }
         ns["transition_matrix"] = field(
-            default_factory=lambda dim=dim: 0.9 * jnp.eye(dim)
+            default_factory=lambda dim=dim: 0.8 * jnp.eye(dim)
         )
         ns["transition_noise_cholesky"] = field(
             default_factory=lambda dim=dim: 0.5 * jnp.eye(dim)
         )
         ns["emission_matrix"] = field(
-            default_factory=lambda dim=dim: emission_matrix_diff_mean(dim)
+            default_factory=lambda dim=dim: jnp.eye(dim)
         )
         ns["emission_noise_cholesky"] = field(
             default_factory=lambda dim=dim: 0.1 * jnp.eye(dim)

@@ -23,7 +23,14 @@ import typing
 
 import jax.numpy as jnp
 
-from . import interface, ar, ar_bayesian, stochastic_vol
+from . import (
+    interface, 
+    ar, 
+    ar_bayesian, 
+    stochastic_vol,
+    linear_gaussian_bayesian, 
+    linear_gaussian,
+)
 
 from .typing import Parameters, HyperParameters, NoHyper
 
@@ -33,13 +40,15 @@ PosteriorFactory = typing.Callable[
 ]
 SequentialModelLabel = typing.Literal[
     "ar", 
-    "svar"
+    "svar",
+    "lgssm-5d",
 ]
 
 BayesianModelLabel = typing.Literal[
     "ar-aronly",
     "ar-full",
-    "svar-full"
+    "svar-full",
+    "lgssm-5-full",
 ]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
@@ -49,6 +58,7 @@ BayesianModelLabel = typing.Literal[
 sequential_models: dict[SequentialModelLabel, interface.SequentialModelProtocol] = {
     "ar": ar.ar_model,
     "svar": stochastic_vol.simple_var.simple_stochastic_var_model,
+    "lgssm-5d": linear_gaussian.lgssm(dim=5),
 }
 
 # Factories that create a ``BayesianSequentialModel`` for each target model
@@ -58,6 +68,7 @@ posterior_factories: dict[BayesianModelLabel, PosteriorFactory] = {
     "ar-aronly": typing.cast(PosteriorFactory, ar_bayesian.ar_only),
     "ar-full": typing.cast(PosteriorFactory, ar_bayesian.ar_full),
     "svar-full": stochastic_vol.simple_var.svar_full,
+    "lgssm-5d-full": linear_gaussian_bayesian.lgssm_full,
 }
 
 # Predefined parameter presets for each model. The outer keys mirror
@@ -102,6 +113,9 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
             long_term_log_var=2 * jnp.log(jnp.array(0.60)),
         ),
     },
+    "lgssm-5d-full": {
+        "base": linear_gaussian.make_lgssm_parameters_cls(dim=5)(),
+    },
 }
 
 hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = {
@@ -145,6 +159,9 @@ hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = 
             std_log_var_std=jnp.array(0.20),
         ),
     },
+    "lgssm-5d-full": {
+        "base": linear_gaussian_bayesian.LGSSMHyperParameters(dim=5)
+    }
 }
 
 ConditionGenerator = typing.Callable[[int], typing.Any]
