@@ -412,6 +412,12 @@ def latent_fit(
         min=1,
         help="Number of independent observation sequences to simulate.",
     ),
+    sequence_samples: int | None = typer.Option(
+        1,
+        "--sequence-samples",
+        min=1,
+        help="Number of sequences to sample each update.",
+    ),
     data_seed: int | None = typer.Option(None, "--data-seed", help="Seed for data simulation."),
     fit_seed: int = typer.Option(..., "--fit-seed", help="Seed for inference."),
     code_tokens: typing.List[str] = typer.Option(
@@ -529,7 +535,8 @@ def latent_fit(
 
     optim = optimization_registry.build_optimizer(latent_inference_config.optimization)
     latent_sampling_kwargs: typing.Any = {
-        "mc-samples": latent_inference_config.samples_per_context
+        "mc-samples": latent_inference_config.samples_per_context,
+        "sequence-samples": sequence_samples
     }
 
 
@@ -565,7 +572,7 @@ def latent_fit(
         custom_record_fcns=[wandb_update],
     )
     
-    fitted_approximation, opt_state, tracker, is_diagnostics = train_latent.train(
+    fitted_approximation, fitted_embedder, opt_state, tracker, is_diagnostics = train_latent.train(
         model=latent_approximation,
         embedder=embed,
         dataset=dataset,
@@ -585,6 +592,7 @@ def latent_fit(
     sink.save(
         run_name=wandb_run.name,
         fitted_approximation=fitted_approximation,
+        fitted_embedder=fitted_embedder,
         optimization_state=opt_state,
         tracker_rows=tracker.update_rows,
         is_diagnostics=is_diagnostics,

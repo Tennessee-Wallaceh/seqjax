@@ -30,6 +30,7 @@ class WandbLatentFitArtifactSink:
         *,
         run_name: str,
         fitted_approximation: eqx.Module,
+        fitted_embedder: eqx.Module,
         optimization_state: Any,
         tracker_rows: list[dict[str, Any]],
         is_diagnostics: dict[str, Any],
@@ -38,6 +39,11 @@ class WandbLatentFitArtifactSink:
             self.run,
             f"{run_name}-latent-approximation",
             fitted_approximation,
+        )
+        io.save_model_artifact(
+            self.run,
+            f"{run_name}-embedder",
+            fitted_embedder,
         )
         io.save_python_artifact(
             self.run,

@@ -14,8 +14,9 @@ from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
 from seqjax.inference.vi import interface
 from seqjax.inference.interface import InferenceDataset
-from seqjax.inference.vi.sampling import VISamplingKwargs
 from seqjax.inference.vi.embedder import Embedder
+from seqjax.inference.vi.base import _sample_sequence_minibatch
+
 import seqjax.model.typing as seqjtyping
 import seqjax.model.interface as model_interface
 from seqjax.model.evaluate import log_prob_joint
@@ -33,42 +34,76 @@ ParametersT = typing.TypeVar("ParametersT", bound=seqjtyping.Parameters)
 OptStateT = typing.TypeVar("OptStateT")
 TrainableModuleT = typing.TypeVar("TrainableModuleT")
 
-
+LatentVISamplingKwargs = typing.TypedDict(
+    "VISamplingKwargs",
+    {
+        "mc-samples": int,
+        "sequence-samples": int,
+    },
+)
 def compute_log_iw(
     trainable,
     key,
     *,
     static,
-    sample_kwargs,
-    y,
-    c,
-    context,
+    sample_kwargs: LatentVISamplingKwargs,
+    dataset,
     target,
     params,
 ):
-    approximation = eqx.combine(trainable, static)
+    approximation, embedder = eqx.combine(trainable, static)
 
-    x, loq_q_x, _ = jax.vmap(
-        approximation.sample_and_log_prob,
-        in_axes=(0, None, None),
+    seq_key, sample_key = jrandom.split(key)
+
+    y_seqs, c_seqs = _sample_sequence_minibatch(
+        dataset,
+        seq_key,
+        sample_kwargs["sequence-samples"],
+    )
+
+    contexts, _ = jax.vmap(
+        embedder.embed,
+        in_axes=(0, 0, None, None),
     )(
-        jrandom.split(key, sample_kwargs["mc-samples"]),
-        context,
-        None
+        y_seqs,
+        c_seqs,
+        seqjtyping.NoParam(),
+        None,
+    )
+
+    x, log_q_x, _ = jax.vmap(
+        jax.vmap(
+            approximation.sample_and_log_prob,
+            in_axes=(0, None, None),
+        ),
+        in_axes=(0, 0, None),
+    )(
+        jrandom.split(
+            sample_key,
+            (
+                sample_kwargs["sequence-samples"],
+                sample_kwargs["mc-samples"],
+            ),
+        ),
+        contexts,
+        None,
     )
 
     log_p_x_y = jax.vmap(
-        log_prob_joint,
-        in_axes=(None, 0, None, None, None)
+        jax.vmap(
+            log_prob_joint,
+            in_axes=(None, 0, None, None, None),
+        ),
+        in_axes=(None, 0, 0, 0, None),
     )(
         target,
         x,
-        y,
-        c,
+        y_seqs,
+        c_seqs,
         params,
     )
 
-    return log_p_x_y - loq_q_x
+    return log_p_x_y - log_q_x
 
 
 def log_ess_np(log_iw, axis=-1):
@@ -192,38 +227,61 @@ def importance_diagnostics(log_iw, axis=-1):
     }
 
 
-
 def loss_neg_elbo(
-    trainable,
+    trainable: tuple[
+        interface.VariationalApproximation[LatentT, ConditionT],
+        Embedder,
+    ],
     key,
     *,
-    static,
-    sample_kwargs,
-    y,
-    c,
-    context,
+    static: tuple[
+        interface.VariationalApproximation[LatentT, ConditionT],
+        Embedder,
+    ],
+    sample_kwargs: LatentVISamplingKwargs,
+    dataset: InferenceDataset[ObservationT, ConditionT],
     target,
     params,
 ):
-    approximation = eqx.combine(trainable, static)
+    approximation, embedder = eqx.combine(trainable, static)
+    
+    seq_key, sample_key = jrandom.split(key)
+    y_seqs, c_seqs = _sample_sequence_minibatch(dataset, seq_key, sample_kwargs["sequence-samples"])
 
-    x, loq_q_x, _ = jax.vmap(
-        approximation.sample_and_log_prob,
-        in_axes=(0, None, None),
+    contexts, _ = jax.vmap(
+        embedder.embed,
+        in_axes=(0, 0, None, None),
     )(
-        jrandom.split(key, sample_kwargs["mc-samples"]),
-        context,
-        None
+        y_seqs,
+        c_seqs,
+        seqjtyping.NoParam(),
+        None,
     )
 
-    log_p_x_y = jax.vmap(
+    x, loq_q_x, _ = jax.vmap(jax.vmap(
+        approximation.sample_and_log_prob,
+        in_axes=(0, None, None),
+    ),
+        in_axes=(0, 0, None)
+    )(
+        jrandom.split(
+            sample_key, 
+            (sample_kwargs["sequence-samples"], sample_kwargs["mc-samples"])
+        ),
+        contexts,
+        None,
+    )
+
+    log_p_x_y = jax.vmap(jax.vmap(
         log_prob_joint,
-        in_axes=(None, 0, None, None, None)
+        in_axes=(None, 0, None, None, None),
+    ),
+        in_axes=(None, 0, 0, 0, None)
     )(
         target,
         x,
-        y,
-        c,
+        y_seqs,
+        c_seqs,
         params,
     )
 
@@ -278,16 +336,15 @@ def train(
     num_steps: int | None = 1000,
     time_limit_s: int | None = None,
     filter_spec: PyTree[bool] | None = None,
-    sample_kwargs: VISamplingKwargs,
+    sample_kwargs: LatentVISamplingKwargs,
     loss_label: LossLabels = 'elbo',
     initial_opt_state: OptStateT | None = None,
-    model_state: typing.Any = None,
     sync_interval_s: float = DEFAULT_SYNC_INTERVAL_S,
-    nb_context: bool = False,
     compiled_steps: int = 1,
     unroll: int = 1,
 ) -> tuple[
     interface.VariationalApproximation[LatentT, ConditionT], 
+    Embedder,
     OptStateT, 
     typing.Any
 ]:
@@ -301,32 +358,26 @@ def train(
         run_tracker = LatentFitTracker()
 
     # optimizer initailisation
-    if filter_spec is None:
-        filter_spec = jtu.tree_map(lambda leaf: eqx.is_inexact_array(leaf), model)
+    trainable_object = (model, embedder)
 
-    trainable, static = eqx.partition(model, filter_spec)
+    if filter_spec is None:
+        filter_spec = jtu.tree_map(
+            lambda leaf: eqx.is_inexact_array(leaf),
+            trainable_object,
+        )
+
+    trainable, static = eqx.partition(trainable_object, filter_spec)
 
     if initial_opt_state is not None:
         opt_state = initial_opt_state
     else:
         opt_state = optim.init(trainable)
 
-    #TODO: implement for multi sequence
-    y, c = dataset.single_sequence()
-
-    context, _ = embedder.embed(
-        y, c,
-        seqjtyping.NoParam(), 
-        None
-    )
-    
     base_loss_fn = losses[loss_label]
     loss_fn = partial(
         base_loss_fn,
         static=static,
-        y=y,
-        c=c,
-        context=context,
+        dataset=dataset,
         target=target,
         params=params,
         sample_kwargs=sample_kwargs,
@@ -334,28 +385,10 @@ def train(
 
     loss_and_grad = jax.value_and_grad(loss_fn)
 
-    def make_step(
-        trainable_in: TrainableModuleT,
-        opt_state_in: OptStateT,
-        key_in: jaxtyping.PRNGKeyArray,
-    ) -> tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT, typing.Any]:
-        loss, grads = loss_and_grad(
-            trainable_in,
-            key_in,
-        )
-        updates, opt_state_next = optim.update(grads, opt_state_in, params=trainable_in)
-        trainable_next = eqx.apply_updates(trainable_in, updates)
-        return (
-            loss,
-            typing.cast(TrainableModuleT, trainable_next),
-            typing.cast(OptStateT, opt_state_next),
-        )
-
-    def k_steps(trainable_in, opt_state_in, key_in):
+    def k_steps(trainable_in, opt_state_in, key_in):        
         def body(carry, _):
             trainable, opt_state, key = carry
             key, subkey = jrandom.split(key)
-
             loss, grads = loss_and_grad(trainable, subkey)
             updates, opt_state = optim.update(grads, opt_state, params=trainable)
             trainable = eqx.apply_updates(trainable, updates)
@@ -432,13 +465,14 @@ def train(
         trainable,
         key,
         static=static,
-        sample_kwargs={"mc-samples": 10000},
-        y=y,
-        c=c,
-        context=context,
+        sample_kwargs={
+            "mc-samples": 10000,
+            "sequence-samples": dataset.num_sequences,
+        },
+        dataset=dataset,
         target=target,
         params=params,
     )
     iw_diagnostics = importance_diagnostics(log_iw)
-
-    return eqx.combine(static, trainable), opt_state, run_tracker, iw_diagnostics
+    approximation, embedder = eqx.combine(trainable, static)
+    return approximation, embedder, opt_state, run_tracker, iw_diagnostics
