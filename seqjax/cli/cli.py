@@ -226,6 +226,9 @@ def run(
     generative_parameters: str | None = typer.Option(
         "base", "--parameters", "--params", help="Parameter preset to use."
     ),
+    hyperparameters: str | None = typer.Option(
+        "base", "--hyperparameters", "--hyperparams", help="Hyperparameter preset to use."
+    ),
     sequence_length: int | None = typer.Option(
         1000, "--sequence-length", min=1, help="Number of observations to simulate."
     ),
@@ -336,6 +339,7 @@ def run(
             raise typer.BadParameter(
                 "--dataset-name is required when --data-source=real."
             )
+
         storage_backend = io.LocalFilesystemDataStorage(data_root)
         manifest = storage_backend.load_manifest(dataset_name) 
         canonical_model = _resolve_model_label(manifest['model_label'])
@@ -344,6 +348,7 @@ def run(
             target_model_label=canonical_model,
             sequence_length=manifest['sequence_length'],
             num_sequences=manifest['num_sequences'],
+            hyperparameters=hyperparameters,
         )
 
     inference_config = build_inference_config(canonical_method, code_tokens)
@@ -460,10 +465,6 @@ def latent_fit(
         raise typer.BadParameter("--data-seed is required.")
     if num_sequences is None:
         num_sequences = 1
-    if num_sequences != 1:
-        raise typer.BadParameter(
-            "latent-fit currently supports exactly one sequence (--num-sequences=1)."
-        )
 
     canonical_model = _resolve_model_label(model)
 

@@ -149,7 +149,7 @@ hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = 
             ar_mean=jnp.array(0.85),
             ar_std=jnp.array(0.25),
 
-            # high long-run annual vol, but still not too dogmatic
+            # high long-run annual vol, but fairly broad
             long_term_vol_mean=jnp.array(0.60),
             long_term_vol_std=jnp.array(0.30),
 
@@ -176,6 +176,7 @@ class RealDataConfig:
     target_model_label: BayesianModelLabel
     sequence_length: int
     num_sequences: int = 1
+    hyperparameters: str
 
     @property
     def target(self):
@@ -184,7 +185,7 @@ class RealDataConfig:
     @property
     def posterior(self) -> interface.BayesianSequentialModelProtocol:
         return posterior_factories[self.target_model_label](
-            hyperparameter_settings[self.target_model_label]["base"]
+            hyperparameter_settings[self.target_model_label][self.hyperparameters]
         )
     
 @dataclass(kw_only=True, frozen=True, slots=True)
