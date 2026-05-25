@@ -164,13 +164,13 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run, model):
         def run_tracker(
             elapsed_time_s,
             num_samples_taken,
-            samples,
+            sample_block,
         ):
             update = {
                 "elapsed_time_s": elapsed_time_s,
                 "num_samples_taken": num_samples_taken,
             }
-            model_p = model.parameterization.to_model_parameters(samples)
+            model_p = model.parameterization.to_model_parameters(sample_block)
             for f in model.target.parameter_cls.fields():
                 q05, q95 = down_sampled_qs(
                     getattr(model_p, f)

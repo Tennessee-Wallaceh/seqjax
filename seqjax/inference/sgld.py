@@ -305,6 +305,13 @@ def run_buffer_sgld_mcmc[
             f"dataset.num_sequences={dataset.num_sequences}."
         )
 
+    if tracker is None:
+        def tracker(
+            elapsed_time_s,
+            num_samples_taken,
+            samples,
+        ): pass
+
     particle_filter = particle_filter_registry.build_filter(
         target_posterior,
         config.particle_filter_config,
@@ -336,7 +343,9 @@ def run_buffer_sgld_mcmc[
     ]
     samples_taken = 0
     block_times_s = []
+    elapsed_time_s = time.time() - inference_time_start
     while True:
+        block_start_time_s = time.time()
         sample_key, next_sample_key = jrandom.split(next_sample_key)
         start_parameter = util.index_pytree(sample_blocks[-1], -1)
         samples = run_sgld(
@@ -349,9 +358,16 @@ def run_buffer_sgld_mcmc[
         )
         samples_taken += num_samples
 
-        elapsed_time_s = time.time() - inference_time_start
+        elapsed_time_s += time.time() - block_start_time_s
+
         block_times_s.append((elapsed_time_s, samples_taken))
         sample_blocks.append(samples)
+
+        tracker(
+            elapsed_time_s,
+            samples_taken,
+            samples,
+        )
 
         if config.time_limit_s and elapsed_time_s > config.time_limit_s:
             print("Stopping due to time limit")
@@ -362,6 +378,7 @@ def run_buffer_sgld_mcmc[
             break
 
         print(f"Elapsed time: {int(elapsed_time_s / 60)} minutes")
+
 
     all_samples = util.concat_pytree(*sample_blocks)
     return all_samples, block_times_s
