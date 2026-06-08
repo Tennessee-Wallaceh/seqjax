@@ -355,8 +355,7 @@ class ConvNFLatentApproximation:
     nn_depth: int = 2
     kernel_size: int = 5
     flow_layers: int = 2
-    linear_layer: bool = False,
-    linear_layer_every: int = 1
+    add_ar_layer: bool = False
 
 @dataclass
 class StructuredPrecisionLatentApproximation:
@@ -462,8 +461,7 @@ def build_latent_approximation(
             key=key,
             kernel_size=latent_config.kernel_size,
             flow_layers=latent_config.flow_layers,
-            linear_layer=latent_config.linear_layer,
-            linear_layer_every=latent_config.linear_layer_every,
+            add_ar_layer=latent_config.add_ar_layer,
         )
 
     else:
@@ -610,6 +608,7 @@ def build_approximation(
             sample_length=config.batch_length + 2 * config.buffer_length,
             embedding_key=embedding_key,
         )
+        
 
     approximation: typing.Any
     latent_approximation: (
