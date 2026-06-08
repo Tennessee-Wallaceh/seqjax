@@ -48,7 +48,7 @@ class LatentContextDims:
     ) -> tuple[int, int, int, int]:
         return cls(
             observation_context_dim=target.observation_cls.flat_dim * sample_length,
-            condition_context_dim=target.condition_cls.flat_dim * sample_length,
+            condition_context_dim=target.condition_cls.flat_dim,
             parameter_context_dim=parameter_cls.flat_dim,
             embedded_context_dim=target.observation_cls.flat_dim * sample_length,
             sequence_embedded_context_dim=per_step_dim
@@ -66,7 +66,7 @@ class LatentContextDims:
     ) -> tuple[int, int, int]:
         return cls(
             observation_context_dim=target.observation_cls.flat_dim * sample_length,
-            condition_context_dim=target.condition_cls.flat_dim * sample_length,
+            condition_context_dim=target.condition_cls.flat_dim,
             parameter_context_dim=parameter_cls.flat_dim,
             embedded_context_dim=embedded_dim,
             sequence_embedded_context_dim=per_step_dim
