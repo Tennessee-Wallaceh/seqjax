@@ -1,6 +1,6 @@
 import equinox as eqx
 from jaxtyping import PRNGKeyArray, Array
-from typing import Protocol, Callable
+from typing import Protocol, Callable,ClassVar
 import jax.nn as jnn
 import jax.numpy as jnp
 from flowjax.bijections import (
@@ -11,13 +11,15 @@ from flowjax.bijections import (
 )
 from jax.nn import softplus
 from flowjax.distributions import AbstractDistribution, Transformed
-from paramax import Parameterize
+from paramax import Parameterize, AbstractUnwrappable
 from paramax.utils import inv_softplus
 from flowjax.bijections.masked_autoregressive import MaskedAutoregressive as FlowjaxMAF
 from flowjax.distributions import (
     Normal as FlowjaxNormal,
     Transformed as FlowjaxTransformed,
 )
+from functools import partial
+from flowjax.bijections.affine import TriangularAffine, solve_triangular
 import equinox as eqx
 import seqjax.model.typing as seqjtyping
 import jax
@@ -41,7 +43,220 @@ def _affine_with_min_scale(min_scale: float = 1e-6) -> Affine:
         replace=scale
     )
 
+class AR1Accumulation(AbstractBijection):
+    shape: tuple[int, ...]
+    cond_shape: ClassVar[None] = None
 
+    unconstrained_ar: Array
+    unconstrained_scale: Array
+
+    def __init__(
+        self,
+        *,
+        sequence_dim: int,
+        target_dim: int,
+        init_ar: float = 0.9,
+        init_scale: float = 1.0,
+    ):
+        self.shape = (sequence_dim, target_dim)
+
+        # Map raw -> (-1, 1)
+        self.unconstrained_ar = jnp.asarray(jnp.arctanh(init_ar))
+
+        # Map raw -> positive
+        self.unconstrained_scale = inv_softplus(jnp.asarray(init_scale))
+
+    @property
+    def ar(self):
+        return jnp.tanh(self.unconstrained_ar)
+
+    @property
+    def scale(self):
+        return jax.nn.softplus(self.unconstrained_scale) + 1e-8
+
+    def transform_and_log_det(self, eps, condition=None):
+        ar = self.ar
+        scale = self.scale
+
+        a = jnp.broadcast_to(ar, eps.shape)
+        b = scale * eps
+
+        def compose(left, right):
+            a_l, b_l = left
+            a_r, b_r = right
+            return a_r * a_l, b_r + a_r * b_l
+
+        _, x = jax.lax.associative_scan(compose, (a, b), axis=0)
+
+        log_det = eps.size * jnp.log(scale)
+
+        return x, log_det
+
+    def inverse_and_log_det(self, x, condition=None):
+        ar = self.ar
+        scale = self.scale
+
+        x_prev = jnp.concatenate(
+            [jnp.zeros_like(x[:1]), x[:-1]],
+            axis=0,
+        )
+        eps = (x - ar * x_prev) / scale
+
+        log_det = x.size * jnp.log(scale)
+
+        return eps, -log_det
+    
+class TemporalTriangularAffine(AbstractBijection):
+    """Triangular affine transformation over the sequence axis.
+
+    x has shape (sequence_dim, target_dim).
+
+    Transformation:
+        y = A @ x + loc
+
+    where A is triangular with positive diagonal.
+
+    The same temporal mixing matrix A is applied to each target dimension.
+    """
+
+    shape: tuple[int, ...]
+    cond_shape: ClassVar[None] = None
+    loc: Array
+    triangular: Array | AbstractUnwrappable[Array]
+    lower: bool
+    sequence_dim: int
+    target_dim: int
+
+    def __init__(
+        self,
+        *,
+        sequence_dim: int,
+        target_dim: int,
+        lower: bool = True,
+        init_scale: float = 1e-3,
+        key: PRNGKeyArray,
+    ):
+        self.sequence_dim = sequence_dim
+        self.target_dim = target_dim
+        self.shape = (sequence_dim, target_dim)
+        self.lower = lower
+
+        arr = init_scale * jrandom.normal(key, (sequence_dim, sequence_dim))
+        arr = jnp.tril(arr) if lower else jnp.triu(arr)
+
+        # Initialise close to identity.
+        arr = jnp.fill_diagonal(
+            arr,
+            inv_softplus(jnp.ones((sequence_dim,))),
+            inplace=False,
+        )
+
+        @partial(jnp.vectorize, signature="(d,d)->(d,d)")
+        def _to_triangular(arr):
+            tri = jnp.tril(arr) if lower else jnp.triu(arr)
+            return jnp.fill_diagonal(
+                tri,
+                softplus(jnp.diag(tri)),
+                inplace=False,
+            )
+
+        self.triangular = Parameterize(_to_triangular, arr)
+        self.loc = jnp.zeros((sequence_dim, target_dim))
+
+    def transform_and_log_det(self, x, condition=None):
+        y = self.triangular @ x + self.loc
+
+        log_det_single = jnp.log(jnp.abs(jnp.diag(self.triangular))).sum()
+
+        # Same temporal transform applied independently to each target dimension.
+        log_det = self.target_dim * log_det_single
+
+        return y, log_det
+
+    def inverse_and_log_det(self, y, condition=None):
+        x = solve_triangular(
+            self.triangular,
+            y - self.loc,
+            lower=self.lower,
+        )
+
+        log_det_single = jnp.log(jnp.abs(jnp.diag(self.triangular))).sum()
+        log_det = self.target_dim * log_det_single
+
+        return x, -log_det
+
+class TruncatedARConv(AbstractBijection):
+    shape: tuple[int, ...]
+    cond_shape: ClassVar[None] = None
+    rho: Array
+    kernel_size: int
+
+    def __init__(
+        self,
+        *,
+        sequence_dim: int,
+        target_dim: int,
+        kernel_size: int,
+        rho: float = 0.5,
+        learn_rho: bool = False,
+    ):
+        self.shape = (sequence_dim, target_dim)
+        self.kernel_size = kernel_size
+
+        raw_rho = jnp.arctanh(jnp.asarray(rho))
+        if learn_rho:
+            self.rho = raw_rho
+        else:
+            self.rho = paramax.NonTrainable(raw_rho)
+
+    @property
+    def ar(self):
+        return jnp.tanh(self.rho)
+
+    def _kernel(self, dtype):
+        k = jnp.arange(self.kernel_size, dtype=dtype)
+        return self.ar.astype(dtype) ** k
+
+    def transform_and_log_det(self, z, condition=None):
+        # z: (T, D)
+        h = self._kernel(z.dtype)
+
+        # Direct causal finite convolution.
+        # For small K, this is often simpler/faster than lax conv.
+        T = z.shape[0]
+
+        def term(k):
+            pad = jnp.zeros_like(z[:k])
+            shifted = jnp.concatenate([pad, z[: T - k]], axis=0)
+            return h[k] * shifted
+
+        x = sum(term(k) for k in range(self.kernel_size))
+
+        # Lower triangular with diagonal h[0] = 1.
+        return x, jnp.asarray(0.0, dtype=z.dtype)
+
+    def inverse_and_log_det(self, x, condition=None):
+        # Solve z_t = x_t - sum_{k=1}^{K-1} h_k z_{t-k}
+        h = self._kernel(x.dtype)
+
+        def step(prev_z_buffer, x_t):
+            # prev_z_buffer[0] = z_{t-1}, prev_z_buffer[1] = z_{t-2}, ...
+            correction = jnp.sum(
+                h[1:, None] * prev_z_buffer,
+                axis=0,
+            )
+            z_t = x_t - correction
+            new_buffer = jnp.concatenate(
+                [z_t[None, :], prev_z_buffer[:-1]],
+                axis=0,
+            )
+            return new_buffer, z_t
+
+        init = jnp.zeros((self.kernel_size - 1, x.shape[1]), dtype=x.dtype)
+        _, z = jax.lax.scan(step, init, x)
+
+        return z, jnp.asarray(0.0, dtype=x.dtype)
+    
 class Conditioner(Protocol):
     def __call__(self, x: Array, condition: Array) -> Array: ...
 
@@ -297,6 +512,8 @@ def local_parity_coupling_flow(
     nn_depth: int = 2,
     nn_activation: Callable = jnn.relu,
     kernel_size: int = 3,
+    linear_layer: bool = False,
+    linear_layer_every: int = 1,
     invert: bool = False,
 ) -> Transformed:
     """Create a local odd/even coupling flow with translated shared conditioner weights.
@@ -306,28 +523,70 @@ def local_parity_coupling_flow(
     ``(dim, cond_dim)``.
     """
     if transformer is None:
-        transformer = _affine_with_min_scale(1e-6)
+        transformer = _affine_with_min_scale(1e-8)
 
     loc = jnp.zeros((sequence_dim, target_dim))
     scale = jnp.ones((sequence_dim, target_dim))
     base_dist = FlowjaxNormal(loc, scale)
 
-    keys = jrandom.split(key, flow_layers)
-    layers = [
-        LocalParityCoupling(
-            key=layer_key,
-            transformer=transformer,
+    keys = jrandom.split(
+        key,
+        flow_layers * (2 if linear_layer else 1),
+    )
+
+    layers = []
+    key_ix = 0
+
+    for layer_idx in range(flow_layers):
+        layer_key = keys[key_ix]
+        key_ix += 1
+
+        layers.append(
+            LocalParityCoupling(
+                key=layer_key,
+                transformer=transformer,
+                sequence_dim=sequence_dim,
+                target_dim=target_dim,
+                update_even=layer_idx % 2 == 1,
+                cond_dim=cond_dim,
+                kernel_size=kernel_size,
+                nn_width=nn_width,
+                nn_depth=nn_depth,
+                nn_activation=nn_activation,
+            )
+        )
+
+        # if linear_layer and ((layer_idx + 1) % linear_layer_every == 0):
+        #     linear_key = keys[key_ix]
+        #     key_ix += 1
+
+        #     layers.append(
+        #         TemporalTriangularAffine(
+        #             sequence_dim=sequence_dim,
+        #             target_dim=target_dim,
+        #             lower=layer_idx % 2 == 0,
+        #             key=linear_key,
+        #         )
+        #     )
+
+    if linear_layer:
+        # final_layer = TruncatedARConv(
+        #     sequence_dim=sequence_dim,
+        #     target_dim=target_dim,
+        #     kernel_size=15,
+        #     learn_rho=True,
+        # )
+        # layers.append(final_layer)
+
+        final_layer = AR1Accumulation(
             sequence_dim=sequence_dim,
             target_dim=target_dim,
-            update_even=layer_idx % 2 == 1,
-            cond_dim=cond_dim,
-            kernel_size=kernel_size,
-            nn_width=nn_width,
-            nn_depth=nn_depth,
-            nn_activation=nn_activation,
+            init_ar=0.
         )
-        for layer_idx, layer_key in enumerate(keys)
-    ]
+        layers.append(final_layer)
+
+    print(layers[-1])
+
     bijection = Chain(layers).merge_chains()
     bijection = Invert(bijection) if invert else bijection
     return Transformed(base_dist, bijection)
@@ -350,6 +609,8 @@ class AmortizedConvCoupling[
         nn_depth: int,
         flow_layers: int = 2,
         kernel_size: int = 3,
+        linear_layer: bool = False,
+        linear_layer_every: int = 1,
         transformer: AbstractBijection | None = None,
     ) -> None:
         
@@ -380,6 +641,8 @@ class AmortizedConvCoupling[
             kernel_size=kernel_size,
             nn_width=nn_width,
             nn_depth=nn_depth,
+            linear_layer=linear_layer,
+            linear_layer_every=linear_layer_every,
             invert=False
         )
         

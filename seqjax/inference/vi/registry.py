@@ -355,6 +355,8 @@ class ConvNFLatentApproximation:
     nn_depth: int = 2
     kernel_size: int = 5
     flow_layers: int = 2
+    linear_layer: bool = False,
+    linear_layer_every: int = 1
 
 @dataclass
 class StructuredPrecisionLatentApproximation:
@@ -460,6 +462,8 @@ def build_latent_approximation(
             key=key,
             kernel_size=latent_config.kernel_size,
             flow_layers=latent_config.flow_layers,
+            linear_layer=latent_config.linear_layer,
+            linear_layer_every=latent_config.linear_layer_every,
         )
 
     else:
@@ -489,6 +493,7 @@ class FullVIConfig(VISampleConfig):
     )
     pre_training_optimization: None | optimization_registry.OptConfig = None
     prior_training_optimization: None | optimization_registry.OptConfig = None
+    sync_interval_s: None | int = None
 
     def training_sampling_kwargs(self, *, loss_label: str) -> VISamplingKwargs:
         return {
@@ -552,6 +557,7 @@ class BufferedVIConfig(VISampleConfig):
     loss_style: str = "standard"
     unroll: int = 1
     compiled_steps: int = 1
+    sync_interval_s: None | int = None
 
     def training_sampling_kwargs(self, *, loss_label: str) -> VISamplingKwargs:
         return {

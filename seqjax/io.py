@@ -315,22 +315,28 @@ def load_python_object(
     print(
         f"Loading {artifact_name}:latest from wandb..."
     )
-    e, p, i = run.path
-    artifact_ref = f"{e}/{p}/{artifact_name}:latest"
+    print(run.path)
+    if isinstance(run, wandb.apis.public.runs.Run):
+        # active run
+        print("loading from active run...")
+        artifact = run.use_artifact(
+            f"{artifact_name}:latest", type="run_output"
+        )
+    else:
+        print("loading from non-active run...")
+        if isinstance(run.path, str):
+            run_path_tuple = run.path.split("/")
+        else:
+            run_path_tuple = run.path
 
-    artifact = wandb.Api().artifact(
-        artifact_ref,
-        type="run_output",
-    )
+        e, p, _ = run_path_tuple
 
-    # if hasattr(run, "use_artifact"):
-    #     # active run
-    #     artifact = run.use_artifact(
-    #         f"{artifact_name}:latest", type="run_output"
-    #     )
-    # else:
-        
+        artifact_ref = f"{e}/{p}/{artifact_name}:latest"
 
+        artifact = wandb.Api().artifact(
+            artifact_ref,
+            type="run_output",
+        )
 
     artifact_dir = download_artifact(artifact)
     file_path = os.path.join(artifact_dir, f"{file_name}.pkl")

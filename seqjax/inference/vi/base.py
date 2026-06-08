@@ -269,8 +269,13 @@ class FullVI[
             out_axes=(0, 0, None),
         )(parameter_keys, None, state)
 
+        
         latent_context, embed_state = jax.vmap(
-            self.embedding.embed,
+            partial(
+                self.embedding.embed, 
+                training=training,
+                reduce_axes=reduce_axes + ("sequence",),
+            ),
             in_axes=(0, 0, 0, None),
             out_axes=(0, None),
             axis_name="sequence",
@@ -279,8 +284,6 @@ class FullVI[
             sampled_conditions,
             jax.lax.stop_gradient(parameters),
             param_state,
-            reduce_axes=reduce_axes + ("sequence",),
-            training=training,
         )
 
         x_path, log_q_x, latent_state = jax.vmap(

@@ -10,10 +10,10 @@ Optimization configurations
 @dataclass
 class CosineOpt:
     label: str = field(init=False, default="cosine-sched")
-    warmup_steps: int = 0
-    decay_steps: int = 5000
     peak_lr: float = 1e-2
     end_lr: float = 1e-5
+    warmup_steps: int = 0
+    decay_steps: int = 5000
     total_steps: int = 10_000
     time_limit_s: int | None = None
 

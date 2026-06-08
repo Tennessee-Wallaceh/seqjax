@@ -47,7 +47,7 @@ def run_full_path_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided
     if tracker is None:
-        tracker = train_bayesian.Tracker(metric_samples=1000)
+        tracker = train_bayesian.Tracker(metric_samples=test_samples)
 
     observation_path, _ = dataset.sequence(0)
     sequence_length = observation_path.batch_shape[0]
@@ -58,8 +58,6 @@ def run_full_path_vi[
         target_posterior,
         key,
     )
-
-    sync_interval_s = None
 
     if config.prior_training_optimization and not isinstance(
         config.prior_training_optimization, optimization_registry.NoOpt
@@ -80,7 +78,7 @@ def run_full_path_vi[
             loss_label="param-prior",
             model_state=model_state,
             time_limit_s=config.prior_training_optimization.time_limit_s,
-            sync_interval_s=sync_interval_s,
+            sync_interval_s=config.sync_interval_s,
         )
 
     if config.pre_training_optimization and not isinstance(
@@ -102,7 +100,7 @@ def run_full_path_vi[
             loss_label="pretrain",
             model_state=model_state,
             time_limit_s=config.pre_training_optimization.time_limit_s,
-            sync_interval_s=sync_interval_s,
+            sync_interval_s=config.sync_interval_s,
         )
 
     opt_state: optax.GradientTransformation
@@ -127,7 +125,7 @@ def run_full_path_vi[
             sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
             model_state=model_state,
             time_limit_s=config.optimization.time_limit_s,
-            sync_interval_s=sync_interval_s,
+            sync_interval_s=config.sync_interval_s,
         )
 
     # run sample again for testing purposes
@@ -174,9 +172,9 @@ def run_buffered_vi[
 ) -> tuple[InferenceParametersT, typing.Any]:
     # set up a default tracker if none provided
     if tracker is None:
-        tracker = train_bayesian.Tracker(metric_samples=10000)
+        tracker = train_bayesian.Tracker(metric_samples=test_samples)
 
-    sync_interval_s = None
+
 
     sequence_length = dataset.sequence_length
     approximation, model_state = registry.build_approximation(
@@ -207,7 +205,7 @@ def run_buffered_vi[
             loss_label="param-prior",
             model_state=model_state,
             time_limit_s=config.prior_training_optimization.time_limit_s,
-            sync_interval_s=sync_interval_s,
+            sync_interval_s=config.sync_interval_s,
             unroll=config.unroll,
             compiled_steps=config.compiled_steps,
         )
@@ -231,7 +229,7 @@ def run_buffered_vi[
             loss_label="pretrain",
             model_state=model_state,
             time_limit_s=config.pre_training_optimization.time_limit_s,
-            sync_interval_s=sync_interval_s,
+            sync_interval_s=config.sync_interval_s,
             unroll=config.unroll,
             compiled_steps=config.compiled_steps,
             
@@ -258,7 +256,7 @@ def run_buffered_vi[
             sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
             model_state=model_state,
             time_limit_s=config.optimization.time_limit_s,
-            sync_interval_s=sync_interval_s,
+            sync_interval_s=config.sync_interval_s,
             unroll=config.unroll,
             compiled_steps=config.compiled_steps,
         )
