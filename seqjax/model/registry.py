@@ -30,6 +30,8 @@ from . import (
     stochastic_vol,
     linear_gaussian_bayesian, 
     linear_gaussian,
+    double_well,
+    double_well_bayesian,
 )
 
 from .typing import Parameters, HyperParameters, NoHyper
@@ -42,6 +44,7 @@ SequentialModelLabel = typing.Literal[
     "ar", 
     "svar",
     "lgssm-5d",
+    "double-well",
 ]
 
 BayesianModelLabel = typing.Literal[
@@ -49,6 +52,7 @@ BayesianModelLabel = typing.Literal[
     "ar-full",
     "svar-full",
     "lgssm-5d-full",
+    "double-well-ebonly",
 ]
 
 # Maps each model label to its ``SequentialModel`` implementation. The keys
@@ -69,6 +73,7 @@ posterior_factories: dict[BayesianModelLabel, PosteriorFactory] = {
     "ar-full": typing.cast(PosteriorFactory, ar_bayesian.ar_full),
     "svar-full": stochastic_vol.simple_var.svar_full,
     "lgssm-5d-full": linear_gaussian_bayesian.lgssm_full,
+    "double-well-ebonly": double_well_bayesian.eb_only,
 }
 
 # Predefined parameter presets for each model. The outer keys mirror
@@ -116,6 +121,13 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
     "lgssm-5d-full": {
         "base": linear_gaussian.make_lgssm_parameters_cls(dim=5)(),
     },
+    "double-well": {
+        "base": double_well.DoubleWellParams(
+            energy_barrier=jnp.array(2.0),
+            transition_std=jnp.array(1.0),
+            observation_std=jnp.array(0.2),
+        )
+    }
 }
 
 hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = {
@@ -161,6 +173,12 @@ hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = 
     },
     "lgssm-5d-full": {
         "base": linear_gaussian_bayesian.LGSSMHyperParameters(dim=5)
+    },
+    "double-well": {
+        "base": double_well_bayesian.FixedEBParameters(
+            fixed_observation_std=parameter_settings["double-well"]["base"].observation_std,
+            fixed_transition_std=parameter_settings["double-well"]["base"].transition_std,
+        )
     }
 }
 
@@ -168,7 +186,9 @@ ConditionGenerator = typing.Callable[[int], typing.Any]
 
 # Optional mapping of model labels to callables that generate condition
 # sequences for simulations and likelihood evaluations.
-condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {}
+condition_generators: dict[SequentialModelLabel, ConditionGenerator] = {
+    "double-well": double_well.make_unit_time_increments,
+}
 
 @dataclass(kw_only=True, frozen=True, slots=True)
 class RealDataConfig:
