@@ -62,8 +62,8 @@ class EBOnlyParameterization(
         energy_barrier = jax.nn.softplus(inference_parameters.sft_inv_energy_barrier)
         return dw_model.DoubleWellParams(
             energy_barrier=energy_barrier,
-            observation_std=self.hyperparameters.fixed_observation_std,
-            transition_std=self.hyperparameters.fixed_transition_std,
+            observation_std=jnp.array(self.hyperparameters.fixed_observation_std),
+            transition_std=jnp.array(self.hyperparameters.fixed_transition_std),
         )
 
     def from_model_parameters(

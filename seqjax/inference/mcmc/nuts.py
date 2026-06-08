@@ -113,10 +113,8 @@ def run_bayesian_nuts[
     if config.num_steps is None and config.max_time_s is None:
         raise ValueError("For NUTSConfig both num_steps and max_time_s cannot be None!")
     
-    log_prob_joint = partial(
-        evaluate.log_prob_joint,
-        target_posterior.target,
-    )
+    log_prob_joint = partial(evaluate.log_prob_joint, target_posterior.target)
+
     observations = dataset.observations
     conditions = dataset.conditions
     sequence_length = dataset.sequence_length
@@ -135,23 +133,14 @@ def run_bayesian_nuts[
             )
 
         if isinstance(conditions, seqjtyping.NoCondition):
-            log_like = jax.vmap(
-                lambda latent_path, observation_path: log_prob_joint(
-                    latent_path,
-                    observation_path,
-                    conditions,
-                    model_params,
-                )
-            )(latents, observations).sum()
+            in_axes = (0, 0, None, None)
         else:
-            log_like = jax.vmap(
-                lambda latent_path, observation_path, condition_path: log_prob_joint(
-                    latent_path,
-                    observation_path,
-                    condition_path,
-                    model_params,
-                )
-            )(latents, observations, conditions).sum()
+            in_axes = (0, 0, 0, None)
+
+        log_like = jax.vmap(log_prob_joint, in_axes=in_axes)(
+            latents, observations, conditions, model_params,
+        ).sum()
+    
         return log_like + log_prior
 
     def initial_state(key):
