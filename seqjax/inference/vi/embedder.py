@@ -365,7 +365,6 @@ class RNNEmbedder(Embedder):
                 cell_input = jnp.hstack([x, param_vec])
             else:
                 cell_input = x
-            print(cell_input.shape)
             new_carry = cell(cell_input, carry)
             return new_carry, new_carry
 
