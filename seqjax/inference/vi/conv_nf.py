@@ -60,10 +60,7 @@ class AR1Accumulation(AbstractBijection):
     ):
         self.shape = (sequence_dim, target_dim)
 
-        # Map raw -> (-1, 1)
         self.unconstrained_ar = jnp.asarray(jnp.arctanh(init_ar))
-
-        # Map raw -> positive
         self.unconstrained_scale = inv_softplus(jnp.asarray(init_scale))
 
     @property
@@ -512,8 +509,7 @@ def local_parity_coupling_flow(
     nn_depth: int = 2,
     nn_activation: Callable = jnn.relu,
     kernel_size: int = 3,
-    linear_layer: bool = False,
-    linear_layer_every: int = 1,
+    add_ar_layer: bool = False,
     invert: bool = False,
 ) -> Transformed:
     """Create a local odd/even coupling flow with translated shared conditioner weights.
@@ -522,6 +518,7 @@ def local_parity_coupling_flow(
     applied across sites. Conditioning variables are required and have shape
     ``(dim, cond_dim)``.
     """
+
     if transformer is None:
         transformer = _affine_with_min_scale(1e-8)
 
@@ -531,7 +528,7 @@ def local_parity_coupling_flow(
 
     keys = jrandom.split(
         key,
-        flow_layers * (2 if linear_layer else 1),
+        flow_layers * (2 if add_ar_layer else 1),
     )
 
     layers = []
@@ -556,36 +553,13 @@ def local_parity_coupling_flow(
             )
         )
 
-        # if linear_layer and ((layer_idx + 1) % linear_layer_every == 0):
-        #     linear_key = keys[key_ix]
-        #     key_ix += 1
-
-        #     layers.append(
-        #         TemporalTriangularAffine(
-        #             sequence_dim=sequence_dim,
-        #             target_dim=target_dim,
-        #             lower=layer_idx % 2 == 0,
-        #             key=linear_key,
-        #         )
-        #     )
-
-    if linear_layer:
-        # final_layer = TruncatedARConv(
-        #     sequence_dim=sequence_dim,
-        #     target_dim=target_dim,
-        #     kernel_size=15,
-        #     learn_rho=True,
-        # )
-        # layers.append(final_layer)
-
+    if add_ar_layer:   
         final_layer = AR1Accumulation(
             sequence_dim=sequence_dim,
             target_dim=target_dim,
             init_ar=0.
         )
         layers.append(final_layer)
-
-    print(layers[-1])
 
     bijection = Chain(layers).merge_chains()
     bijection = Invert(bijection) if invert else bijection
@@ -609,8 +583,7 @@ class AmortizedConvCoupling[
         nn_depth: int,
         flow_layers: int = 2,
         kernel_size: int = 3,
-        linear_layer: bool = False,
-        linear_layer_every: int = 1,
+        add_ar_layer: bool = False,
         transformer: AbstractBijection | None = None,
     ) -> None:
         
@@ -630,7 +603,6 @@ class AmortizedConvCoupling[
             + latent_context_dims.condition_context_dim
             + latent_context_dims.sequence_embedded_context_dim
         )
-
         self.distribution = local_parity_coupling_flow(
             key,
             sequence_dim=sample_length, 
@@ -641,8 +613,7 @@ class AmortizedConvCoupling[
             kernel_size=kernel_size,
             nn_width=nn_width,
             nn_depth=nn_depth,
-            linear_layer=linear_layer,
-            linear_layer_every=linear_layer_every,
+            add_ar_layer=add_ar_layer,
             invert=False
         )
         

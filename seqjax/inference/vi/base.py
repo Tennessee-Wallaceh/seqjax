@@ -355,7 +355,7 @@ class FullVI[
             ax_spec = (0, None, None, 0)
             ax_spec_2 = (0, 0, None, 0)
         else:
-            ax_spec = (0, None, 0, 0)
+            ax_spec = (0, None, None, 0)
             ax_spec_2 = (0, 0, 0, 0)
 
         def _log_joint(
