@@ -33,6 +33,10 @@ def make_linear(in_dim: int, out_dim: int, key: PRNGKeyArray) -> eqx.nn.Linear:
     layer = eqx.tree_at(lambda leaf: leaf.bias, layer, new_bias)
     return layer
 
+def inv_softplus(y: float) -> Array:
+    y = jnp.asarray(y)
+    return jnp.log(jnp.expm1(y))
+
 
 class ResidualBlock(eqx.Module):
     linear1: eqx.nn.Linear
@@ -75,6 +79,38 @@ class ResNetMLP(eqx.Module):
         for block in self.blocks:
             x = block(x)
         return self.output_proj(x)
+
+
+def initialise_multivariate_ar_head(
+    mlp: ResNetMLP,
+    *,
+    x_dim: int,
+    init_chol_diag: float = 1.0,
+    final_weight_scale: float = 0.01,
+) -> ResNetMLP:
+    out = mlp.output_proj
+    if out.bias is None:
+        raise ValueError("Expected output_proj to have a bias.")
+
+    weight = out.weight * final_weight_scale
+    bias = jnp.zeros_like(out.bias)
+
+    row_ix, col_ix = jnp.tril_indices(x_dim)
+    diag_mask = row_ix == col_ix
+
+    n_tril = x_dim * (x_dim + 1) // 2
+    chol_bias = jnp.zeros((n_tril,), dtype=bias.dtype)
+
+    chol_bias = chol_bias.at[diag_mask].set(
+        inv_softplus(init_chol_diag).astype(bias.dtype)
+    )
+
+    bias = bias.at[x_dim:].set(chol_bias)
+
+    new_out = eqx.tree_at(lambda layer: layer.weight, out, weight)
+    new_out = eqx.tree_at(lambda layer: layer.bias, new_out, bias)
+
+    return eqx.tree_at(lambda net: net.output_proj, mlp, new_out)
 
 
 class AmortizerMLP(eqx.Module):
@@ -418,9 +454,10 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
 
         self._x_dim = self.shape[1]
         self._n_tril = self._x_dim * (self._x_dim + 1) // 2
+
         input_dim = (
-            lag_order * self._x_dim
-            + lag_order
+            lag_order * self._x_dim # the previous obs
+            + lag_order # whether the previous obs are available
             + self.context_dim
             + self.parameter_dim
             + self.condition_dim
@@ -436,6 +473,13 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
             key=key,
         )
 
+        self.amortizer_mlp = initialise_multivariate_ar_head(
+            self.amortizer_mlp,
+            x_dim=self._x_dim,
+            init_chol_diag=1.0,
+            final_weight_scale=0.01,
+        )
+        
     def _build_cholesky(self, unconstrained_chol: Array) -> Array:
         if unconstrained_chol.shape[-1] != self._n_tril:
             raise ValueError(
@@ -462,7 +506,10 @@ class AmortizedMultivariateAutoregressor(AutoregressiveApproximation):
         context,
         condition_context,
     ):
-        flat_prev_x = [jnp.ravel(x) for x in prev_x]
+        flat_prev_x = [
+            jnp.ravel(x) 
+            for x in prev_x
+        ]
         inputs = jnp.concatenate(
             [
                 *flat_prev_x,

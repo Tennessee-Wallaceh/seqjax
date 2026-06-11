@@ -11,6 +11,10 @@ import jaxtyping
 import optax  # type: ignore[import-untyped]
 from jaxtyping import PyTree
 from tqdm.auto import tqdm  # type: ignore[import-untyped]
+import numpy as np
+import arviz as az
+from scipy.special import logsumexp
+from quantiphy import Quantity
 
 from seqjax.inference.vi import interface
 from seqjax.inference.interface import InferenceDataset
@@ -21,9 +25,9 @@ import seqjax.model.typing as seqjtyping
 import seqjax.model.interface as model_interface
 from seqjax.model.evaluate import log_prob_joint
 
-import numpy as np
-import arviz as az
-from scipy.special import logsumexp
+
+def human_count(n: int) -> str:
+    return Quantity(n, scale="").render(form="si", prec=0, show_units=False)
 
 DEFAULT_SYNC_INTERVAL_S = 5
 
@@ -442,14 +446,21 @@ def train(
             
             tracker_postfix = run_tracker.record(opt_step, elapsed_time_s, loss)
 
-            if num_steps is not None:
+            if num_steps is not None and time_limit_s is not None:
                 tracker_postfix["iter"] = (
-                    f"{100 * opt_step / num_steps:.0f}% ({num_steps})"
+                    f"{human_count(opt_step)}/{human_count(num_steps)}"
                 )
-
+            elif num_steps is not None and time_limit_s is None:
+                tracker_postfix["iter"] = (
+                    f"{100 * opt_step / num_steps:.0f}% ({human_count(num_steps)})"
+                )
+                
             if time_limit_s is not None:
                 tracker_postfix["time"] = (
                     f"{100 * elapsed_time_s / time_limit_s:.0f}% ({time_limit_s / 60:.0f}m)"
+                )
+                tracker_postfix["iter"] = (
+                    f"{human_count(opt_step)}"
                 )
 
             tracker_postfix["rate"] = f"{opt_step / elapsed_time_s:.1f} it/s"
@@ -474,5 +485,7 @@ def train(
         params=params,
     )
     iw_diagnostics = importance_diagnostics(log_iw)
+    # collapse over sequences
+    iw_diagnostics = jax.tree_util.tree_map(jnp.mean, iw_diagnostics)
     approximation, embedder = eqx.combine(trainable, static)
     return approximation, embedder, opt_state, run_tracker, iw_diagnostics

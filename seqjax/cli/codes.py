@@ -58,6 +58,14 @@ def parse_position_mode_required(x: str) -> str:
         return value
     raise ValueError(f"Expected one of sample|sequence, got {x!r}")
 
+def parse_bool(x: str) -> bool:
+    value = x.strip().lower()
+    if value in ("true", "t", "yes", "y", "1", "on"):
+        return True
+    if value in ("false", "f", "no", "n", "0", "off"):
+        return False
+    raise ValueError(f"Expected boolean, got {x!r}")
+
 PARSER_TYPE_LABEL: dict[Parser, str] = {
     parse_float: "float",
     parse_int_required: "integer",
@@ -65,6 +73,7 @@ PARSER_TYPE_LABEL: dict[Parser, str] = {
     parse_time_optional: "duration | NO",
     parse_position_mode_optional: "sample | sequence | NO",
     parse_position_mode_required: "sample | sequence",
+    parse_bool: "boolean"
 }
 
 PARSER_EXAMPLES: dict[Parser, list[str]] = {
@@ -74,6 +83,7 @@ PARSER_EXAMPLES: dict[Parser, list[str]] = {
     parse_time_optional: ["30m", "2h", "1h30m", "NO"],
     parse_position_mode_optional: ["sample", "sequence", "NO"],
     parse_position_mode_required: ["sample", "sequence"],
+    parse_bool: ["true", "false"],
 }
 
 def format_code_options(
@@ -359,6 +369,7 @@ codes["buffer-vi"]["LAX"] = {
             "D": ("nn_depth", parse_int_required, "2"),
             "K": ("kernel_size", parse_int_required, "5"),
             "FL": ("flow_layers", parse_int_required, "2"),
+            "ARL": ("add_ar_layer", parse_bool, "false"),
         }),
     }
 }
