@@ -311,16 +311,17 @@ def load_python_object(
     run: WandbRun,
     artifact_name: str,
     file_name: str,
+    active_run: bool =True,
 ) -> eqx.Module:
     print(
         f"Loading {artifact_name}:latest from wandb..."
     )
     print(run.path)
-    if isinstance(run, wandb.apis.public.runs.Run):
+    if active_run and isinstance(run, wandb.apis.public.runs.Run):
         # active run
         print("loading from active run...")
         artifact = run.use_artifact(
-            f"{artifact_name}:latest", type="run_output"
+            f"{artifact_name}:latest"
         )
     else:
         print("loading from non-active run...")
