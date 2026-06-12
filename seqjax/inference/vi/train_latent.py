@@ -42,28 +42,22 @@ LatentVISamplingKwargs = typing.TypedDict(
     "VISamplingKwargs",
     {
         "mc-samples": int,
-        "sequence-samples": int,
     },
 )
-def compute_log_iw(
-    trainable,
+
+@eqx.filter_jit
+def _compute_log_iw_sequence_chunk(
+    approximation,
+    embedder,
     key,
     *,
-    static,
-    sample_kwargs: LatentVISamplingKwargs,
-    dataset,
+    y_seqs,
+    c_seqs,
     target,
     params,
+    mc_samples: int,
+    num_sequence_batch: int,
 ):
-    approximation, embedder = eqx.combine(trainable, static)
-
-    seq_key, sample_key = jrandom.split(key)
-
-    y_seqs, c_seqs = _sample_sequence_minibatch(
-        dataset,
-        seq_key,
-        sample_kwargs["sequence-samples"],
-    )
 
     contexts, _ = jax.vmap(
         embedder.embed,
@@ -83,10 +77,10 @@ def compute_log_iw(
         in_axes=(0, 0, None),
     )(
         jrandom.split(
-            sample_key,
+            key,
             (
-                sample_kwargs["sequence-samples"],
-                sample_kwargs["mc-samples"],
+                num_sequence_batch,
+                mc_samples,
             ),
         ),
         contexts,
@@ -108,6 +102,69 @@ def compute_log_iw(
     )
 
     return log_p_x_y - log_q_x
+
+def _slice_sequence_chunk[
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+](
+    dataset: InferenceDataset[ObservationT, ConditionT],
+    *,
+    start: int,
+    stop: int,
+) -> tuple[ObservationT, ConditionT]:
+    y_seqs = jax.tree_util.tree_map(
+        lambda leaf: leaf[start:stop],
+        dataset.observations,
+    )
+
+    c_seqs = jax.tree_util.tree_map(
+        lambda leaf: leaf[start:stop],
+        dataset.conditions,
+    )
+
+    return y_seqs, c_seqs
+
+def compute_log_iw(
+    trainable,
+    key,
+    *,
+    static,
+    sample_kwargs: LatentVISamplingKwargs,
+    dataset,
+    target,
+    params,
+    chunk_size: int = 10,
+):
+    approximation, embedder = eqx.combine(trainable, static)
+
+    log_iw_chunks = []
+
+    for start in range(0, dataset.num_sequences, chunk_size):
+        key, sample_key = jrandom.split(key)
+        stop = min(start + chunk_size, dataset.num_sequences)
+        num_sequence_batch = stop - start
+
+        y_seqs, c_seqs = _slice_sequence_chunk(
+            dataset,
+            start=start,
+            stop=stop,
+        )
+
+        log_iw_chunk = _compute_log_iw_sequence_chunk(
+            approximation,
+            embedder,
+            sample_key,
+            y_seqs=y_seqs,
+            c_seqs=c_seqs,
+            target=target,
+            params=params,
+            mc_samples=sample_kwargs["mc-samples"],
+            num_sequence_batch=num_sequence_batch,
+        )
+
+        log_iw_chunks.append(log_iw_chunk)
+
+    return jnp.concatenate(log_iw_chunks, axis=0)
 
 
 def log_ess_np(log_iw, axis=-1):
@@ -476,13 +533,11 @@ def train(
         trainable,
         key,
         static=static,
-        sample_kwargs={
-            "mc-samples": 10000,
-            "sequence-samples": min(dataset.num_sequences, 50),
-        },
+        sample_kwargs={"mc-samples": 10000},
         dataset=dataset,
         target=target,
         params=params,
+        chunk_size=min(dataset.num_sequences, 50)
     )
     iw_diagnostics = importance_diagnostics(log_iw)
     # collapse over sequences
