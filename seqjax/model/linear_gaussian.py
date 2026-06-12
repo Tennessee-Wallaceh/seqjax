@@ -26,14 +26,6 @@ from seqjax.model.typing import Latent, NoCondition, Observation, Parameters
 DEFAULT_DIM = 5
 
 
-def _validate_dim(dim: int) -> int:
-    if not isinstance(dim, int):
-        raise TypeError(f"dim must be an int, got {type(dim).__name__}")
-    if dim <= 0:
-        raise ValueError(f"dim must be positive, got {dim}")
-    return dim
-
-
 def _mvn_sample(
     key: PRNGKeyArray,
     mean: Array,
@@ -64,7 +56,33 @@ def _mvn_log_prob(
         - 0.5 * dim * jnp.log(2.0 * jnp.pi)
     )
 
+"""
+Abstract Base classes for LG-SSM components
+"""
+@dataclass(frozen=True)
+class LGSSMSpec:
+    dim: int = field(default=DEFAULT_DIM, metadata=dict(static=True))
 
+    def __post_init__(self) -> None:
+        if self.dim <= 0:
+            raise ValueError(f"dim must be positive, got {self.dim}")
+
+    @property
+    def latent_cls(self):
+        return make_vector_state_cls(self.dim)
+
+    @property
+    def observation_cls(self):
+        return make_vector_observation_cls(self.dim)
+
+    @property
+    def model_parameter_cls(self):
+        return make_lgssm_parameters_cls(self.dim)
+
+    @property
+    def lower_size(self) -> int:
+        return self.dim * (self.dim - 1) // 2
+    
 class _VectorStateBase(Latent, abstract=True):
     dim: typing.ClassVar[int]
     x: Array
@@ -74,9 +92,8 @@ class _VectorStateBase(Latent, abstract=True):
         cls,
         **class_kwargs: typing.Any,
     ) -> OrderedDict[str, jax.ShapeDtypeStruct]:
-        dim = _validate_dim(class_kwargs["dim"])
         return OrderedDict(
-            x=jax.ShapeDtypeStruct(shape=(dim,), dtype=jnp.float32),
+            x=jax.ShapeDtypeStruct(shape=(class_kwargs["dim"],), dtype=jnp.float32),
         )
 
 
@@ -89,9 +106,8 @@ class _VectorObservationBase(Observation, abstract=True):
         cls,
         **class_kwargs: typing.Any,
     ) -> OrderedDict[str, jax.ShapeDtypeStruct]:
-        dim = _validate_dim(class_kwargs["dim"])
         return OrderedDict(
-            y=jax.ShapeDtypeStruct(shape=(dim,), dtype=jnp.float32),
+            y=jax.ShapeDtypeStruct(shape=(class_kwargs["dim"],), dtype=jnp.float32),
         )
 
 
@@ -107,7 +123,7 @@ class _LGSSMParametersBase(Parameters, abstract=True):
         cls,
         **class_kwargs: typing.Any,
     ) -> OrderedDict[str, jax.ShapeDtypeStruct]:
-        dim = _validate_dim(class_kwargs["dim"])
+        dim = class_kwargs["dim"]
         return OrderedDict(
             transition_matrix=jax.ShapeDtypeStruct(shape=(dim, dim), dtype=jnp.float32),
             transition_noise_cholesky=jax.ShapeDtypeStruct(shape=(dim, dim), dtype=jnp.float32),
@@ -128,7 +144,6 @@ class _LGSSMParametersBase(Parameters, abstract=True):
 
 @lru_cache(maxsize=None)
 def make_vector_state_cls(dim: int) -> type[_VectorStateBase]:
-    dim = _validate_dim(dim)
 
     def exec_body(ns: dict[str, typing.Any]) -> None:
         ns["__module__"] = __name__
@@ -146,7 +161,6 @@ def make_vector_state_cls(dim: int) -> type[_VectorStateBase]:
 
 @lru_cache(maxsize=None)
 def make_vector_observation_cls(dim: int) -> type[_VectorObservationBase]:
-    dim = _validate_dim(dim)
 
     def exec_body(ns: dict[str, typing.Any]) -> None:
         ns["__module__"] = __name__
@@ -188,7 +202,6 @@ def emission_matrix_diff_mean(dim: int) -> jnp.ndarray:
 
 @lru_cache(maxsize=None)
 def make_lgssm_parameters_cls(dim: int) -> type[_LGSSMParametersBase]:
-    dim = _validate_dim(dim)
 
     def exec_body(ns: dict[str, typing.Any]) -> None:
         ns["__module__"] = __name__
@@ -384,7 +397,7 @@ class LGSSMModel(
 
 @lru_cache(maxsize=None)
 def lgssm(dim: int = DEFAULT_DIM) -> LGSSMModel:
-    dim = _validate_dim(dim)
+
     return validate_sequential_model(
         LGSSMModel(
             latent_cls=make_vector_state_cls(dim),
