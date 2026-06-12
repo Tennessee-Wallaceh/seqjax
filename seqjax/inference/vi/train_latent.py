@@ -478,7 +478,7 @@ def train(
         static=static,
         sample_kwargs={
             "mc-samples": 10000,
-            "sequence-samples": dataset.num_sequences,
+            "sequence-samples": min(dataset.num_sequences, 50),
         },
         dataset=dataset,
         target=target,
