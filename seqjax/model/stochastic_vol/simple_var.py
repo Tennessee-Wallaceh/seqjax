@@ -218,7 +218,7 @@ class LogVarPriorHyper:
         )
 
         return log_loc, log_sd
-    
+
 @jax.tree_util.register_dataclass
 @dataclass
 class FullVarParameterization(
@@ -228,9 +228,6 @@ class FullVarParameterization(
         LogVarPriorHyper,
     ]
 ):
-    """
-    
-    """
     _hyperparameters: LogVarPriorHyper = field(default_factory=LogVarPriorHyper)
     inference_parameter_cls: typing.ClassVar[type[UncLogVarParams]] = UncLogVarParams
 

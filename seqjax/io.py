@@ -111,7 +111,12 @@ class PreparedDataStorage(Protocol):
     ) -> tuple[Packable, Packable, Packable | None]: ...
 
 
-
+def get_run_target(run: WandbRun):
+    if "generative_parameter_label" in run.config['data_config']:
+        data_config = SyntheticDataConfig(**run.config['data_config'])
+    else:
+        data_config = RealDataConfig(**run.config['data_config'])
+    return data_config.posterior
 
 def _stack_packables(packables: list[Packable]) -> Packable:
     if len(packables) == 0:
@@ -230,9 +235,23 @@ def artifact_local_name(artifact: wandb.Artifact) -> str:
 
     return name.replace(":", "-").replace("/", "__")
 
-def download_artifact(artifact: wandb.Artifact) -> str:
+def download_artifact(run: WandbRun, artifact_name: str) -> str:
+    print(
+        f"Loading {run.name}-{artifact_name}:latest from wandb {run.project}..."
+    )
+    if isinstance(run.path, str):
+        run_path_tuple = run.path.split("/")
+    else:
+        run_path_tuple = run.path
+
+    e, p, _ = run_path_tuple
+
+    artifact_ref = f"{e}/{p}/{artifact_name}:latest"
+
+    artifact = wandb.Api().artifact(artifact_ref)
+    
     root = WANDB_ARTIFACT_ROOT / artifact_local_name(artifact)
-    print(root)
+    print(f"local path: {root} ")
     if root.exists():
         print("found locally, skipping download...")
         return str(root)
@@ -290,17 +309,8 @@ def load_model_artifact(
     artifact_name: str,
     model: eqx.Module,
 ) -> eqx.Module:
-    print(
-        f"Loading {target_run.name}-{artifact_name}:latest from wandb {target_run.project}..."
-    )
-    run = wandb.init(project=target_run.project)
-    artifact = run.use_artifact(
-        f"{target_run.name}-{artifact_name}:latest", type="approximation"
-    )
-
-    artifact_dir = download_artifact(artifact)
+    artifact_dir = download_artifact(target_run, artifact_name)
     file_path = os.path.join(artifact_dir, f"{target_run.name}-{artifact_name}.eqx")
-
     with open(file_path, "rb") as f:
         model = eqx.tree_deserialise_leaves(f, like=model)
 
@@ -313,33 +323,7 @@ def load_python_object(
     file_name: str,
     active_run: bool =True,
 ) -> eqx.Module:
-    print(
-        f"Loading {artifact_name}:latest from wandb..."
-    )
-    print(run.path)
-    if active_run and isinstance(run, wandb.apis.public.runs.Run):
-        # active run
-        print("loading from active run...")
-        artifact = run.use_artifact(
-            f"{artifact_name}:latest"
-        )
-    else:
-        print("loading from non-active run...")
-        if isinstance(run.path, str):
-            run_path_tuple = run.path.split("/")
-        else:
-            run_path_tuple = run.path
-
-        e, p, _ = run_path_tuple
-
-        artifact_ref = f"{e}/{p}/{artifact_name}:latest"
-
-        artifact = wandb.Api().artifact(
-            artifact_ref,
-            type="run_output",
-        )
-
-    artifact_dir = download_artifact(artifact)
+    artifact_dir = download_artifact(run, artifact_name)
     file_path = os.path.join(artifact_dir, f"{file_name}.pkl")
 
     with open(file_path, "rb") as f:
@@ -357,7 +341,7 @@ def packable_artifact_present(
         return False
 
     if file_name is not None:
-        artifact_dir = download_artifact(artifact)
+        artifact_dir = download_artifact(run, artifact_name)
 
         file_path = os.path.join(artifact_dir, f"{file_name}.parquet")
 
@@ -372,8 +356,7 @@ def load_packable_artifact(
     artifact_name: str,
     file_names_and_class: list[tuple[str, type[Packable]]],
 ) -> list[tuple[Packable, dict]]:
-    artifact = run.use_artifact(f"{artifact_name}:latest")
-    artifact_dir = download_artifact(artifact)
+    artifact_dir = download_artifact(run, artifact_name)
     loaded_data = []
     for file_name, packable_cls in file_names_and_class:
         file_path = os.path.join(artifact_dir, f"{file_name}.parquet")
@@ -391,8 +374,7 @@ def load_packable_artifact_all(
     artifact_name: str,
     packable_cls: type[Packable],
 ) -> list[tuple[Packable, dict]]:
-    artifact = run.use_artifact(f"{artifact_name}:latest")
-    artifact_dir = download_artifact(artifact)
+    artifact_dir = download_artifact(run, artifact_name)
 
     loaded_data = []
     files = [e.name for e in os.scandir(artifact_dir) if e.is_file()]
@@ -538,8 +520,7 @@ class WandbArtifactDataStorage:
             return _stack_sequence_packables(x_paths, observation_paths, condition_paths)
 
         print(f"{artifact_name} present on remote, downloading...")
-        artifact = self._run.use_artifact(f"{artifact_name}:latest")
-        artifact_dir = download_artifact(artifact)
+        artifact_dir = download_artifact(self._run, artifact_name)
         present_file_stems = {
             os.path.splitext(e.name)[0]
             for e in os.scandir(artifact_dir)

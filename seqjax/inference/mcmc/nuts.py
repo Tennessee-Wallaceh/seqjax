@@ -248,6 +248,7 @@ def run_bayesian_nuts[
         global_offset = samples_taken % stride
         block_offset = (-global_offset) % stride
 
+
         param_block = jax.tree_util.tree_map(
             lambda x: x[block_offset:raw_keep:stride, ...],
             raw_param_block,
@@ -256,7 +257,6 @@ def run_bayesian_nuts[
             lambda x: x[block_offset:raw_keep:stride, ...],
             raw_latent_block,
         )
-
         sample_blocks.append(param_block)
         latent_blocks.append(latent_block)
 
@@ -278,6 +278,7 @@ def run_bayesian_nuts[
         lambda *xs: jnp.concatenate(xs, axis=0),
         *sample_blocks,
     )
+
     latent_samples = jax.tree_util.tree_map(
         lambda *xs: jnp.concatenate(xs, axis=0),
         *latent_blocks,

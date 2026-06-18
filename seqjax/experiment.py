@@ -8,6 +8,8 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import wandb
+import numpy as np
+
 
 from seqjax import io
 from seqjax.inference import interface as inference_interface
@@ -246,6 +248,25 @@ def run_experiment(
             )
         )
 
+    # Allow special init for PMMH for purpose of generating reference posteriors
+    if (
+        experiment_config.init_from_generative 
+        and experiment_config.inference.label == "particle-mcmc"
+        and isinstance(experiment_config.data_config, model_registry.SyntheticDataConfig)
+    ):
+        generative_params = experiment_config.data_config.generative_parameters
+        config_with_init = replace(
+            experiment_config.inference.config,
+            initial_params=model.parameterization.from_model_parameters(generative_params),
+        )
+        experiment_config = replace(
+            experiment_config,
+            inference=replace(
+                experiment_config.inference,
+                config=config_with_init,
+            )
+        )
+
     condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
 
     dataset = inference_interface.ObservationDataset(
@@ -278,22 +299,21 @@ def run_experiment(
         tracker=build_tracker(experiment_config, wandb_run, model),
     )
 
-    wandb_run.finish()
+    # end here, to tidy up any stale wandb processes
+    # without explicit end+restart I have observed bugs for long
+    # running procedures
+    wandb_run.finish() 
 
-    process_wandb_run = cast(
-        io.WandbRun,
-        wandb.init(
-            project=experiment_name,
-            config={
-                **config_dict,
-                "inference_name": experiment_config.inference.name,
-                "training_run_id": wandb_run.id,
-                "training_run_name": wandb_run.name,
-                "results": True,
-            },
-            settings=wandb.Settings(start_method="thread"),
-        ),
+    process_wandb_run = wandb.init(
+        project=experiment_name,
+        id=wandb_run.id,
+        resume="must",
+        settings=wandb.Settings(
+            silent=True,
+            start_method="thread",
+        )
     )
+
     process_results(
         process_wandb_run,
         experiment_config,
@@ -307,3 +327,51 @@ def run_experiment(
     process_wandb_run.finish()
 
     return (param_samples, extra_data, x_paths, observations)
+
+def build_buffer_vi_grid_samples(
+    experiment: str,
+    buffer_vi_run_id: str, 
+    sampling_interval_s: int,
+):
+    print(f"Building grid samples for {buffer_vi_run_id}")
+    
+    results_run = wandb.init(
+        id=buffer_vi_run_id,
+        project=experiment,
+        settings=wandb.Settings(silent=True),
+        resume="must",
+    )
+    assert results_run.config["inference"]["label"] == "buffer-vi"
+
+    if "generative_parameter_label" in results_run.config['data_config']:
+        data_config = model_registry.SyntheticDataConfig(**results_run.config['data_config'])
+    else:
+        data_config = model_registry.RealDataConfig(**results_run.config['data_config'])
+
+    target_posterior = data_config.posterior
+
+    loaded_samples = io.load_packable_artifact_all(
+        results_run, 
+        f"{results_run.name}_checkpoint_samples", 
+        target_posterior.parameterization.inference_parameter_cls
+    )
+    
+    sample_times = np.array([metadata["elapsed_time_s"] for _, metadata in loaded_samples])
+    sample_times_sort_ix = np.argsort(sample_times)
+
+    sample_times = sample_times[sample_times_sort_ix]
+    loaded_samples = [loaded_samples[ix] for ix in sample_times_sort_ix]
+
+    grid = np.arange(sampling_interval_s, max(sample_times), sampling_interval_s)
+    grid_ix = np.argmin(np.abs(sample_times - grid.reshape(-1, 1)), axis=1)
+
+    grid_samples = [
+        (
+            f"samples_{grid_point_ix}",
+            loaded_samples[ix][0],
+            {"elapsed_time_s": float(sample_times[ix])},
+        )
+        for grid_point_ix, ix in enumerate(grid_ix)
+    ]
+
+    return grid_samples

@@ -34,6 +34,7 @@ class ParticleMCMCConfig(
     time_limit_s: None | float = None
     num_steps: None | int = 5000
     sample_block_size: int = 1000
+    initial_params: None | seqjtyping.Parameters = None
 
 def _make_log_joint_estimator[
     ParticleT: seqjtyping.Latent,
@@ -176,8 +177,13 @@ def run_particle_mcmc[
     )
 
     print("="*10, "initializing...", "="*10)
+
     init_key, init_logp_key, next_sample_key = jrandom.split(key, 3)
-    initial_parameters = target_posterior.parameterization.sample(init_key)
+    if config.initial_params is not None:
+        initial_parameters = typing.cast(InferenceParametersT, config.initial_params)
+    else:
+        initial_parameters = target_posterior.parameterization.sample(init_key)
+    
     initial_logp = jax.jit(functools.partial(estimate_log_joint, particle_filter))(initial_parameters, init_logp_key)
     print("complete.")
 
