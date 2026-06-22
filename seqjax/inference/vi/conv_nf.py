@@ -43,12 +43,94 @@ def _affine_with_min_scale(min_scale: float = 1e-6) -> Affine:
         replace=scale
     )
 
+class ConditionalDiagonalAffine(AbstractBijection):
+    """Condition-dependent diagonal affine transform over (sequence, target).
+
+    For each time t,
+
+        y[t] = loc[t] + scale[t] * x[t]
+
+    where loc[t] and scale[t] are functions only of condition[t].
+    """
+
+    shape: tuple[int, ...]
+    cond_shape: tuple[int, ...]
+    sequence_dim: int
+    target_dim: int
+    cond_dim: int
+    min_scale: float
+    net: eqx.nn.MLP
+
+    def __init__(
+        self,
+        key: PRNGKeyArray,
+        *,
+        sequence_dim: int,
+        target_dim: int,
+        cond_dim: int,
+        nn_width: int,
+        nn_depth: int,
+        min_scale: float = 1e-6,
+    ):
+        self.sequence_dim = sequence_dim
+        self.target_dim = target_dim
+        self.cond_dim = cond_dim
+        self.shape = (sequence_dim, target_dim)
+        self.cond_shape = (sequence_dim, cond_dim)
+        self.min_scale = min_scale
+
+        self.net = eqx.nn.MLP(
+            in_size=cond_dim,
+            out_size=2 * target_dim,
+            width_size=nn_width,
+            depth=nn_depth,
+            activation=jnn.relu,
+            key=key,
+        )
+
+        # Initialise close to identity:
+        # loc = 0, scale = 1.
+        final = self.net.layers[-1]
+        weight = jnp.zeros_like(final.weight)
+
+        if final.bias is None:
+            raise ValueError("Expected final affine head layer to have a bias.")
+
+        bias = jnp.zeros_like(final.bias)
+        bias = bias.at[target_dim:].set(inv_softplus(1.0 - min_scale))
+
+        new_final = eqx.tree_at(lambda layer: layer.weight, final, weight)
+        new_final = eqx.tree_at(lambda layer: layer.bias, new_final, bias)
+        self.net = eqx.tree_at(lambda mlp: mlp.layers[-1], self.net, new_final)
+
+    def _params(self, condition: Array) -> tuple[Array, Array]:
+        if condition is None:
+            raise ValueError("ConditionalDiagonalAffine requires condition.")
+
+        params = eqx.filter_vmap(self.net)(condition)
+        loc, raw_scale = jnp.split(params, 2, axis=-1)
+        scale = jax.nn.softplus(raw_scale) + self.min_scale
+        return loc, scale
+
+    def transform_and_log_det(self, x, condition=None):
+        loc, scale = self._params(condition)
+        y = loc + scale * x
+        log_det = jnp.sum(jnp.log(scale))
+        return y, log_det
+
+    def inverse_and_log_det(self, y, condition=None):
+        loc, scale = self._params(condition)
+        x = (y - loc) / scale
+        log_det = jnp.sum(jnp.log(scale))
+        return x, -log_det
+    
 class AR1Accumulation(AbstractBijection):
     shape: tuple[int, ...]
     cond_shape: ClassVar[None] = None
 
     unconstrained_ar: Array
     unconstrained_scale: Array
+    loc: Array
 
     def __init__(
         self,
@@ -57,11 +139,13 @@ class AR1Accumulation(AbstractBijection):
         target_dim: int,
         init_ar: float = 0.9,
         init_scale: float = 1.0,
+        init_loc: float = 0.0,
     ):
         self.shape = (sequence_dim, target_dim)
 
         self.unconstrained_ar = jnp.asarray(jnp.arctanh(init_ar))
         self.unconstrained_scale = inv_softplus(jnp.asarray(init_scale))
+        self.loc = jnp.asarray(init_loc)
 
     @property
     def ar(self):
@@ -74,16 +158,19 @@ class AR1Accumulation(AbstractBijection):
     def transform_and_log_det(self, eps, condition=None):
         ar = self.ar
         scale = self.scale
+        loc = self.loc
 
         a = jnp.broadcast_to(ar, eps.shape)
-        b = scale * eps
+        b = eps
 
         def compose(left, right):
             a_l, b_l = left
             a_r, b_r = right
             return a_r * a_l, b_r + a_r * b_l
 
-        _, x = jax.lax.associative_scan(compose, (a, b), axis=0)
+        _, z = jax.lax.associative_scan(compose, (a, b), axis=0)
+
+        x = loc + scale * z
 
         log_det = eps.size * jnp.log(scale)
 
@@ -92,167 +179,155 @@ class AR1Accumulation(AbstractBijection):
     def inverse_and_log_det(self, x, condition=None):
         ar = self.ar
         scale = self.scale
+        loc = self.loc
+
+        z = (x - loc) / scale
+
+        z_prev = jnp.concatenate(
+            [jnp.zeros_like(z[:1]), z[:-1]],
+            axis=0,
+        )
+        eps = z - ar * z_prev
+
+        log_det = x.size * jnp.log(scale)
+
+        return eps, -log_det
+
+class ConditionalAR1Accumulation(AbstractBijection):
+    shape: tuple[int, ...]
+    cond_shape: tuple[int, ...]
+
+    sequence_dim: int
+    target_dim: int
+    cond_dim: int
+
+    min_scale: float
+    max_abs_ar: float
+    unconstrained_ar: Array
+    net: eqx.nn.MLP
+
+    def __init__(
+        self,
+        key: PRNGKeyArray,
+        *,
+        sequence_dim: int,
+        target_dim: int,
+        cond_dim: int,
+        nn_width: int,
+        nn_depth: int,
+        min_scale: float = 1e-8,
+        max_abs_ar: float = 0.999,
+        init_ar: float = 0.0,
+        init_scale: float = 1.0,
+        init_loc: float = 0.0,
+    ):
+        if abs(init_ar) >= max_abs_ar:
+            raise ValueError(
+                f"Expected abs(init_ar) < max_abs_ar, got "
+                f"init_ar={init_ar}, max_abs_ar={max_abs_ar}."
+            )
+        if init_scale <= min_scale:
+            raise ValueError(
+                f"Expected init_scale > min_scale, got "
+                f"init_scale={init_scale}, min_scale={min_scale}."
+            )
+
+        self.sequence_dim = sequence_dim
+        self.target_dim = target_dim
+        self.cond_dim = cond_dim
+        self.shape = (sequence_dim, target_dim)
+        self.cond_shape = (sequence_dim, cond_dim)
+        self.min_scale = min_scale
+        self.max_abs_ar = max_abs_ar
+
+        self.unconstrained_ar = jnp.arctanh(
+            jnp.asarray(init_ar / max_abs_ar)
+        )
+
+        self.net = eqx.nn.MLP(
+            in_size=cond_dim,
+            out_size=2 * target_dim,
+            width_size=nn_width,
+            depth=nn_depth,
+            activation=jnn.relu,
+            key=key,
+        )
+
+        # Initialise close to identity:
+        #
+        #   ar      ≈ init_ar
+        #   scale_t ≈ init_scale
+        #   loc_t   ≈ init_loc
+        #
+        # With the defaults, this gives x = eps at initialisation.
+        final = self.net.layers[-1]
+        if final.bias is None:
+            raise ValueError("Expected final MLP layer to have a bias.")
+
+        weight = jnp.zeros_like(final.weight)
+
+        raw_scale_bias = inv_softplus(jnp.asarray(init_scale - min_scale))
+        loc_bias = jnp.asarray(init_loc)
+
+        bias = jnp.concatenate(
+            [
+                jnp.ones((target_dim,), dtype=final.bias.dtype)
+                * raw_scale_bias.astype(final.bias.dtype),
+                jnp.ones((target_dim,), dtype=final.bias.dtype)
+                * loc_bias.astype(final.bias.dtype),
+            ],
+            axis=0,
+        )
+
+        new_final = eqx.tree_at(lambda layer: layer.weight, final, weight)
+        new_final = eqx.tree_at(lambda layer: layer.bias, new_final, bias)
+        self.net = eqx.tree_at(lambda mlp: mlp.layers[-1], self.net, new_final)
+
+    @property
+    def ar(self):
+        return self.max_abs_ar * jnp.tanh(self.unconstrained_ar)
+
+    def _params(self, condition: Array) -> tuple[Array, Array, Array]:
+        if condition is None:
+            raise ValueError("ConditionalLocScaleAR1Accumulation requires condition.")
+
+        params = eqx.filter_vmap(self.net)(condition)
+        raw_scale, loc = jnp.split(params, 2, axis=-1)
+
+        ar = jnp.broadcast_to(self.ar, self.shape)
+        scale = jax.nn.softplus(raw_scale) + self.min_scale
+
+        return ar, scale, loc
+
+    def transform_and_log_det(self, eps, condition=None):
+        ar, scale, loc = self._params(condition)
+
+        a = ar
+        b = loc + scale * eps
+
+        def compose(left, right):
+            a_l, b_l = left
+            a_r, b_r = right
+            return a_r * a_l, b_r + a_r * b_l
+
+        _, x = jax.lax.associative_scan(compose, (a, b), axis=0)
+
+        log_det = jnp.sum(jnp.log(scale))
+        return x, log_det
+
+    def inverse_and_log_det(self, x, condition=None):
+        ar, scale, loc = self._params(condition)
 
         x_prev = jnp.concatenate(
             [jnp.zeros_like(x[:1]), x[:-1]],
             axis=0,
         )
-        eps = (x - ar * x_prev) / scale
 
-        log_det = x.size * jnp.log(scale)
+        eps = (x - ar * x_prev - loc) / scale
 
+        log_det = jnp.sum(jnp.log(scale))
         return eps, -log_det
-    
-class TemporalTriangularAffine(AbstractBijection):
-    """Triangular affine transformation over the sequence axis.
 
-    x has shape (sequence_dim, target_dim).
-
-    Transformation:
-        y = A @ x + loc
-
-    where A is triangular with positive diagonal.
-
-    The same temporal mixing matrix A is applied to each target dimension.
-    """
-
-    shape: tuple[int, ...]
-    cond_shape: ClassVar[None] = None
-    loc: Array
-    triangular: Array | AbstractUnwrappable[Array]
-    lower: bool
-    sequence_dim: int
-    target_dim: int
-
-    def __init__(
-        self,
-        *,
-        sequence_dim: int,
-        target_dim: int,
-        lower: bool = True,
-        init_scale: float = 1e-3,
-        key: PRNGKeyArray,
-    ):
-        self.sequence_dim = sequence_dim
-        self.target_dim = target_dim
-        self.shape = (sequence_dim, target_dim)
-        self.lower = lower
-
-        arr = init_scale * jrandom.normal(key, (sequence_dim, sequence_dim))
-        arr = jnp.tril(arr) if lower else jnp.triu(arr)
-
-        # Initialise close to identity.
-        arr = jnp.fill_diagonal(
-            arr,
-            inv_softplus(jnp.ones((sequence_dim,))),
-            inplace=False,
-        )
-
-        @partial(jnp.vectorize, signature="(d,d)->(d,d)")
-        def _to_triangular(arr):
-            tri = jnp.tril(arr) if lower else jnp.triu(arr)
-            return jnp.fill_diagonal(
-                tri,
-                softplus(jnp.diag(tri)),
-                inplace=False,
-            )
-
-        self.triangular = Parameterize(_to_triangular, arr)
-        self.loc = jnp.zeros((sequence_dim, target_dim))
-
-    def transform_and_log_det(self, x, condition=None):
-        y = self.triangular @ x + self.loc
-
-        log_det_single = jnp.log(jnp.abs(jnp.diag(self.triangular))).sum()
-
-        # Same temporal transform applied independently to each target dimension.
-        log_det = self.target_dim * log_det_single
-
-        return y, log_det
-
-    def inverse_and_log_det(self, y, condition=None):
-        x = solve_triangular(
-            self.triangular,
-            y - self.loc,
-            lower=self.lower,
-        )
-
-        log_det_single = jnp.log(jnp.abs(jnp.diag(self.triangular))).sum()
-        log_det = self.target_dim * log_det_single
-
-        return x, -log_det
-
-class TruncatedARConv(AbstractBijection):
-    shape: tuple[int, ...]
-    cond_shape: ClassVar[None] = None
-    rho: Array
-    kernel_size: int
-
-    def __init__(
-        self,
-        *,
-        sequence_dim: int,
-        target_dim: int,
-        kernel_size: int,
-        rho: float = 0.5,
-        learn_rho: bool = False,
-    ):
-        self.shape = (sequence_dim, target_dim)
-        self.kernel_size = kernel_size
-
-        raw_rho = jnp.arctanh(jnp.asarray(rho))
-        if learn_rho:
-            self.rho = raw_rho
-        else:
-            self.rho = paramax.NonTrainable(raw_rho)
-
-    @property
-    def ar(self):
-        return jnp.tanh(self.rho)
-
-    def _kernel(self, dtype):
-        k = jnp.arange(self.kernel_size, dtype=dtype)
-        return self.ar.astype(dtype) ** k
-
-    def transform_and_log_det(self, z, condition=None):
-        # z: (T, D)
-        h = self._kernel(z.dtype)
-
-        # Direct causal finite convolution.
-        # For small K, this is often simpler/faster than lax conv.
-        T = z.shape[0]
-
-        def term(k):
-            pad = jnp.zeros_like(z[:k])
-            shifted = jnp.concatenate([pad, z[: T - k]], axis=0)
-            return h[k] * shifted
-
-        x = sum(term(k) for k in range(self.kernel_size))
-
-        # Lower triangular with diagonal h[0] = 1.
-        return x, jnp.asarray(0.0, dtype=z.dtype)
-
-    def inverse_and_log_det(self, x, condition=None):
-        # Solve z_t = x_t - sum_{k=1}^{K-1} h_k z_{t-k}
-        h = self._kernel(x.dtype)
-
-        def step(prev_z_buffer, x_t):
-            # prev_z_buffer[0] = z_{t-1}, prev_z_buffer[1] = z_{t-2}, ...
-            correction = jnp.sum(
-                h[1:, None] * prev_z_buffer,
-                axis=0,
-            )
-            z_t = x_t - correction
-            new_buffer = jnp.concatenate(
-                [z_t[None, :], prev_z_buffer[:-1]],
-                axis=0,
-            )
-            return new_buffer, z_t
-
-        init = jnp.zeros((self.kernel_size - 1, x.shape[1]), dtype=x.dtype)
-        _, z = jax.lax.scan(step, init, x)
-
-        return z, jnp.asarray(0.0, dtype=x.dtype)
     
 class Conditioner(Protocol):
     def __call__(self, x: Array, condition: Array) -> Array: ...
@@ -269,10 +344,12 @@ class _LocalConditioner(eqx.Module):
     sequence_dim: int
     target_dim: int
     cond_dim: int
-    kernel_size: int
+    radius: int
+    target_len: int
+    frozen_len: int
     update_even: bool
-    _target_ix: Array
-    _frozen_ix: Array
+    _selector_ix: Array
+    _input_available: Array
 
     def __init__(
         self,
@@ -281,32 +358,49 @@ class _LocalConditioner(eqx.Module):
         sequence_dim: int,
         target_dim: int,
         cond_dim: int,
-        kernel_size: int,
+        radius: int,
         update_even: bool,
         out_size: int,
         width_size: int,
         depth: int,
         activation: Callable = jnn.relu,
     ):
-        if kernel_size < 3 or kernel_size % 2 == 0:
+        if radius < 0:
             raise ValueError(
-                f"kernel_size must be an odd integer >= 3; got {kernel_size}.",
+                f"radius must be an integer >= 0; got {radius}.",
             )
         if sequence_dim < 2:
             raise ValueError("Local parity coupling requires dim >= 2.")
 
         self.sequence_dim = sequence_dim
         self.target_dim = target_dim
-        self._target_ix = jnp.arange(0 if update_even else 1, self.sequence_dim, 2, jnp.int32)
-        self._frozen_ix = jnp.arange(1 if update_even else 0, self.sequence_dim, 2, jnp.int32)
         self.cond_dim = cond_dim
-        self.kernel_size = kernel_size
+        self.radius = radius
         self.update_even = update_even
-        in_size = target_dim * (kernel_size - 1) + cond_dim
+        self.target_len = (sequence_dim + int(update_even)) // 2
+        self.frozen_len = self.sequence_dim - self.target_len
+
+        selector_offset = 0 if update_even else 1
+        self._selector_ix = (
+            selector_offset
+            + jnp.arange(self.target_len, dtype=jnp.int32)[:, None]
+            + jnp.arange(2 * radius, dtype=jnp.int32)[None, :]
+        )
+
+        # ensure this is not differentiated
+        self._input_available = jax.lax.stop_gradient(jnp.pad(
+            jnp.ones((self.frozen_len,)),
+            (radius, radius),
+            mode="constant",
+            constant_values=0.0,
+        ))[self._selector_ix]
+
+        # +1 for the available flag
+        in_size = (target_dim + 1) * 2 * radius + cond_dim 
 
         if width_size < in_size:
             print(f"warning: conv NF conditioner width: {width_size}")
-            print(f"total in size: {in_size} | {target_dim * (kernel_size - 1)}, {cond_dim}")
+            print(f"total in size: {in_size} | {target_dim * 2 * radius} + {cond_dim}")
         
         # we give conditioning variables rank -1 (no masking of edges to output)
         if update_even:
@@ -327,41 +421,33 @@ class _LocalConditioner(eqx.Module):
             key=key,
         )
 
-    def context_features(self, x_frozen: Array, condition: Array) -> Array:
-        radius = self.kernel_size // 2
-        pad = radius
-        offsets = jnp.concatenate(
-            (
-                jnp.arange(-radius, 0, dtype=jnp.int32),
-                jnp.arange(1, radius + 1, dtype=jnp.int32),
-            )
+    def context_features(self, x_frozen: Array, target_conditions: Array) -> Array:
+        """
+        x_frozen: just the frozen locations
+        """
+        # pad 
+        padded = jnp.pad(
+            x_frozen, 
+            ((self.radius, self.radius), (0, 0)), 
+            mode="edge"
         )
-        padded = jnp.pad(x_frozen, ((pad, pad), (0, 0)), mode="edge")
-        windows = padded[
-            self._target_ix[:, None] + pad + offsets
-        ].reshape(len(self._target_ix), -1)
-        cond_features = condition[self._target_ix]
+        
+        # select and flaten the trailing dim axis
+        windows = padded[self._selector_ix].reshape(
+            self.target_len, 
+            2 * self.radius * self.target_dim
+        )     
 
-        return jnp.hstack((windows, cond_features))
+        return jnp.hstack((windows, self._input_available, target_conditions))
 
     def site_params(self, x_target: Array, context_features: Array) -> Array:
         # x_target: (target_dim,)
-        # context_features: (target_dim * (kernel_size - 1) + cond_dim,)
+        # context_features: (target_dim * 2 * radius + cond_dim,)
         features = jnp.hstack((x_target, context_features))
         return self.masked_autoregressive_mlp(features)
 
-    def __call__(self, x_target: Array, x_frozen: Array, condition: Array) -> Array:
-        if x_target.shape[0] != len(self._target_ix):
-            raise ValueError(
-                "x_target must contain values at target indices only. "
-                f"Expected leading dim {len(self._target_ix)}, received {x_target.shape[0]}."
-            )
-        if x_frozen.shape[0] != self.sequence_dim:
-            raise ValueError(
-                "x_frozen must preserve sequence axis. "
-                f"Expected leading dim {self.sequence_dim}, received {x_frozen.shape[0]}."
-            )
-        ctx = self.context_features(x_frozen, condition)
+    def __call__(self, x_target: Array, x_frozen: Array, target_conditions: Array) -> Array:
+        ctx = self.context_features(x_frozen, target_conditions)
         return eqx.filter_vmap(self.site_params)(x_target, ctx)
     
 class LocalParityCoupling(AbstractBijection):
@@ -379,7 +465,8 @@ class LocalParityCoupling(AbstractBijection):
     update_even: bool
     _coord_order: Array
     _coord_to_rank: Array
-    _target_indices: Array
+    _target_ix: Array
+    _frozen_ix: Array
     transformer_constructor: Callable
     conditioner: _LocalConditioner
 
@@ -392,7 +479,7 @@ class LocalParityCoupling(AbstractBijection):
         target_dim: int,
         update_even: bool,
         cond_dim: int,
-        kernel_size: int = 3,
+        radius: int = 2,
         nn_width: int,
         nn_depth: int,
         nn_activation: Callable = jnn.relu,
@@ -419,7 +506,7 @@ class LocalParityCoupling(AbstractBijection):
             sequence_dim=sequence_dim,
             target_dim=target_dim,
             cond_dim=cond_dim,
-            kernel_size=kernel_size,
+            radius=radius,
             update_even=update_even,
             out_size=num_params,
             width_size=nn_width,
@@ -427,7 +514,8 @@ class LocalParityCoupling(AbstractBijection):
             activation=nn_activation,
         )
 
-        self._target_indices = jnp.arange(0 if self.update_even else 1, self.sequence_dim, 2, dtype=jnp.int32)
+        self._target_ix = jnp.arange(0 if self.update_even else 1, self.sequence_dim, 2, dtype=jnp.int32)
+        self._frozen_ix = jnp.arange(1 if self.update_even else 0, self.sequence_dim, 2, jnp.int32)
         if self.update_even:
             self._coord_order = jnp.arange(self.target_dim, dtype=jnp.int32)
             self._coord_to_rank = jnp.arange(self.target_dim, dtype=jnp.int32)
@@ -446,10 +534,10 @@ class LocalParityCoupling(AbstractBijection):
 
         y_target, log_det = eqx.filter_vmap(transform_row)(
             transformer,
-            x[self._target_indices],
+            x[self._target_ix],
         )
 
-        y = x.at[self._target_indices].set(y_target)
+        y = x.at[self._target_ix].set(y_target)
         return y, jnp.sum(log_det)
 
 
@@ -484,12 +572,11 @@ class LocalParityCoupling(AbstractBijection):
         return x, -log_det
 
     def _condition_to_transformer(self, x: Array, condition: Array):
-        x_target = x[self._target_indices]
-        x_frozen = jnp.zeros_like(x).at[
-            self.conditioner._frozen_ix
-        ].set(x[self.conditioner._frozen_ix])
-        transform_p = self.conditioner(x_target, x_frozen, condition)
-        transform_p = jnp.reshape(transform_p, (len(self._target_indices), x.shape[1], -1))
+        x_target = x[self._target_ix]
+        x_frozen = x[self._frozen_ix]
+        target_conditions = condition[self._target_ix]
+        transform_p = self.conditioner(x_target, x_frozen, target_conditions)
+        transform_p = jnp.reshape(transform_p, (len(self._target_ix), x.shape[1], -1))
         # The masked network outputs are ordered by rank. For update_even=False,
         # ranks are reversed relative to natural coordinate order, so remap them
         # back to coordinate order before constructing per-coordinate transforms.
@@ -508,8 +595,10 @@ def local_parity_coupling_flow(
     nn_width: int = 50,
     nn_depth: int = 2,
     nn_activation: Callable = jnn.relu,
-    kernel_size: int = 3,
+    radius: int = 3,
+    add_conditional_affine: bool = False,
     add_ar_layer: bool = False,
+    add_conditional_ar_layer: bool = False,
     invert: bool = False,
 ) -> Transformed:
     """Create a local odd/even coupling flow with translated shared conditioner weights.
@@ -519,6 +608,9 @@ def local_parity_coupling_flow(
     ``(dim, cond_dim)``.
     """
 
+    if add_conditional_ar_layer and add_ar_layer:
+        raise ValueError("Cannot have both  conditional_ar_layer and ar_layer!")
+    
     if transformer is None:
         transformer = _affine_with_min_scale(1e-8)
 
@@ -526,14 +618,31 @@ def local_parity_coupling_flow(
     scale = jnp.ones((sequence_dim, target_dim))
     base_dist = FlowjaxNormal(loc, scale)
 
-    keys = jrandom.split(
-        key,
-        flow_layers * (2 if add_ar_layer else 1),
+    num_keys = (
+        flow_layers 
+        + int(add_conditional_affine) 
+        + int(add_ar_layer) 
+        + int(add_conditional_ar_layer)
     )
+    keys = jrandom.split(key, num_keys)
 
     layers = []
     key_ix = 0
 
+    if add_conditional_affine:
+        layers.append(
+            ConditionalDiagonalAffine(
+                keys[key_ix],
+                sequence_dim=sequence_dim,
+                target_dim=target_dim,
+                cond_dim=cond_dim,
+                nn_width=nn_width,
+                nn_depth=nn_depth,
+                min_scale=1e-6,
+            )
+        )
+        key_ix += 1
+    
     for layer_idx in range(flow_layers):
         layer_key = keys[key_ix]
         key_ix += 1
@@ -546,7 +655,7 @@ def local_parity_coupling_flow(
                 target_dim=target_dim,
                 update_even=layer_idx % 2 == 1,
                 cond_dim=cond_dim,
-                kernel_size=kernel_size,
+                radius=radius,
                 nn_width=nn_width,
                 nn_depth=nn_depth,
                 nn_activation=nn_activation,
@@ -558,6 +667,19 @@ def local_parity_coupling_flow(
             sequence_dim=sequence_dim,
             target_dim=target_dim,
             init_ar=0.
+        )
+        layers.append(final_layer)
+
+    if add_conditional_ar_layer:
+        print("ADDED C AR ")
+        final_layer = ConditionalAR1Accumulation(
+            keys[-1],
+            sequence_dim=sequence_dim,
+            target_dim=target_dim,
+            init_ar=0.9,
+            cond_dim=cond_dim,
+            nn_depth=2,
+            nn_width=32,
         )
         layers.append(final_layer)
 
@@ -582,8 +704,10 @@ class AmortizedConvCoupling[
         nn_width: int,
         nn_depth: int,
         flow_layers: int = 2,
-        kernel_size: int = 3,
+        radius: int = 3,
         add_ar_layer: bool = False,
+        add_conditional_ar_layer: bool = False,
+        add_conditional_affine: bool = False,
         transformer: AbstractBijection | None = None,
     ) -> None:
         
@@ -610,10 +734,12 @@ class AmortizedConvCoupling[
             flow_layers=flow_layers,
             transformer=transformer,
             cond_dim=cond_input_dim,
-            kernel_size=kernel_size,
+            radius=radius,
             nn_width=nn_width,
             nn_depth=nn_depth,
             add_ar_layer=add_ar_layer,
+            add_conditional_affine=add_conditional_affine,
+            add_conditional_ar_layer=add_conditional_ar_layer,
             invert=False
         )
         

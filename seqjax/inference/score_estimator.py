@@ -231,7 +231,8 @@ def buffered_score_estimate(
     start_keys = jrandom.split(start_keys_key, num_sequence_minibatch)
 
     path_length = sampled_observations.batch_shape[1]
-    latent_scaling = (batch_length + path_length - 1) / batch_length
+    inverse_inclusion_prob = (path_length + batch_length) / batch_length
+    inserse_sequence_prob = dataset.num_sequences / num_sequence_minibatch
 
     _, y_batch, c_batch, theta_mask = jax.vmap(
         sample_batch_and_mask,
@@ -292,7 +293,8 @@ def buffered_score_estimate(
                 for d in range(sequence_leaf_score_increments.ndim - 1)
             )
             score_increment = (
-                latent_scaling
+                inverse_inclusion_prob
+                * inserse_sequence_prob
                 * jnp.expand_dims(sequence_mask, trailing_dim)
                 * sequence_leaf_score_increments
             )

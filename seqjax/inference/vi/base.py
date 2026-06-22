@@ -998,7 +998,7 @@ class BufferedSSMVI[
         _, theta_mask, y_batch, c_batch = extra_info
 
         latent_scaling = (
-            self.batch_length + dataset.sequence_length - 1
+            self.batch_length + dataset.sequence_length
         ) / self.batch_length
         sequence_minibatch_rescaling = dataset.num_sequences / sample_kwargs['num_sequence_minibatch']
 

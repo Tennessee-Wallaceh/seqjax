@@ -353,9 +353,11 @@ class ConvNFLatentApproximation:
     label: str = field(init=False, default="conv-flow")
     nn_width: int = 32
     nn_depth: int = 2
-    kernel_size: int = 5
+    radius: int = 2
     flow_layers: int = 2
     add_ar_layer: bool = False
+    add_conditional_ar_layer: bool = False
+    add_conditional_affine: bool = False
 
 @dataclass
 class StructuredPrecisionLatentApproximation:
@@ -459,9 +461,11 @@ def build_latent_approximation(
             nn_width=latent_config.nn_width,
             nn_depth=latent_config.nn_depth,
             key=key,
-            kernel_size=latent_config.kernel_size,
+            radius=latent_config.radius,
             flow_layers=latent_config.flow_layers,
             add_ar_layer=latent_config.add_ar_layer,
+            add_conditional_affine=latent_config.add_conditional_affine,
+            add_conditional_ar_layer=latent_config.add_conditional_ar_layer,
         )
 
     else:

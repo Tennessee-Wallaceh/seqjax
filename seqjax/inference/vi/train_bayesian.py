@@ -345,9 +345,18 @@ def train(
 ) -> tuple[SSMApproximationT, OptStateT, typing.Any]:
     # check for valid set up
     if num_steps is None and time_limit_s is None:
-        raise Exception(
+        raise ValueError(
             "Variational fitting requires either num_steps or time_limit_s is set!"
         )
+    if compiled_steps < 1:
+        raise ValueError("compiled_steps must be >= 1")
+
+    if unroll < 1:
+        raise ValueError("unroll must be >= 1")
+
+    if unroll > compiled_steps:
+        raise ValueError("unroll must be <= compiled_steps")
+
     if sync_interval_s is None:
         sync_interval_s = DEFAULT_SYNC_INTERVAL_S
 
