@@ -464,7 +464,6 @@ def build_latent_approximation(
             flow_layers=latent_config.flow_layers,
             add_ar_layer=latent_config.add_ar_layer,
             add_conditional_affine=latent_config.add_conditional_affine,
-            add_conditional_ar_layer=latent_config.add_conditional_ar_layer,
         )
 
     else:

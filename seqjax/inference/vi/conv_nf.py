@@ -193,142 +193,7 @@ class AR1Accumulation(AbstractBijection):
 
         return eps, -log_det
 
-class ConditionalAR1Accumulation(AbstractBijection):
-    shape: tuple[int, ...]
-    cond_shape: tuple[int, ...]
 
-    sequence_dim: int
-    target_dim: int
-    cond_dim: int
-
-    min_scale: float
-    max_abs_ar: float
-    unconstrained_ar: Array
-    net: eqx.nn.MLP
-
-    def __init__(
-        self,
-        key: PRNGKeyArray,
-        *,
-        sequence_dim: int,
-        target_dim: int,
-        cond_dim: int,
-        nn_width: int,
-        nn_depth: int,
-        min_scale: float = 1e-8,
-        max_abs_ar: float = 0.999,
-        init_ar: float = 0.0,
-        init_scale: float = 1.0,
-        init_loc: float = 0.0,
-    ):
-        if abs(init_ar) >= max_abs_ar:
-            raise ValueError(
-                f"Expected abs(init_ar) < max_abs_ar, got "
-                f"init_ar={init_ar}, max_abs_ar={max_abs_ar}."
-            )
-        if init_scale <= min_scale:
-            raise ValueError(
-                f"Expected init_scale > min_scale, got "
-                f"init_scale={init_scale}, min_scale={min_scale}."
-            )
-
-        self.sequence_dim = sequence_dim
-        self.target_dim = target_dim
-        self.cond_dim = cond_dim
-        self.shape = (sequence_dim, target_dim)
-        self.cond_shape = (sequence_dim, cond_dim)
-        self.min_scale = min_scale
-        self.max_abs_ar = max_abs_ar
-
-        self.unconstrained_ar = jnp.arctanh(
-            jnp.asarray(init_ar / max_abs_ar)
-        )
-
-        self.net = eqx.nn.MLP(
-            in_size=cond_dim,
-            out_size=2 * target_dim,
-            width_size=nn_width,
-            depth=nn_depth,
-            activation=jnn.relu,
-            key=key,
-        )
-
-        # Initialise close to identity:
-        #
-        #   ar      ≈ init_ar
-        #   scale_t ≈ init_scale
-        #   loc_t   ≈ init_loc
-        #
-        # With the defaults, this gives x = eps at initialisation.
-        final = self.net.layers[-1]
-        if final.bias is None:
-            raise ValueError("Expected final MLP layer to have a bias.")
-
-        weight = jnp.zeros_like(final.weight)
-
-        raw_scale_bias = inv_softplus(jnp.asarray(init_scale - min_scale))
-        loc_bias = jnp.asarray(init_loc)
-
-        bias = jnp.concatenate(
-            [
-                jnp.ones((target_dim,), dtype=final.bias.dtype)
-                * raw_scale_bias.astype(final.bias.dtype),
-                jnp.ones((target_dim,), dtype=final.bias.dtype)
-                * loc_bias.astype(final.bias.dtype),
-            ],
-            axis=0,
-        )
-
-        new_final = eqx.tree_at(lambda layer: layer.weight, final, weight)
-        new_final = eqx.tree_at(lambda layer: layer.bias, new_final, bias)
-        self.net = eqx.tree_at(lambda mlp: mlp.layers[-1], self.net, new_final)
-
-    @property
-    def ar(self):
-        return self.max_abs_ar * jnp.tanh(self.unconstrained_ar)
-
-    def _params(self, condition: Array) -> tuple[Array, Array, Array]:
-        if condition is None:
-            raise ValueError("ConditionalLocScaleAR1Accumulation requires condition.")
-
-        params = eqx.filter_vmap(self.net)(condition)
-        raw_scale, loc = jnp.split(params, 2, axis=-1)
-
-        ar = jnp.broadcast_to(self.ar, self.shape)
-        scale = jax.nn.softplus(raw_scale) + self.min_scale
-
-        return ar, scale, loc
-
-    def transform_and_log_det(self, eps, condition=None):
-        ar, scale, loc = self._params(condition)
-
-        a = ar
-        b = loc + scale * eps
-
-        def compose(left, right):
-            a_l, b_l = left
-            a_r, b_r = right
-            return a_r * a_l, b_r + a_r * b_l
-
-        _, x = jax.lax.associative_scan(compose, (a, b), axis=0)
-
-        log_det = jnp.sum(jnp.log(scale))
-        return x, log_det
-
-    def inverse_and_log_det(self, x, condition=None):
-        ar, scale, loc = self._params(condition)
-
-        x_prev = jnp.concatenate(
-            [jnp.zeros_like(x[:1]), x[:-1]],
-            axis=0,
-        )
-
-        eps = (x - ar * x_prev - loc) / scale
-
-        log_det = jnp.sum(jnp.log(scale))
-        return eps, -log_det
-
-    
 class Conditioner(Protocol):
     def __call__(self, x: Array, condition: Array) -> Array: ...
 
@@ -598,7 +463,6 @@ def local_parity_coupling_flow(
     radius: int = 3,
     add_conditional_affine: bool = False,
     add_ar_layer: bool = False,
-    add_conditional_ar_layer: bool = False,
     invert: bool = False,
 ) -> Transformed:
     """Create a local odd/even coupling flow with translated shared conditioner weights.
@@ -607,10 +471,6 @@ def local_parity_coupling_flow(
     applied across sites. Conditioning variables are required and have shape
     ``(dim, cond_dim)``.
     """
-
-    if add_conditional_ar_layer and add_ar_layer:
-        raise ValueError("Cannot have both  conditional_ar_layer and ar_layer!")
-    
     if transformer is None:
         transformer = _affine_with_min_scale(1e-8)
 
@@ -621,8 +481,7 @@ def local_parity_coupling_flow(
     num_keys = (
         flow_layers 
         + int(add_conditional_affine) 
-        + int(add_ar_layer) 
-        + int(add_conditional_ar_layer)
+        + int(add_ar_layer)
     )
     keys = jrandom.split(key, num_keys)
 
@@ -670,19 +529,6 @@ def local_parity_coupling_flow(
         )
         layers.append(final_layer)
 
-    if add_conditional_ar_layer:
-        print("ADDED C AR ")
-        final_layer = ConditionalAR1Accumulation(
-            keys[-1],
-            sequence_dim=sequence_dim,
-            target_dim=target_dim,
-            init_ar=0.9,
-            cond_dim=cond_dim,
-            nn_depth=2,
-            nn_width=32,
-        )
-        layers.append(final_layer)
-
     bijection = Chain(layers).merge_chains()
     bijection = Invert(bijection) if invert else bijection
     return Transformed(base_dist, bijection)
@@ -706,7 +552,6 @@ class AmortizedConvCoupling[
         flow_layers: int = 2,
         radius: int = 3,
         add_ar_layer: bool = False,
-        add_conditional_ar_layer: bool = False,
         add_conditional_affine: bool = False,
         transformer: AbstractBijection | None = None,
     ) -> None:
@@ -739,7 +584,6 @@ class AmortizedConvCoupling[
             nn_depth=nn_depth,
             add_ar_layer=add_ar_layer,
             add_conditional_affine=add_conditional_affine,
-            add_conditional_ar_layer=add_conditional_ar_layer,
             invert=False
         )
         
