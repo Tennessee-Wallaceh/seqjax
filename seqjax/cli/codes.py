@@ -367,9 +367,10 @@ codes["buffer-vi"]["LAX"] = {
         "CNF": ("conv-flow", {
             "W": ("nn_width", parse_int_required, "32"),
             "D": ("nn_depth", parse_int_required, "2"),
-            "K": ("kernel_size", parse_int_required, "5"),
+            "R": ("radius", parse_int_required, "5"),
             "FL": ("flow_layers", parse_int_required, "2"),
             "ARL": ("add_ar_layer", parse_bool, "false"),
+            "CAFF": ("add_conditional_affine", parse_bool, "false"),
         }),
     }
 }

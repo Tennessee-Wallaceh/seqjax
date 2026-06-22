@@ -351,12 +351,11 @@ class MAFLatentApproximation:
 @dataclass
 class ConvNFLatentApproximation:
     label: str = field(init=False, default="conv-flow")
-    nn_width: int = 32
+    nn_width: int = 64
     nn_depth: int = 2
     radius: int = 2
     flow_layers: int = 2
     add_ar_layer: bool = False
-    add_conditional_ar_layer: bool = False
     add_conditional_affine: bool = False
 
 @dataclass
