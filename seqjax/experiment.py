@@ -314,7 +314,6 @@ def run_experiment(
         resume="must",
         settings=wandb.Settings(
             silent=True,
-            start_method="thread",
         )
     )
 
