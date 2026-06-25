@@ -73,6 +73,7 @@ posterior_factories: dict[BayesianModelLabel, PosteriorFactory] = {
     "ar-full": typing.cast(PosteriorFactory, ar_bayesian.ar_full),
     "svar-full": stochastic_vol.simple_var.svar_full,
     "lgssm-5d-full": linear_gaussian_bayesian.lgssm_full,
+    "lgssm-5d-diag": linear_gaussian_bayesian.lgssm_diagonal,
     "double-well-ebonly": double_well_bayesian.eb_only,
 }
 
@@ -119,6 +120,9 @@ parameter_settings: dict[BayesianModelLabel, dict[str, Parameters]] = {
         ),
     },
     "lgssm-5d-full": {
+        "base": linear_gaussian.make_lgssm_parameters_cls(dim=5)(),
+    },
+    "lgssm-5d-diag": {
         "base": linear_gaussian.make_lgssm_parameters_cls(dim=5)(),
     },
     "double-well": {
@@ -172,6 +176,9 @@ hyperparameter_settings: dict[BayesianModelLabel, dict[str, HyperParameters]] = 
         ),
     },
     "lgssm-5d-full": {
+        "base": linear_gaussian_bayesian.LGSSMHyperParameters(dim=5)
+    },
+    "lgssm-5d-diag": {
         "base": linear_gaussian_bayesian.LGSSMHyperParameters(dim=5)
     },
     "double-well": {

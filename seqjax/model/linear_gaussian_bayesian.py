@@ -336,3 +336,298 @@ def lgssm_full(
         target=lg_module.lgssm(hyperparameters.dim),
         parameterization=FullParameterization(hyperparameters=hyperparameters),
     )
+
+
+
+"""
+Diagonal
+"""
+
+
+class _UncDiagonalLGSSMParametersBase(seqjtyping.Parameters, abstract=True):
+    dim: typing.ClassVar[int]
+
+    unc_transition_diag: jax.Array
+    emission_log_diag: jax.Array
+    sft_inv_emission_noise_scale: jax.Array
+
+    @classmethod
+    def _shape_template_from_class_args(
+        cls,
+        **class_kwargs: typing.Any,
+    ) -> OrderedDict[str, jax.ShapeDtypeStruct]:
+        dim = _validate_dim(class_kwargs["dim"])
+        return OrderedDict(
+            unc_transition_diag=jax.ShapeDtypeStruct(
+                shape=(dim,),
+                dtype=jnp.float32,
+            ),
+            emission_log_diag=jax.ShapeDtypeStruct(
+                shape=(dim,),
+                dtype=jnp.float32,
+            ),
+            sft_inv_emission_noise_scale=jax.ShapeDtypeStruct(
+                shape=(dim,),
+                dtype=jnp.float32,
+            ),
+        )
+
+
+@lru_cache(maxsize=None)
+def make_unc_diagonal_lgssm_parameters_cls(
+    dim: int,
+) -> type[_UncDiagonalLGSSMParametersBase]:
+    dim = _validate_dim(dim)
+
+    def exec_body(ns: dict[str, typing.Any]) -> None:
+        ns["__module__"] = __name__
+        ns["__annotations__"] = {
+            "unc_transition_diag": jax.Array,
+            "emission_log_diag": jax.Array,
+            "sft_inv_emission_noise_scale": jax.Array,
+        }
+        ns["unc_transition_diag"] = field(
+            default_factory=lambda dim=dim: jnp.zeros(dim),
+        )
+        ns["emission_log_diag"] = field(
+            default_factory=lambda dim=dim: jnp.zeros(dim),
+        )
+        ns["sft_inv_emission_noise_scale"] = field(
+            default_factory=lambda dim=dim: jnp.zeros(dim),
+        )
+
+    return typing.cast(
+        type[_UncDiagonalLGSSMParametersBase],
+        types.new_class(
+            f"UncDiagonalLGSSMParameters{dim}D",
+            (_UncDiagonalLGSSMParametersBase,),
+            kwds={"dim": dim},
+            exec_body=exec_body,
+        ),
+    )
+
+
+@jax.tree_util.register_dataclass
+@dataclass
+class DiagonalParameterization(
+    ParameterizationProtocol[
+        lg_module._LGSSMParametersBase,
+        _UncDiagonalLGSSMParametersBase,
+        LGSSMHyperParameters,
+    ]
+):
+    hyperparameters: LGSSMHyperParameters = field(default_factory=LGSSMHyperParameters)
+
+    @property
+    def dim(self) -> int:
+        return self.hyperparameters.dim
+
+    @cached_property
+    def inference_parameter_cls(self) -> type[_UncDiagonalLGSSMParametersBase]:
+        return make_unc_diagonal_lgssm_parameters_cls(
+            self.hyperparameters.dim,
+        )
+
+    def _validate_model_parameters(
+        self,
+        model_parameters: lg_module._LGSSMParametersBase,
+    ) -> None:
+        expected = (self.dim, self.dim)
+        field_shapes = {
+            "transition_matrix": model_parameters.transition_matrix.shape,
+            "transition_noise_cholesky": model_parameters.transition_noise_cholesky.shape,
+            "emission_matrix": model_parameters.emission_matrix.shape,
+            "emission_noise_cholesky": model_parameters.emission_noise_cholesky.shape,
+        }
+        for field_name, shape in field_shapes.items():
+            if shape != expected:
+                raise ValueError(
+                    f"{field_name} must have shape {expected} "
+                    f"for dim={self.dim}, got {shape}"
+                )
+
+    def _validate_inference_parameters(
+        self,
+        inference_parameters: _UncDiagonalLGSSMParametersBase,
+    ) -> None:
+        expected_shapes = {
+            "unc_transition_diag": (self.dim,),
+            "emission_log_diag": (self.dim,),
+            "sft_inv_emission_noise_scale": (self.dim,),
+        }
+        field_values = {
+            "unc_transition_diag": inference_parameters.unc_transition_diag,
+            "emission_log_diag": inference_parameters.emission_log_diag,
+            "sft_inv_emission_noise_scale": (
+                inference_parameters.sft_inv_emission_noise_scale
+            ),
+        }
+
+        for field_name, expected_shape in expected_shapes.items():
+            actual_shape = field_values[field_name].shape
+            if actual_shape != expected_shape:
+                raise ValueError(
+                    f"{field_name} must have shape {expected_shape} "
+                    f"for dim={self.dim}, got {actual_shape}"
+                )
+
+    def to_model_parameters(
+        self,
+        inference_parameters: _UncDiagonalLGSSMParametersBase,
+    ) -> lg_module._LGSSMParametersBase:
+        self._validate_inference_parameters(inference_parameters)
+        dtype = inference_parameters.unc_transition_diag.dtype
+        parameter_cls = lg_module.make_lgssm_parameters_cls(self.dim)
+
+        transition_diag = jnp.tanh(inference_parameters.unc_transition_diag)
+        transition_matrix = jnp.diag(transition_diag)
+
+        # Fixed state noise. Same as your previous parameterisation.
+        transition_noise_cholesky = jnp.eye(self.dim, dtype=dtype)
+
+        emission_diag = jnp.exp(inference_parameters.emission_log_diag)
+        emission_matrix = jnp.diag(emission_diag)
+
+        emission_noise_scale = jax.nn.softplus(
+            inference_parameters.sft_inv_emission_noise_scale,
+        )
+        emission_noise_cholesky = _diag_cholesky(emission_noise_scale)
+
+        return parameter_cls(
+            transition_matrix=transition_matrix,
+            transition_noise_cholesky=transition_noise_cholesky,
+            emission_matrix=emission_matrix,
+            emission_noise_cholesky=emission_noise_cholesky,
+        )
+
+    def from_model_parameters(
+        self,
+        model_parameters: lg_module._LGSSMParametersBase,
+    ) -> _UncDiagonalLGSSMParametersBase:
+        self._validate_model_parameters(model_parameters)
+
+        transition_diag = jnp.diag(model_parameters.transition_matrix)
+        unc_transition_diag = jnp.arctanh(
+            jnp.clip(transition_diag, -0.999, 0.999),
+        )
+
+        emission_matrix = model_parameters.emission_matrix
+        emission_diag = jnp.diag(emission_matrix)
+
+        emission_off_diag = emission_matrix - jnp.diag(emission_diag)
+        if jnp.any(jnp.abs(emission_off_diag) > 1e-6):
+            raise ValueError(
+                "emission_matrix must be diagonal for DiagonalParameterization."
+            )
+
+        if jnp.any(emission_diag <= 0):
+            raise ValueError(
+                "emission_matrix diagonal must be strictly positive "
+                "for this parameterization."
+            )
+
+        emission_log_diag = jnp.log(emission_diag)
+
+        emission_noise_diag = jnp.diag(model_parameters.emission_noise_cholesky)
+        emission_noise_off_diag = (
+            model_parameters.emission_noise_cholesky
+            - jnp.diag(emission_noise_diag)
+        )
+        if jnp.any(jnp.abs(emission_noise_off_diag) > 1e-6):
+            raise ValueError(
+                "emission_noise_cholesky must be diagonal "
+                "for DiagonalParameterization."
+            )
+
+        if jnp.any(emission_noise_diag <= 0):
+            raise ValueError(
+                "emission_noise_cholesky diagonal must be strictly positive."
+            )
+
+        return self.inference_parameter_cls(
+            unc_transition_diag=unc_transition_diag,
+            emission_log_diag=emission_log_diag,
+            sft_inv_emission_noise_scale=_inverse_softplus(emission_noise_diag),
+        )
+
+    def sample(self, key: PRNGKeyArray) -> _UncDiagonalLGSSMParametersBase:
+        a_key, d_key, r_key = jrandom.split(key, 3)
+
+        unc_transition_diag = 0.3 * jrandom.normal(a_key, shape=(self.dim,))
+        emission_log_diag = 0.2 * jrandom.normal(d_key, shape=(self.dim,))
+        emission_noise_scale = jnp.exp(
+            -1.0 + 0.5 * jrandom.normal(r_key, shape=(self.dim,))
+        )
+
+        return self.inference_parameter_cls(
+            unc_transition_diag=unc_transition_diag,
+            emission_log_diag=emission_log_diag,
+            sft_inv_emission_noise_scale=_inverse_softplus(emission_noise_scale),
+        )
+
+    def log_prob(
+        self,
+        inference_parameters: _UncDiagonalLGSSMParametersBase,
+    ) -> Scalar:
+        self._validate_inference_parameters(inference_parameters)
+
+        emission_noise_scale = jax.nn.softplus(
+            inference_parameters.sft_inv_emission_noise_scale,
+        )
+
+        transition_logp = jstats.norm.logpdf(
+            inference_parameters.unc_transition_diag,
+            loc=0.0,
+            scale=0.5,
+        ).sum()
+
+        emission_diag_logp = jstats.norm.logpdf(
+            inference_parameters.emission_log_diag,
+            loc=0.0,
+            scale=0.5,
+        ).sum()
+
+        scale_logp = (
+            jstats.norm.logpdf(
+                emission_noise_scale,
+                loc=0.0,
+                scale=0.5,
+            ).sum()
+            + emission_noise_scale.shape[0] * jnp.log(jnp.array(2.0))
+        )
+
+        jac_logp = jax.nn.log_sigmoid(
+            inference_parameters.sft_inv_emission_noise_scale,
+        ).sum()
+
+        return (
+            transition_logp
+            + emission_diag_logp
+            + scale_logp
+            + jac_logp
+        )
+
+
+@jax.tree_util.register_dataclass
+@dataclass
+class DiagonalLGSSMBayesian:
+    target: interface.SequentialModelProtocol[
+        lg_module._VectorStateBase,
+        lg_module._VectorObservationBase,
+        seqjtyping.NoCondition,
+        lg_module._LGSSMParametersBase,
+    ]
+    parameterization: DiagonalParameterization
+
+
+def lgssm_diagonal(
+    hyperparameters: LGSSMHyperParameters | None = None,
+) -> DiagonalLGSSMBayesian:
+    """Factory for identified diagonal Bayesian LGSSMs of arbitrary dimension."""
+    if hyperparameters is None:
+        hyperparameters = LGSSMHyperParameters()
+
+    return DiagonalLGSSMBayesian(
+        target=lg_module.lgssm(hyperparameters.dim),
+        parameterization=DiagonalParameterization(hyperparameters=hyperparameters),
+    )
