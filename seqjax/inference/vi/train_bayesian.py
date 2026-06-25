@@ -298,7 +298,7 @@ class Tracker:
             qs, means, theta = sample_theta_qs(
                 static, trainable, key, self.metric_samples
             )
-            self.checkpoint_samples.append((elapsed_time_s, theta))
+            self.checkpoint_samples.append((loss_label, elapsed_time_s, theta))
             _reads = []
             field_specs = static.target_posterior.target.parameter_cls.flat_field_specs()
             for field, field_ix, field_name in field_specs:

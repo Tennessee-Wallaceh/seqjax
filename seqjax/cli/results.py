@@ -96,8 +96,8 @@ class ResultProcessor:
                     (
                         f"samples_{i}",
                         samples,
-                        {"elapsed_time_s": float(elapsed_time_s)},
+                        {"elapsed_time_s": float(elapsed_time_s), "loss_label": loss_label},
                     )
-                    for i, (elapsed_time_s, samples) in enumerate(checkpoint_samples)
+                    for i, (loss_label, elapsed_time_s, samples) in enumerate(checkpoint_samples)
                 ],
             )

@@ -117,6 +117,7 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run, model):
     if (
         experiment_config.inference.label == "buffer-vi"
         or experiment_config.inference.label == "full-vi"
+        or experiment_config.inference.label == "hybrid-vi"
     ):
 
         def wandb_update(
@@ -157,10 +158,12 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run, model):
             1000,
         )
         def down_sampled_qs(sample_path):
-            return jnp.quantile(
+            q05, q95 = jnp.quantile(
                 sample_path[:int(down_sample)], 
                 jnp.array([0.05, 0.95])
             )
+            mean = jnp.mean(sample_path[:int(down_sample)])
+            return mean, q05, q95 
         down_sampled_qs = jax.jit(down_sampled_qs)
 
         def run_tracker(
@@ -174,11 +177,12 @@ def build_tracker(experiment_config: ExperimentConfig, wandb_run, model):
             }
             model_p = model.parameterization.to_model_parameters(sample_block)
             for f in model.target.parameter_cls.fields():
-                q05, q95 = down_sampled_qs(
+                mean, q05, q95  = down_sampled_qs(
                     getattr(model_p, f)
                 )
                 update[f"{f}_q05"] = q05
                 update[f"{f}_q95"] = q95
+                update[f"{f}_mean"] = mean
             wandb_run.log(update)
 
     return run_tracker
