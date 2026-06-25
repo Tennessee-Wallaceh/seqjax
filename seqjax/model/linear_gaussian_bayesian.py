@@ -348,7 +348,7 @@ class _UncDiagonalLGSSMParametersBase(seqjtyping.Parameters, abstract=True):
     dim: typing.ClassVar[int]
 
     unc_transition_diag: jax.Array
-    emission_log_diag: jax.Array
+    sft_inv_transition_noise_scale: jax.Array
     sft_inv_emission_noise_scale: jax.Array
 
     @classmethod
@@ -362,7 +362,7 @@ class _UncDiagonalLGSSMParametersBase(seqjtyping.Parameters, abstract=True):
                 shape=(dim,),
                 dtype=jnp.float32,
             ),
-            emission_log_diag=jax.ShapeDtypeStruct(
+            sft_inv_transition_noise_scale=jax.ShapeDtypeStruct(
                 shape=(dim,),
                 dtype=jnp.float32,
             ),
@@ -383,13 +383,13 @@ def make_unc_diagonal_lgssm_parameters_cls(
         ns["__module__"] = __name__
         ns["__annotations__"] = {
             "unc_transition_diag": jax.Array,
-            "emission_log_diag": jax.Array,
+            "sft_inv_transition_noise_scale": jax.Array,
             "sft_inv_emission_noise_scale": jax.Array,
         }
         ns["unc_transition_diag"] = field(
             default_factory=lambda dim=dim: jnp.zeros(dim),
         )
-        ns["emission_log_diag"] = field(
+        ns["sft_inv_transition_noise_scale"] = field(
             default_factory=lambda dim=dim: jnp.zeros(dim),
         )
         ns["sft_inv_emission_noise_scale"] = field(
@@ -452,12 +452,14 @@ class DiagonalParameterization(
     ) -> None:
         expected_shapes = {
             "unc_transition_diag": (self.dim,),
-            "emission_log_diag": (self.dim,),
+            "sft_inv_transition_noise_scale": (self.dim,),
             "sft_inv_emission_noise_scale": (self.dim,),
         }
         field_values = {
             "unc_transition_diag": inference_parameters.unc_transition_diag,
-            "emission_log_diag": inference_parameters.emission_log_diag,
+            "sft_inv_transition_noise_scale": (
+                inference_parameters.sft_inv_transition_noise_scale
+            ),
             "sft_inv_emission_noise_scale": (
                 inference_parameters.sft_inv_emission_noise_scale
             ),
@@ -482,11 +484,12 @@ class DiagonalParameterization(
         transition_diag = jnp.tanh(inference_parameters.unc_transition_diag)
         transition_matrix = jnp.diag(transition_diag)
 
-        # Fixed state noise. Same as your previous parameterisation.
-        transition_noise_cholesky = jnp.eye(self.dim, dtype=dtype)
+        transition_noise_scale = jax.nn.softplus(
+            inference_parameters.sft_inv_transition_noise_scale,
+        )
+        transition_noise_cholesky = _diag_cholesky(transition_noise_scale)
 
-        emission_diag = jnp.exp(inference_parameters.emission_log_diag)
-        emission_matrix = jnp.diag(emission_diag)
+        emission_matrix = jnp.eye(self.dim, dtype=dtype)
 
         emission_noise_scale = jax.nn.softplus(
             inference_parameters.sft_inv_emission_noise_scale,
@@ -511,22 +514,31 @@ class DiagonalParameterization(
             jnp.clip(transition_diag, -0.999, 0.999),
         )
 
+        transition_noise_diag = jnp.diag(
+            model_parameters.transition_noise_cholesky,
+        )
+        transition_noise_off_diag = (
+            model_parameters.transition_noise_cholesky
+            - jnp.diag(transition_noise_diag)
+        )
+        if jnp.any(jnp.abs(transition_noise_off_diag) > 1e-6):
+            raise ValueError(
+                "transition_noise_cholesky must be diagonal "
+                "for DiagonalParameterization."
+            )
+
+        if jnp.any(transition_noise_diag <= 0):
+            raise ValueError(
+                "transition_noise_cholesky diagonal must be strictly positive."
+            )
+
         emission_matrix = model_parameters.emission_matrix
-        emission_diag = jnp.diag(emission_matrix)
-
-        emission_off_diag = emission_matrix - jnp.diag(emission_diag)
-        if jnp.any(jnp.abs(emission_off_diag) > 1e-6):
+        expected_emission_matrix = jnp.eye(self.dim, dtype=emission_matrix.dtype)
+        if jnp.any(jnp.abs(emission_matrix - expected_emission_matrix) > 1e-6):
             raise ValueError(
-                "emission_matrix must be diagonal for DiagonalParameterization."
+                "emission_matrix must be the identity matrix "
+                "for DiagonalParameterization."
             )
-
-        if jnp.any(emission_diag <= 0):
-            raise ValueError(
-                "emission_matrix diagonal must be strictly positive "
-                "for this parameterization."
-            )
-
-        emission_log_diag = jnp.log(emission_diag)
 
         emission_noise_diag = jnp.diag(model_parameters.emission_noise_cholesky)
         emission_noise_off_diag = (
@@ -546,23 +558,34 @@ class DiagonalParameterization(
 
         return self.inference_parameter_cls(
             unc_transition_diag=unc_transition_diag,
-            emission_log_diag=emission_log_diag,
-            sft_inv_emission_noise_scale=_inverse_softplus(emission_noise_diag),
+            sft_inv_transition_noise_scale=_inverse_softplus(
+                transition_noise_diag,
+            ),
+            sft_inv_emission_noise_scale=_inverse_softplus(
+                emission_noise_diag,
+            ),
         )
 
     def sample(self, key: PRNGKeyArray) -> _UncDiagonalLGSSMParametersBase:
-        a_key, d_key, r_key = jrandom.split(key, 3)
+        a_key, q_key, r_key = jrandom.split(key, 3)
 
         unc_transition_diag = 0.3 * jrandom.normal(a_key, shape=(self.dim,))
-        emission_log_diag = 0.2 * jrandom.normal(d_key, shape=(self.dim,))
+
+        transition_noise_scale = jnp.exp(
+            -1.0 + 0.5 * jrandom.normal(q_key, shape=(self.dim,))
+        )
         emission_noise_scale = jnp.exp(
             -1.0 + 0.5 * jrandom.normal(r_key, shape=(self.dim,))
         )
 
         return self.inference_parameter_cls(
             unc_transition_diag=unc_transition_diag,
-            emission_log_diag=emission_log_diag,
-            sft_inv_emission_noise_scale=_inverse_softplus(emission_noise_scale),
+            sft_inv_transition_noise_scale=_inverse_softplus(
+                transition_noise_scale,
+            ),
+            sft_inv_emission_noise_scale=_inverse_softplus(
+                emission_noise_scale,
+            ),
         )
 
     def log_prob(
@@ -571,6 +594,9 @@ class DiagonalParameterization(
     ) -> Scalar:
         self._validate_inference_parameters(inference_parameters)
 
+        transition_noise_scale = jax.nn.softplus(
+            inference_parameters.sft_inv_transition_noise_scale,
+        )
         emission_noise_scale = jax.nn.softplus(
             inference_parameters.sft_inv_emission_noise_scale,
         )
@@ -581,13 +607,20 @@ class DiagonalParameterization(
             scale=0.5,
         ).sum()
 
-        emission_diag_logp = jstats.norm.logpdf(
-            inference_parameters.emission_log_diag,
-            loc=0.0,
-            scale=0.5,
+        transition_noise_logp = (
+            jstats.norm.logpdf(
+                transition_noise_scale,
+                loc=0.0,
+                scale=0.5,
+            ).sum()
+            + transition_noise_scale.shape[0] * jnp.log(jnp.array(2.0))
+        )
+
+        transition_noise_jac_logp = jax.nn.log_sigmoid(
+            inference_parameters.sft_inv_transition_noise_scale,
         ).sum()
 
-        scale_logp = (
+        emission_noise_logp = (
             jstats.norm.logpdf(
                 emission_noise_scale,
                 loc=0.0,
@@ -596,17 +629,17 @@ class DiagonalParameterization(
             + emission_noise_scale.shape[0] * jnp.log(jnp.array(2.0))
         )
 
-        jac_logp = jax.nn.log_sigmoid(
+        emission_noise_jac_logp = jax.nn.log_sigmoid(
             inference_parameters.sft_inv_emission_noise_scale,
         ).sum()
 
         return (
             transition_logp
-            + emission_diag_logp
-            + scale_logp
-            + jac_logp
+            + transition_noise_logp
+            + transition_noise_jac_logp
+            + emission_noise_logp
+            + emission_noise_jac_logp
         )
-
 
 @jax.tree_util.register_dataclass
 @dataclass

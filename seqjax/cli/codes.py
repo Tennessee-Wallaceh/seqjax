@@ -218,8 +218,9 @@ cosine_optimizer: dict[str, FlatCode] = {
     "DEC": ("decay_steps", parse_int_required, "5k"),
     "PEAK": ("peak_lr", parse_float, "1e-2"),
     "END": ("end_lr", parse_float, "1e-5"),
-    "MAXS": ("total_steps", parse_int_required, "10k"),
+    "MAXS": ("total_steps", parse_int_optional, "10k"),
     "MAXT": ("time_limit_s", parse_time_optional, "5m"),
+    "GC": ("grad_clip_norm", parse_float_optional, "NO"),
 }
 
 optimization_config: NestedCode = {

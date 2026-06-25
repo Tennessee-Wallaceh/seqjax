@@ -16,6 +16,7 @@ class CosineOpt:
     decay_steps: int = 5000
     total_steps: int = 10_000
     time_limit_s: int | None = None
+    grad_clip_norm: float | None = None
 
     def __repr__(self) -> str:
         return f"{self.label}({self.peak_lr:.0e},{self.end_lr:.0e},{self.warmup_steps},{self.decay_steps})"
@@ -69,9 +70,16 @@ def build_optimizer(optimization_config: OptConfig) -> optax.GradientTransformat
             decay_steps=optimization_config.decay_steps,
             end_value=optimization_config.end_lr,
         )
+                
+        transforms = []
+        if optimization_config.grad_clip_norm is not None:
+            transforms.append(
+                optax.clip_by_global_norm(optimization_config.grad_clip_norm)
+            )
+        transforms.append(optax.adam(learning_rate=schedule))
 
         optim = optax.apply_if_finite(
-            optax.adam(learning_rate=schedule), max_consecutive_errors=100
+            optax.chain(*transforms), max_consecutive_errors=100
         )
     else:
         raise Exception(f"Unknown Optimizer: {optimization_config}")
