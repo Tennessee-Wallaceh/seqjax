@@ -1,6 +1,6 @@
 """Utilities for parsing shorthand configuration codes used by the CLI."""
 
-from typing import Any, Callable, TypedDict
+from typing import Any, Callable, TypedDict, Literal
 
 from quantiphy import Quantity
 from pytimeparse2 import parse as parse_timespan_s # type: ignore[import-untyped]
@@ -65,6 +65,19 @@ def parse_bool(x: str) -> bool:
     if value in ("false", "f", "no", "n", "0", "off"):
         return False
     raise ValueError(f"Expected boolean, got {x!r}")
+
+def parse_init_params(x: str) -> Literal["prior-mean"] | None:
+    value = x.strip().lower()
+
+    if value in ("no", "none", "null", "false", "f", "n", "0", "off"):
+        return None
+
+    if value in ("prior-mean", "true", "t", "yes", "y", "1", "on"):
+        return "prior-mean"
+
+    raise ValueError(
+        f"Expected one of NO|None|false|prior-mean|true, got {x!r}"
+    )
 
 PARSER_TYPE_LABEL: dict[Parser, str] = {
     parse_float: "float",
@@ -320,26 +333,6 @@ codes["full-vi"] = {
     "SYNCS": ("sync_interval_s", parse_int_optional, "30"),
 }
 
-codes["hybrid-vi"] = {
-    "OPT": optimization_config,
-    "MC": ("samples_per_context", parse_int_required, "10"),
-    "SMB": ("num_sequence_minibatch", parse_int_required, "1"),
-    "PAX": codes["full-vi"]["PAX"].copy(),
-    "PR": prior_train_config,
-    "B": ("buffer_length", parse_int_required, "10"),
-    "M": ("batch_length", parse_int_required, "5"),
-    "PF": {
-        "field": "particle_filter_config",
-        "registry": particle_filter_registry.registry,
-        "options": {
-            "BTS": ("bootstrap", {
-                "N": ("num_particles", parse_int_required, "1k"),
-                "R": ("resample", lambda x: x, "multinomial"),
-            })
-        },
-    },
-    "SYNCS": ("sync_interval_s", parse_int_optional, "30"),
-}
 
 codes["buffer-vi"] = codes["full-vi"].copy()
 codes["buffer-vi"]["BS"] = ("num_context_per_sequence", parse_int_required, "10")
@@ -386,20 +379,7 @@ codes["hybrid-vi"] = {
     "OPT": optimization_config,
     "MC": ("samples_per_context", parse_int_required, "10"),
     "SMB": ("num_sequence_minibatch", parse_int_required, "1"),
-    "PAX": {
-        "field": "parameter_approximation",
-        "registry": vi.registry.parameter_approximation_registry,
-        "options": {
-            "MF": ("mean-field", {}),
-            "MAF": ("maf", {
-                "W": ("nn_width", parse_int_required, "32"),
-                "D": ("nn_depth", parse_int_required, "2"),
-            }),
-            "MVN": ("multivariate-normal", {
-                "J": ("diag_jitter", parse_float, "1e-6"),
-            }),
-        },
-    },
+    "PAX": codes["full-vi"]["PAX"].copy(),
     "PR": prior_train_config,
     "B": ("buffer_length", parse_int_required, "10"),
     "M": ("batch_length", parse_int_required, "5"),
@@ -413,7 +393,9 @@ codes["hybrid-vi"] = {
             })
         },
     },
+    "SYNCS": ("sync_interval_s", parse_int_optional, "30"),
 }
+
 
 codes["buffer-sgld"] = {
     "SS": ("step_size", parse_float, "1e-3"),
@@ -430,7 +412,8 @@ codes["buffer-sgld"] = {
                 "R": ("resample", lambda x: x, "multinomial"),
             })
         }
-    }
+    },
+    "INITM": ("init_params", parse_init_params, "false"),
 }
 
 codes["full-sgld"] = {

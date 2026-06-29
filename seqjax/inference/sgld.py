@@ -46,7 +46,7 @@ class BufferedSGLDConfig[
     buffer_length: int = 5
     batch_length: int = 10
     sample_block_size: int = 1000
-    init_params: typing.Any = None
+    init_params: ParametersT | typing.Literal["prior-mean"] | None = None
 
 
 def _tree_randn_like[ParametersT: seqjtyping.Parameters](
@@ -334,6 +334,9 @@ def run_buffer_sgld_mcmc[
 
     if config.init_params is None:
         initial_parameters = target_posterior.parameterization.sample(init_key)
+    elif isinstance(config.init_params, str) and config.init_params == "prior-mean":
+        psamples = jax.vmap(target_posterior.parameterization.sample)(jrandom.split(init_key, 10))
+        initial_parameters = jax.tree_util.tree_map(jnp.mean, psamples)
     else:
         initial_parameters = config.init_params
         
