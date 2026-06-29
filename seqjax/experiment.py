@@ -331,50 +331,129 @@ def run_experiment(
 
     return (param_samples, extra_data, x_paths, observations)
 
-def build_buffer_vi_grid_samples(
-    experiment: str,
-    buffer_vi_run_id: str, 
+def build_grid_samples(
+    run: wandb.Run,
     sampling_interval_s: int,
+    target_sample_size: int,
 ):
-    print(f"Building grid samples for {buffer_vi_run_id}")
+    inference_label = run.config["inference"]["label"]
+    if inference_label in ["buffer-vi", "hybrid-vi"]:
+        grid_samples, grid_times = build_vi_grid_samples(
+            run, 
+            sampling_interval_s, 
+            target_sample_size
+        )
+    elif inference_label == "buffer-sgld":
+        grid_samples, grid_times = build_buffer_sgld_grid_samples(
+            run, 
+            sampling_interval_s, 
+            target_sample_size
+        )
+    return grid_samples, grid_times
     
-    results_run = wandb.init(
-        id=buffer_vi_run_id,
-        project=experiment,
-        settings=wandb.Settings(silent=True),
-        resume="must",
-    )
-    assert results_run.config["inference"]["label"] == "buffer-vi"
+def build_vi_grid_samples(
+    buffer_vi_run: wandb.Run,
+    sampling_interval_s: int,
+    target_sample_size: int,
+):
+    print(f"Building grid samples for {buffer_vi_run.name}")
 
-    if "generative_parameter_label" in results_run.config['data_config']:
-        data_config = model_registry.SyntheticDataConfig(**results_run.config['data_config'])
-    else:
-        data_config = model_registry.RealDataConfig(**results_run.config['data_config'])
-
-    target_posterior = data_config.posterior
+    target_posterior = io.get_run_target(buffer_vi_run)
 
     loaded_samples = io.load_packable_artifact_all(
-        results_run, 
-        f"{results_run.name}_checkpoint_samples", 
-        target_posterior.parameterization.inference_parameter_cls
+        buffer_vi_run,
+        f"{buffer_vi_run.name}_checkpoint_samples",
+        target_posterior.parameterization.inference_parameter_cls,
     )
-    
-    sample_times = np.array([metadata["elapsed_time_s"] for _, metadata in loaded_samples])
-    sample_times_sort_ix = np.argsort(sample_times)
 
-    sample_times = sample_times[sample_times_sort_ix]
-    loaded_samples = [loaded_samples[ix] for ix in sample_times_sort_ix]
-
-    grid = np.arange(sampling_interval_s, max(sample_times), sampling_interval_s)
-    grid_ix = np.argmin(np.abs(sample_times - grid.reshape(-1, 1)), axis=1)
-
-    grid_samples = [
-        (
-            f"samples_{grid_point_ix}",
-            loaded_samples[ix][0],
-            {"elapsed_time_s": float(sample_times[ix])},
-        )
-        for grid_point_ix, ix in enumerate(grid_ix)
+    loaded_samples = [
+        (samples, metadata)
+        for samples, metadata in loaded_samples
+        if metadata["loss_label"] == "elbo"
     ]
 
-    return grid_samples
+    sample_time_arr = jnp.asarray(
+        [metadata["elapsed_time_s"] for _, metadata in loaded_samples]
+    )
+
+    sample_time_sort_ix = jnp.argsort(sample_time_arr)
+
+    sample_time_arr = sample_time_arr[sample_time_sort_ix]
+    loaded_samples = [
+        loaded_samples[int(ix)]
+        for ix in sample_time_sort_ix
+    ]
+
+    query_time_arr = jnp.arange(
+        sample_time_arr[0],
+        sample_time_arr[-1] + sampling_interval_s,
+        sampling_interval_s,
+    )
+
+    # Use the most recent VI checkpoint available at each query time.
+    # This avoids accidentally using samples from the future.
+    sample_ix_arr = (
+        jnp.searchsorted(sample_time_arr, query_time_arr, side="right") - 1
+    )
+
+    valid_arr = sample_ix_arr >= 0
+    query_time_arr = query_time_arr[valid_arr]
+    sample_ix_arr = sample_ix_arr[valid_arr]
+
+    selected_samples = [
+        target_posterior.parameterization.to_model_parameters(
+            loaded_samples[int(ix)][0]
+        )
+        for ix in sample_ix_arr
+    ]
+
+    grid_samples = jax.tree_util.tree_map(
+        lambda *leafs: jnp.stack(leafs, axis=0),
+        *selected_samples,
+    )
+
+    return grid_samples, query_time_arr
+
+def build_buffer_sgld_grid_samples(
+    sgld_run: wandb.Run, 
+    sampling_interval_s: int,
+    target_window_size: int,
+):
+    target_posterior = io.get_run_target(sgld_run)
+    loaded_samples = io.load_packable_artifact_all(
+        sgld_run, 
+        f"{sgld_run.name}-samples", 
+        target_posterior.parameterization.inference_parameter_cls
+    )
+    sample_path = target_posterior.parameterization.to_model_parameters(loaded_samples[0][0])
+
+    timings = io.load_python_object(
+        sgld_run,
+        f"{sgld_run.name}-timings", 
+        "block_times_s"
+    )
+
+    sample_time_arr = jnp.array([t for t, _ in timings])
+    sample_count_arr = jnp.array([ns for _, ns in timings])
+
+    query_time_arr = jnp.arange(sample_time_arr[0], sample_time_arr[-1] + sampling_interval_s, sampling_interval_s)
+
+    batch_idx_arr = jnp.searchsorted(sample_time_arr, query_time_arr, side="right")
+
+    prefix_count_arr = jnp.concatenate([jnp.array([0]), sample_count_arr])
+    end_idx_arr = prefix_count_arr[batch_idx_arr]
+    valid_arr = end_idx_arr >= target_window_size
+    query_time_arr = query_time_arr[valid_arr]
+    end_idx_arr = end_idx_arr[valid_arr]
+
+    start_idx_arr = end_idx_arr - target_window_size
+
+    window_idx_arr = (
+        start_idx_arr[:, None]
+        + jnp.arange(target_window_size)[None, :]
+    )
+    grid_samples = jax.tree_util.tree_map(
+        lambda leaf: leaf[window_idx_arr],
+        sample_path
+    )
+    return grid_samples, query_time_arr
