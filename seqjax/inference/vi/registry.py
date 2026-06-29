@@ -509,7 +509,6 @@ class FullVIConfig(VISampleConfig):
             "num_sequence_minibatch": self.num_sequence_minibatch,
         }
 
-
 @dataclass
 class HybridVIConfig(VISampleConfig):
     optimization: optimization_registry.OptConfig
@@ -522,6 +521,7 @@ class HybridVIConfig(VISampleConfig):
         default_factory=MeanFieldParameterApproximation
     )
     prior_training_optimization: None | optimization_registry.OptConfig = None
+    sync_interval_s: None | int = None
 
     def training_sampling_kwargs(self, *, loss_label: str) -> VISamplingKwargs:
         return {
@@ -675,7 +675,5 @@ def build_approximation(
             buffer_length=config.buffer_length,
 
         )
-
-
 
     return approximation

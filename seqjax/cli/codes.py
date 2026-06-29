@@ -317,6 +317,7 @@ codes["full-vi"] = {
     },
     "UNRLL": ("unroll", parse_int_required, "1"),
     "COMPS": ("compiled_steps", parse_int_required, "1"),
+    "SYNCS": ("sync_interval_s", parse_int_optional, "30"),
 }
 
 codes["hybrid-vi"] = {
@@ -337,6 +338,7 @@ codes["hybrid-vi"] = {
             })
         },
     },
+    "SYNCS": ("sync_interval_s", parse_int_optional, "30"),
 }
 
 codes["buffer-vi"] = codes["full-vi"].copy()

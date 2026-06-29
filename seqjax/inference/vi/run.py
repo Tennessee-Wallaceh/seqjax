@@ -318,7 +318,7 @@ def run_hybrid_vi[
     if tracker is None:
         tracker = train_bayesian.Tracker(metric_samples=5000)
 
-    sync_interval_s = None
+
 
     sequence_length = dataset.sequence_length
     approximation, model_state = registry.build_approximation(
@@ -349,7 +349,7 @@ def run_hybrid_vi[
             loss_label="param-prior",
             model_state=model_state,
             time_limit_s=config.prior_training_optimization.time_limit_s,
-            sync_interval_s=sync_interval_s,
+            sync_interval_s=config.sync_interval_s,
         )
     
     if isinstance(
@@ -370,7 +370,7 @@ def run_hybrid_vi[
             sample_kwargs=config.training_sampling_kwargs(loss_label="elbo"),
             model_state=model_state,
             time_limit_s=config.optimization.time_limit_s,
-            sync_interval_s=sync_interval_s,
+            sync_interval_s=config.sync_interval_s,
         )
 
     # run sample again for testing purposes
