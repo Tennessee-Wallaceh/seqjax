@@ -20,6 +20,7 @@ import jaxtyping
 import optax  # type: ignore[import-untyped]
 from jaxtyping import PyTree
 from tqdm.auto import tqdm  # type: ignore[import-untyped]
+from quantiphy import Quantity
 
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.inference.interface import InferenceDataset
@@ -29,6 +30,9 @@ import seqjax.model.typing as seqjtyping
 
 DEFAULT_SYNC_INTERVAL_S = 10
 
+
+def human_count(n: int) -> str:
+    return Quantity(n, scale="").render(form="si", prec=0, show_units=False)
 
 class _ProgressIterator(Protocol):
     def __iter__(self) -> Iterator[int]: ...
@@ -524,7 +528,9 @@ def train(
                 tracker_postfix["time"] = (
                     f"{100 * elapsed_time_s / time_limit_s:.0f}% ({time_limit_s / 60:.0f}m)"
                 )
-
+                tracker_postfix["iter"] = (
+                    f"{human_count(opt_step)}"
+                )
             tracker_postfix["rate"] = f"{opt_step / elapsed_time_s:.1f} it/s"
 
             loop.set_postfix(tracker_postfix)
