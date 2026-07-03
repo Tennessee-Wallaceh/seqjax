@@ -586,9 +586,18 @@ class FullVI[
 
 
 def sample_batch_and_mask(
-    key, sequence_length, batch_length, buffer_length, observation_path, condition
+    key, 
+    sequence_length: int, 
+    batch_length: int, 
+    buffer_length: int, 
+    observation_path, 
+    condition,
+    prior_order: int = 1,
 ):
-    sample_length = batch_length + 2 * buffer_length
+    # usually the latent prior length is 1
+    # if it exceeds this, then we should sample a shorter sequence of observations
+    # to maintain the same target batch + buffer length
+    sample_length = batch_length + 2 * buffer_length - (prior_order - 1)
     pad_length = batch_length - 1
 
     # each sample will come from the data replicated onto each device
@@ -673,6 +682,7 @@ class BufferedSSMVI[
             buffer_length=self.buffer_length,
             observation_path=observation_sequence, 
             condition=condition_sequence,
+            prior_order=self.target_posterior.target.prior_order,
         )
 
         parameters = self.target_posterior.parameterization.sample(parameter_key)
@@ -728,6 +738,7 @@ class BufferedSSMVI[
             buffer_length=self.buffer_length,
             observation_path=observation_sequence, 
             condition=condition_sequence,
+            prior_order=self.target_posterior.target.prior_order,
         )
 
         parameters, log_q_theta, param_state = self.parameter_approximation.sample_and_log_prob(
@@ -1127,6 +1138,7 @@ class IWBufferedSSMVI[
             buffer_length=self.buffer_length,
             observation_path=observation_sequence,
             condition=condition_sequence,
+            prior_order=self.target_posterior.target.prior_order,
         )
 
         parameters, log_q_theta, param_state = self.parameter_approximation.sample_and_log_prob(
