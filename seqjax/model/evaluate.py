@@ -8,7 +8,7 @@ from jaxtyping import Scalar
 import seqjax.model.typing as seqjtyping
 from seqjax import util
 from seqjax.model import interface as model_interface
-from seqjax.model.condition import layout_for
+from seqjax.model.condition import layout_for, normalize_condition_path
 
 
 def _validate_x_sequence_lengths[
@@ -34,14 +34,13 @@ def _validate_x_sequence_lengths[
 
     sequence_length = x_length - target.prior_order + 1
 
-    if not isinstance(condition, seqjtyping.NoCondition):
-        condition_length = condition.batch_shape[0]
-        min_condition_length = sequence_length
-        if condition_length < min_condition_length:
-            raise ValueError(
-                "condition length is too short for latent evaluation, got "
-                f"condition_length={condition_length} expected_at_least={min_condition_length}"
-            )
+    condition_length = condition.batch_shape[0]
+    min_condition_length = sequence_length
+    if condition_length < min_condition_length:
+        raise ValueError(
+            "condition length is too short for latent evaluation, got "
+            f"condition_length={condition_length} expected_at_least={min_condition_length}"
+        )
 
     return sequence_length
 
@@ -73,14 +72,13 @@ def _validate_xy_sequence_lengths[
             f"sequence_length={sequence_length})"
         )
 
-    if not isinstance(condition, seqjtyping.NoCondition):
-        condition_length = condition.batch_shape[0]
-        min_condition_length = target.observation_dependency + sequence_length
-        if condition_length < min_condition_length:
-            raise ValueError(
-                "condition length is too short for observation evaluation, got "
-                f"condition_length={condition_length} expected_at_least={min_condition_length}"
-            )
+    condition_length = condition.batch_shape[0]
+    min_condition_length = target.observation_dependency + sequence_length
+    if condition_length < min_condition_length:
+        raise ValueError(
+            "condition length is too short for observation evaluation, got "
+            f"condition_length={condition_length} expected_at_least={min_condition_length}"
+        )
 
     return sequence_length
 
@@ -155,10 +153,12 @@ def log_prob_x[
         ParametersT,
     ],
     x_path: LatentT,
-    condition: ConditionT,
+    condition: ConditionT | None,
     parameters: ParametersT,
 ) -> Scalar:
     """Return ``log p(x)`` for a latent sequence."""
+    sequence_length = x_path.batch_shape[0] - target.prior_order + 1
+    condition = normalize_condition_path(target, condition, (sequence_length,))
     sequence_length = _validate_x_sequence_lengths(target, x_path, condition)
 
     if len(parameters.batch_shape) == 0:
@@ -198,27 +198,12 @@ def log_prob_x[
     )
     transition_parameters = util.slice_pytree(parameters_batched, 1, sequence_length)
 
-    if isinstance(condition, seqjtyping.NoCondition):
-        transition_log_ps = jax.vmap(
-            lambda latent_history_t, latent_t, params_t: target.transition_log_prob(
-                latent_history_t,
-                latent_t,
-                condition,
-                params_t,
-            )
-        )(
-            transition_history,
-            transition_latent,
-            transition_parameters,
-        )
-    else:
-        transition_condition = prepared_conditions.transitions
-        transition_log_ps = jax.vmap(target.transition_log_prob)(
-            transition_history,
-            transition_latent,
-            transition_condition,
-            transition_parameters,
-        )
+    transition_log_ps = jax.vmap(target.transition_log_prob)(
+        transition_history,
+        transition_latent,
+        prepared_conditions.transitions,
+        transition_parameters,
+    )
 
     return prior_log_p + transition_log_ps.sum()
 
@@ -237,10 +222,16 @@ def log_prob_y_given_x[
     ],
     x_path: LatentT,
     observation_path: ObservationT,
-    condition: ConditionT,
+    condition: ConditionT | None,
     parameters: ParametersT,
 ) -> Scalar:
     """Return ``log p(y | x)`` for a sequence of observations."""
+    sequence_length = x_path.batch_shape[0] - target.prior_order + 1
+    condition = normalize_condition_path(
+        target,
+        condition,
+        (target.observation_dependency + sequence_length,),
+    )
     sequence_length = _validate_xy_sequence_lengths(
         target,
         x_path,
@@ -275,32 +266,16 @@ def log_prob_y_given_x[
         sequence_length,
     )
 
-    if isinstance(condition, seqjtyping.NoCondition):
-        emission_log_ps = jax.vmap(
-            lambda latent_history_t, observation_t, observation_history_t, params_t: target.emission_log_prob(
-                latent_history_t,
-                observation_t,
-                observation_history_t,
-                condition,
-                params_t,
-            )
-        )(
-            emission_latent_history,
-            observations,
-            emission_observation_history,
-            parameters_batched,
-        )
-    else:
-        observation_condition = layout_for(target).prepare(
-            target, condition, sequence_length
-        ).emissions
-        emission_log_ps = jax.vmap(target.emission_log_prob)(
-            emission_latent_history,
-            observations,
-            emission_observation_history,
-            observation_condition,
-            parameters_batched,
-        )
+    observation_condition = layout_for(target).prepare(
+        target, condition, sequence_length
+    ).emissions
+    emission_log_ps = jax.vmap(target.emission_log_prob)(
+        emission_latent_history,
+        observations,
+        emission_observation_history,
+        observation_condition,
+        parameters_batched,
+    )
     return emission_log_ps.sum()
 
 
@@ -318,7 +293,7 @@ def log_prob_joint[
     ],
     x_path: LatentT,
     observation_path: ObservationT,
-    condition: ConditionT,
+    condition: ConditionT | None,
     parameters: ParametersT,
 ) -> Scalar:
     """Return ``log p(x, y)`` for a path and observations."""

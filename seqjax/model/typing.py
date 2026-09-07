@@ -226,8 +226,22 @@ class Condition(Packable, abstract=True): ...
 class BatchedObservation[Observation, BatchAxes]: ...
 
 class NoCondition(Condition):
-    __slots__ = ()
-    _shape_template = OrderedDict()
+    """An empty condition whose zero-width leaf preserves batch axes."""
+
+    value: jax.Array = dataclasses.field(
+        default_factory=lambda: jnp.empty((0,), dtype=jnp.float32)
+    )
+
+    _shape_template = OrderedDict(
+        value=jax.ShapeDtypeStruct(shape=(0,), dtype=jnp.float32),
+    )
+
+    @classmethod
+    def for_batch_shape(cls, batch_shape: tuple[int, ...]) -> typing.Self:
+        """Construct an empty condition with explicit leading batch axes."""
+        if any(size < 0 for size in batch_shape):
+            raise ValueError(f"Batch dimensions must be non-negative, got {batch_shape}.")
+        return cls(value=jnp.empty((*batch_shape, 0), dtype=jnp.float32))
 
 
 class Parameters(Packable, abstract=True): ...

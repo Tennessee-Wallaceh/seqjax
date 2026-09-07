@@ -25,7 +25,7 @@ def test_dynamic_packable_templates_follow_class_arguments() -> None:
 def test_lgssm_factory_supports_custom_dimension() -> None:
     model = lg.lgssm(3)
     parameters = model.parameter_cls()
-    condition = lg.NoCondition()
+    condition = None
 
     latents, observations = simulate.simulate(
         jrandom.PRNGKey(0),

@@ -10,17 +10,17 @@ import seqjax.model.typing as seqjtyping
 
 def _build_single_sequence_dataset(sequence_length: int = 8) -> ObservationDataset:
     target = model_registry.sequential_models["ar"]
-    params = model_registry.parameter_settings["ar"]["base"]
+    params = model_registry.parameter_settings["ar-full"]["base"]
     _, observation_path = simulate.simulate(
         jrandom.PRNGKey(0),
         target,
         params,
         sequence_length=sequence_length,
-        condition=seqjtyping.NoCondition(),
+        condition=None,
     )
     return ObservationDataset.from_single_sequence(
         observation_path=observation_path,
-        condition_path=seqjtyping.NoCondition(),
+        condition_path=None,
     )
 
 

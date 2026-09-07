@@ -130,7 +130,7 @@ def test_log_prob_factorization() -> None:
 def test_log_prob_x_no_condition() -> None:
     from seqjax.model import ar
 
-    target = ar
+    target = ar.ar_model
     params = ar.ARParameters()
     key = jax.random.PRNGKey(0)
     from seqjax.model import simulate
@@ -140,11 +140,11 @@ def test_log_prob_x_no_condition() -> None:
         target,
         params,
         sequence_length=5,
-        condition=seqjtyping.NoCondition(),
+        condition=None,
     )
 
-    out_x = evaluate.log_prob_x(target, x_path, seqjtyping.NoCondition(), params)
-    out_y = evaluate.log_prob_y_given_x(target, x_path, y_path, seqjtyping.NoCondition(), params)
+    out_x = evaluate.log_prob_x(target, x_path, None, params)
+    out_y = evaluate.log_prob_y_given_x(target, x_path, y_path, None, params)
 
     assert jnp.isfinite(out_x)
     assert jnp.isfinite(out_y)

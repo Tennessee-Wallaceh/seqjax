@@ -47,8 +47,6 @@ class StepAlignedConditions:
     prior_condition_count: int | None = None
 
     def _require_length(self, path: seqjtyping.Condition, required: int) -> None:
-        if isinstance(path, seqjtyping.NoCondition):
-            return
         actual = path.batch_shape[0]
         if actual < required:
             raise ValueError(
@@ -67,16 +65,10 @@ class StepAlignedConditions:
                 "Condition preparation requires at least one observation; "
                 f"got observation_count={observation_count}."
             )
-        if isinstance(path, seqjtyping.NoCondition):
-            return PreparedConditions(
-                prior=model.condition_context(()),
-                initial_emission=path,
-                transitions=path,
-                recurrent_emissions=path,
-                emissions=path,
-            )
         count = (
-            model.prior_order
+            0
+            if path.flat_dim == 0
+            else model.prior_order
             if self.prior_condition_count is None
             else self.prior_condition_count
         )
@@ -95,12 +87,47 @@ class StepAlignedConditions:
         )
 
     def slice_window(self, path: seqjtyping.Condition, start: int, length: int):
-        if isinstance(path, seqjtyping.NoCondition):
-            return path
         return util.dynamic_slice_pytree(path, start, length)
 
 
 DEFAULT_CONDITION_LAYOUT = StepAlignedConditions()
+
+
+def normalize_condition_path[ConditionT: seqjtyping.Condition](
+    model: typing.Any,
+    path: ConditionT | None,
+    batch_shape: tuple[int, ...],
+) -> ConditionT:
+    """Materialize an omitted condition path at a model execution boundary."""
+    condition_cls = model.condition_cls
+    if path is None:
+        if condition_cls is not seqjtyping.NoCondition:
+            model_name = getattr(model, "__name__", type(model).__name__)
+            raise ValueError(
+                f"{model_name} requires a condition path, but condition=None was supplied."
+            )
+        return typing.cast(
+            ConditionT,
+            seqjtyping.NoCondition.for_batch_shape(batch_shape),
+        )
+    model_name = getattr(model, "__name__", type(model).__name__)
+    if isinstance(path, seqjtyping.NoCondition) and condition_cls is not seqjtyping.NoCondition:
+        raise ValueError(
+            f"{model_name} requires a condition path, but an empty condition was supplied."
+        )
+    if not isinstance(path, seqjtyping.NoCondition) and condition_cls is seqjtyping.NoCondition:
+        raise ValueError(
+            f"{model_name} is unconditional, but a condition path was supplied."
+        )
+    if (
+        isinstance(path, seqjtyping.NoCondition)
+        and path.batch_shape != batch_shape
+    ):
+        raise ValueError(
+            "NoCondition batch shape must match the expected execution shape: "
+            f"got {path.batch_shape}, expected {batch_shape}."
+        )
+    return path
 
 
 def layout_for(model: typing.Any) -> ConditionLayoutProtocol:
