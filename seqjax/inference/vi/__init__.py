@@ -6,6 +6,7 @@ from . import transformations
 from . import registry
 from . import run
 from . import structured
+from . import embedder
 
 __all__ = [
     "train_bayesian",
@@ -16,4 +17,5 @@ __all__ = [
     "registry",
     "run",
     "structured",
+    "embedder",
 ]

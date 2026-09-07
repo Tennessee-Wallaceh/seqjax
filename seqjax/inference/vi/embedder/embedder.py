@@ -3,7 +3,6 @@ from jaxtyping import Array, Int
 import jax.numpy as jnp
 import jax
 import typing
-from dataclasses import field
 
 from seqjax.model.interface import SequentialModelProtocol
 from .interface import LatentContext, LatentContextDims, Embedder, SequenceAggregator
@@ -541,13 +540,13 @@ class Conv1DEmbedder(Embedder):
 
         if embed_norm_kind == "layer-norm":
             self.embedding_norm = eqx.filter_vmap(
-                eqx.nn.LayerNorm(self.sequence_features_dim)
+                eqx.nn.LayerNorm(sequence_features_dim)
             )
         else:
             self.embedding_norm = None
 
         if use_param_norm:
-            self.param_norm = EMAParamNorm(self.parameter_context_dim, momentum=0.95)
+            self.param_norm = EMAParamNorm(parameter_cls.flat_dim, momentum=0.95)
         else:
             self.param_norm = None
 
@@ -713,7 +712,7 @@ class TransformerEmbedder(Embedder):
 
         pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
         sequence_features_dim = hidden + pos_dim
-        embedded_context_dim = self.pooling.target_shape[0] * self.sequence_features_dim
+        flat_features_dim = self.pooling.target_shape[0] * sequence_features_dim
 
         self.pos_context = None
         if self.position_mode == "sample":
@@ -732,7 +731,7 @@ class TransformerEmbedder(Embedder):
                 target,
                 parameter_cls,
                 sample_length, 
-                embedded_context_dim, 
+                flat_features_dim,
                 sequence_features_dim
             )
         )

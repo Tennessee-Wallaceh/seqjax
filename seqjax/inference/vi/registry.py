@@ -12,8 +12,7 @@ from seqjax.inference.vi import transformations, hybrid
 from seqjax.inference.vi import transformed
 from seqjax.inference.vi import base
 
-from seqjax.inference.vi.embedder import registry as embedder_registry
-from seqjax.inference.vi.embedder import interface as embedder_interface
+from seqjax.inference.vi.embedder import EmbedderConfig, LatentContextDims, build_embedder
 
 from seqjax.inference.vi import maf
 from seqjax.inference.vi import conv_nf
@@ -202,7 +201,7 @@ def build_latent_approximation(
     sample_length: int, 
     target_model: model_interface.SequentialModelProtocol,
     key: jaxtyping.PRNGKeyArray,
-    latent_context_dims: embedder_interface.LatentContextDims,
+    latent_context_dims: LatentContextDims,
 ):
     target_latent_class = target_model.latent_cls
 
@@ -286,7 +285,7 @@ Approximations
 @dataclass
 class FullVIConfig(VISampleConfig):
     optimization: optimization_registry.OptConfig
-    embedder: embedder_registry.EmbedderConfig
+    embedder: EmbedderConfig
     samples_per_context: int
     num_sequence_minibatch: int = 1
     parameter_approximation: ParameterApproximation = field(
@@ -348,7 +347,7 @@ class BufferedVIConfig(VISampleConfig):
     batch_length: int
     num_context_per_sequence: int
     samples_per_context: int
-    embedder: embedder_registry.EmbedderConfig
+    embedder: EmbedderConfig
     num_sequence_minibatch: int = 1
     pre_training_optimization: None | optimization_registry.OptConfig = None
     parameter_approximation: ParameterApproximation = field(
@@ -397,7 +396,7 @@ def build_approximation(
     )
 
     if isinstance(config, FullVIConfig):
-        embed = embedder_registry.build_embedder(
+        embed = build_embedder(
             config.embedder,
             target_posterior.target,
             target_posterior.parameterization.inference_parameter_cls,
@@ -406,7 +405,7 @@ def build_approximation(
             embedding_key=embedding_key,
         )
     elif isinstance(config, BufferedVIConfig):
-        embed = embedder_registry.build_embedder(
+        embed = build_embedder(
             config.embedder,
             target_posterior.target,
             target_posterior.parameterization.inference_parameter_cls,

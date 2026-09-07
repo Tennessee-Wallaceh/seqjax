@@ -1,5 +1,4 @@
 from flowjax.bijections import Affine, AbstractBijection
-from flowjax.bijections.masked_autoregressive import MaskedAutoregressive as FlowjaxMAF
 from flowjax.distributions import (
     Normal as FlowjaxNormal,
     Transformed as FlowjaxTransformed,
@@ -7,13 +6,9 @@ from flowjax.distributions import (
 from flowjax.flows import masked_autoregressive_flow
 import equinox as eqx
 import seqjax.model.typing as seqjtyping
-from seqjax.model.interface import SequentialModelProtocol
-from seqjax.model import simulate, evaluate
 
 import jaxtyping
-import jax
 import jax.numpy as jnp
-import jax.random as jrandom
 import typing
 
 from seqjax.inference.vi.embedder.interface import LatentContextDims, LatentContext
@@ -142,7 +137,7 @@ class AmortizedMAF[
         cond_input_dim = (
             latent_context_dims.parameter_context_dim
             + latent_context_dims.condition_context_dim
-            + latent_context_dims.embedded_context_dim
+            + latent_context_dims.flat_features_dim
         )
 
         self.distribution = masked_autoregressive_flow(
@@ -165,7 +160,7 @@ class AmortizedMAF[
             [
                 condition.parameter_context.ravel().flatten(), 
                 condition.condition_context.ravel().flatten(), 
-                condition.embedded_context, 
+                condition.flat_features,
             ], axis=0
         )
 

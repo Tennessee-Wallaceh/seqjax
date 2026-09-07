@@ -29,7 +29,9 @@ class _DummyTqdmIterator(Iterator[int]):
     def __next__(self) -> int:
         return next(self._iter)
 
-    def set_postfix(self, *_args, **_kwargs) -> None:  # pragma: no cover - behaviourless stub
+    def set_postfix(
+        self, *_args, **_kwargs
+    ) -> None:  # pragma: no cover - behaviourless stub
         """Match the API used in :mod:`seqjax.inference.vi.train`."""
 
 
@@ -67,14 +69,14 @@ INFERENCE_TEST_SETUPS: dict[str, tuple[object, int]] = {
                 nn_width=4,
                 nn_depth=1,
             ),
-            embedder=vi.registry.BiRNNEmbedder(),
+            embedder=vi.embedder.BiRNNEmbedder(),
         ),
         200,
     ),
     "full-vi": (
         vi.registry.FullVIConfig(
             optimization=vi.run.AdamOpt(lr=1e-2, total_steps=2),
-            embedder=vi.registry.BiRNNEmbedder(),
+            embedder=vi.embedder.BiRNNEmbedder(),
             samples_per_context=1,
             pre_training_optimization=vi.run.AdamOpt(lr=1e-2, total_steps=1),
             prior_training_optimization=vi.run.AdamOpt(lr=1e-2, total_steps=1),
