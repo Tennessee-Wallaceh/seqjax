@@ -8,7 +8,7 @@ from seqjax.model.typing import NoCondition
 
 
 class _MockEmbedder:
-    sequence_embedded_context_dim = 4
+    sequence_features_dim = 4
     parameter_context_dim = 2
     condition_context_dim = NoCondition.flat_dim
 
@@ -25,7 +25,7 @@ def test_structured_precision_gaussian_sample_shape_and_finite_log_prob() -> Non
     )
 
     context = LatentContext.build_from_sequence_context(
-        sequence_embedded_context=jnp.ones((sample_length, 4)),
+        sequence_features=jnp.ones((sample_length, 4)),
         observations=LatentValue.unravel(jnp.zeros((sample_length, 1))),
         conditions=NoCondition.unravel(jnp.zeros((sample_length, 0))),
         parameters=LatentValue.unravel(jnp.zeros((2, 1))),

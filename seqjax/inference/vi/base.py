@@ -17,7 +17,8 @@ from seqjax.model.evaluate import log_prob_joint
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.model.condition import layout_for
 from seqjax.inference.vi.sampling import VISamplingKwargs
-from .interface import LatentContext, Embedder, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
+from seqjax.inference.vi.embedder.interface import LatentContext, Embedder
+from seqjax.inference.vi.interface import AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 
 class MeanField[TargetStructT: seqjtyping.Packable](
     UnconditionalVariationalApproximation[TargetStructT]
@@ -298,8 +299,8 @@ class FullVI[
                             observation_context=None,
                             condition_context=None,
                             parameter_context=0,
-                            embedded_context=typing.cast(jaxtyping.Array, None),
-                            sequence_embedded_context=typing.cast(jaxtyping.Array, None),
+                            flat_features=typing.cast(jaxtyping.Array, None),
+                            sequence_features=typing.cast(jaxtyping.Array, None),
                         ),
                     ),
                     0,
@@ -487,8 +488,8 @@ class FullVI[
                 observation_context=None,
                 condition_context=condition_spec,
                 parameter_context=0,
-                embedded_context=None,
-                sequence_embedded_context=None,
+                flat_features=None,
+                sequence_features=None,
             ),
             None,
         )
@@ -499,8 +500,8 @@ class FullVI[
                 observation_context=0,
                 condition_context=condition_spec,
                 parameter_context=0,
-                embedded_context=0,
-                sequence_embedded_context=0,
+                flat_features=0,
+                sequence_features=0,
             ),
             None,
         )

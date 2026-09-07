@@ -39,7 +39,7 @@ def test_transformer_embedder_builds_and_embeds_sequence_context() -> None:
 
     context = embedding.embed(observations, conditions, parameters)
 
-    assert context.sequence_embedded_context.shape == (sample_length, transformer.hidden_dim)
+    assert context.sequence_features.shape == (sample_length, transformer.hidden_dim)
     assert context.embedded_context.shape == (transformer.hidden_dim * transformer.pool_dim,)
 
 
@@ -80,5 +80,5 @@ def test_transformer_embedder_supports_sequence_positional_augmentation() -> Non
 
     context = embedding.embed(observations, conditions, parameters, sequence_start=1)
 
-    assert context.sequence_embedded_context.shape == (sample_length, transformer.hidden_dim + 5)
+    assert context.sequence_features.shape == (sample_length, transformer.hidden_dim + 5)
     assert context.embedded_context.shape == ((transformer.hidden_dim + 5) * transformer.pool_dim,)

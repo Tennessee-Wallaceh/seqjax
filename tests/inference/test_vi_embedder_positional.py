@@ -44,7 +44,7 @@ def test_positional_embedder_builds_and_embeds_sequence_context() -> None:
 
     context = embedding.embed(observations, conditions, parameters)
 
-    assert context.sequence_embedded_context.shape == (sample_length, 1 + 2 * n_pos_embedding)
+    assert context.sequence_features.shape == (sample_length, 1 + 2 * n_pos_embedding)
     assert context.embedded_context.shape == observations.ravel().shape
 
 
@@ -91,7 +91,7 @@ def test_positional_embedder_sequence_mode_uses_global_sequence_position() -> No
     )
 
     expected_positions = (jax.numpy.arange(sample_length) + 2.5) / sequence_length
-    assert jax.numpy.allclose(context.sequence_embedded_context[:, 0], expected_positions)
+    assert jax.numpy.allclose(context.sequence_features[:, 0], expected_positions)
 
 
 def test_positional_embedder_rejects_invalid_n_pos_embedding() -> None:

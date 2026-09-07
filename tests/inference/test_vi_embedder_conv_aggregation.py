@@ -44,7 +44,7 @@ def test_conv1d_embedder_uses_aggregator_pooling(pool_kind: str) -> None:
 
     context = _make_context(embedding, target_posterior, sample_length)
 
-    assert context.sequence_embedded_context.shape == (sample_length, config.hidden_dim)
+    assert context.sequence_features.shape == (sample_length, config.hidden_dim)
     assert context.embedded_context.shape == (config.hidden_dim * config.pool_dim,)
 
 
@@ -91,5 +91,5 @@ def test_conv1d_embedder_supports_positional_augmentation() -> None:
     )
 
     context = _make_context(embedding, target_posterior, sample_length)
-    assert context.sequence_embedded_context.shape == (sample_length, config.hidden_dim + 5)
+    assert context.sequence_features.shape == (sample_length, config.hidden_dim + 5)
     assert context.embedded_context.shape == ((config.hidden_dim + 5) * config.pool_dim,)

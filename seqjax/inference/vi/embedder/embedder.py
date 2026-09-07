@@ -113,7 +113,7 @@ class PositionalEmbedder(Embedder):
             parameter_cls,
             sample_length, 
             sequence_length,
-            LatentContextDims.from_sequence_context_dims(
+            LatentContextDims.from_sequence_features_dim(
                 target,
                 parameter_cls, 
                 sample_length, 
@@ -133,7 +133,7 @@ class PositionalEmbedder(Embedder):
         reduce_axes: tuple[str, ...] = (),
         training: bool = False,
     ):
-        sequence_embedded_context = _build_position_features(
+        sequence_features = _build_position_features(
             sample_length=self.sample_length,
             sequence_length=self.sequence_length,
             n_pos_embedding=self.n_pos_embedding,
@@ -143,8 +143,8 @@ class PositionalEmbedder(Embedder):
             sample_mode_cache=self.pos_context,
         )
 
-        context = LatentContext.build_from_sequence_context(
-            sequence_embedded_context,
+        context = LatentContext.build_from_sequence_features(
+            sequence_features,
             observations,
             conditions,
             parameters,
@@ -205,7 +205,7 @@ class WindowEmbedder(Embedder):
 
         pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
 
-        sequence_embedded_context_dim = self.y_dimension * self.window_size + pos_dim
+        sequence_features_dim = self.y_dimension * self.window_size + pos_dim
 
         sample_path_ix = jnp.arange(sample_length).reshape(-1, 1)
         self.indexer = (
@@ -222,11 +222,11 @@ class WindowEmbedder(Embedder):
             parameter_cls,
             sample_length, 
             sequence_length,
-            LatentContextDims.from_sequence_context_dims(
+            LatentContextDims.from_sequence_features_dim(
                 target,
                 parameter_cls,
                 sample_length,
-                sequence_embedded_context_dim,
+                sequence_features_dim,
             )
         )
 
@@ -251,7 +251,7 @@ class WindowEmbedder(Embedder):
         observation_array = observations.ravel()
         per_dim_context = jax.vmap(self._pad, in_axes=[1])(observation_array)
 
-        sequence_embedded_context = jax.vmap(jnp.ravel)(
+        sequence_features = jax.vmap(jnp.ravel)(
             jnp.transpose(per_dim_context, (1, 0, 2))
         )
 
@@ -265,13 +265,13 @@ class WindowEmbedder(Embedder):
                 sequence_start=sequence_start,
                 sample_mode_cache=self.pos_context,
             )
-            sequence_embedded_context = jnp.concatenate(
-                [sequence_embedded_context, position_features],
+            sequence_features = jnp.concatenate(
+                [sequence_features, position_features],
                 axis=-1,
             )
 
-        context = LatentContext.build_from_sequence_context(
-            sequence_embedded_context,
+        context = LatentContext.build_from_sequence_features(
+            sequence_features,
             observations,
             conditions,
             parameters,
@@ -329,7 +329,7 @@ class RNNEmbedder(Embedder):
             raise ValueError(f"n_pos_embedding must be >= 1, got {self.n_pos_embedding}")
 
         pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
-        sequence_embedded_context_dim = self.hidden * 2 + pos_dim
+        sequence_features_dim = self.hidden * 2 + pos_dim
         self.pos_context = None
         if self.position_mode == "sample":
             positions = (jnp.arange(sample_length, dtype=jnp.float32) + 0.5) / jnp.asarray(
@@ -341,7 +341,7 @@ class RNNEmbedder(Embedder):
         self.aggregator = build_sequence_aggregator(
             aggregation_kind,
             sample_length=sample_length,
-            sequence_dim=sequence_embedded_context_dim,
+            sequence_dim=sequence_features_dim,
             observation_dim=y_dim,
         )
 
@@ -350,12 +350,12 @@ class RNNEmbedder(Embedder):
             parameter_cls,
             sample_length, 
             sequence_length,
-            LatentContextDims.from_sequence_and_embedded_dims(
+            LatentContextDims.from_flat_and_sequence_feature_dims(
                 target, 
                 parameter_cls,
                 sample_length, 
                 self.aggregator.output_dim, 
-                sequence_embedded_context_dim,
+                sequence_features_dim,
             )
         )
 
@@ -388,7 +388,7 @@ class RNNEmbedder(Embedder):
 
         h_fwd = self._scan(self.cell_fwd, seq, param_vec)
         h_rev = self._scan(self.cell_rev, seq[::-1], param_vec)[::-1]
-        sequence_embedded_context = jnp.concatenate([h_fwd, h_rev], axis=-1)
+        sequence_features = jnp.concatenate([h_fwd, h_rev], axis=-1)
 
         if self.position_mode is not None:
             position_features = _build_position_features(
@@ -400,14 +400,14 @@ class RNNEmbedder(Embedder):
                 sequence_start=sequence_start,
                 sample_mode_cache=self.pos_context,
             )
-            sequence_embedded_context = jnp.concatenate(
-                [sequence_embedded_context, position_features],
+            sequence_features = jnp.concatenate(
+                [sequence_features, position_features],
                 axis=-1,
             )
 
-        embedded_context = self.aggregator(sequence_embedded_context, observations)
-        context = LatentContext.build_from_sequence_and_embedded(
-            sequence_embedded_context,
+        embedded_context = self.aggregator(sequence_features, observations)
+        context = LatentContext.build_from_flat_and_sequence_features(
+            sequence_features,
             embedded_context,
             observations,
             conditions,
@@ -520,7 +520,7 @@ class Conv1DEmbedder(Embedder):
             raise ValueError(f"n_pos_embedding must be >= 1, got {self.n_pos_embedding}")
 
         pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
-        sequence_embedded_context_dim = self.hidden + pos_dim
+        sequence_features_dim = self.hidden + pos_dim
         self.pos_context = None
         if self.position_mode == "sample":
             positions = (jnp.arange(sample_length, dtype=jnp.float32) + 0.5) / jnp.asarray(
@@ -533,7 +533,7 @@ class Conv1DEmbedder(Embedder):
         self.aggregator = build_sequence_aggregator(
             self.aggregation_kind,
             sample_length=sample_length,
-            sequence_dim=sequence_embedded_context_dim,
+            sequence_dim=sequence_features_dim,
             observation_dim=observation_dim,
             pool_dim=pool_dim,
         )
@@ -541,7 +541,7 @@ class Conv1DEmbedder(Embedder):
 
         if embed_norm_kind == "layer-norm":
             self.embedding_norm = eqx.filter_vmap(
-                eqx.nn.LayerNorm(self.sequence_embedded_context_dim)
+                eqx.nn.LayerNorm(self.sequence_features_dim)
             )
         else:
             self.embedding_norm = None
@@ -556,12 +556,12 @@ class Conv1DEmbedder(Embedder):
             parameter_cls,
             sample_length, 
             sequence_length,
-            LatentContextDims.from_sequence_and_embedded_dims(
+            LatentContextDims.from_flat_and_sequence_feature_dims(
                 target, 
                 parameter_cls,
                 sample_length, 
                 self.aggregator.output_dim, 
-                sequence_embedded_context_dim,
+                sequence_features_dim,
             )
         )
 
@@ -587,7 +587,7 @@ class Conv1DEmbedder(Embedder):
         training: bool = False,
         reduce_axes: tuple[str, ...] = (),
     ):
-        sequence_embedded_context = self.convolve(observations)
+        sequence_features = self.convolve(observations)
         if self.position_mode is not None:
             position_features = _build_position_features(
                 sample_length=self.sample_length,
@@ -598,22 +598,22 @@ class Conv1DEmbedder(Embedder):
                 sequence_start=sequence_start,
                 sample_mode_cache=self.pos_context,
             )
-            sequence_embedded_context = jnp.concatenate(
-                [sequence_embedded_context, position_features],
+            sequence_features = jnp.concatenate(
+                [sequence_features, position_features],
                 axis=-1,
             )
 
         if self.embedding_norm is not None:
-            sequence_embedded_context = self.embedding_norm(sequence_embedded_context)
+            sequence_features = self.embedding_norm(sequence_features)
 
         if self.param_norm is not None:
             flat_p = parameters.ravel()
             norm_p, state = self.param_norm(flat_p, state, training=training, reduce_axes=reduce_axes)
             parameters = parameters.unravel(norm_p)
             
-        aggregated = self.aggregator(sequence_embedded_context, observations)
-        context = LatentContext.build_from_sequence_and_embedded(
-            sequence_embedded_context,
+        aggregated = self.aggregator(sequence_features, observations)
+        context = LatentContext.build_from_flat_and_sequence_features(
+            sequence_features,
             aggregated,
             observations,
             conditions,
@@ -712,8 +712,8 @@ class TransformerEmbedder(Embedder):
             raise ValueError(f"n_pos_embedding must be >= 1, got {self.n_pos_embedding}")
 
         pos_dim = 0 if self.position_mode is None else (1 + 2 * self.n_pos_embedding)
-        sequence_embedded_context_dim = hidden + pos_dim
-        embedded_context_dim = self.pooling.target_shape[0] * self.sequence_embedded_context_dim
+        sequence_features_dim = hidden + pos_dim
+        embedded_context_dim = self.pooling.target_shape[0] * self.sequence_features_dim
 
         self.pos_context = None
         if self.position_mode == "sample":
@@ -728,12 +728,12 @@ class TransformerEmbedder(Embedder):
             parameter_cls,
             sample_length, 
             sequence_length,
-            LatentContextDims.from_sequence_and_embedded_dims(
+            LatentContextDims.from_flat_and_sequence_feature_dims(
                 target,
                 parameter_cls,
                 sample_length, 
                 embedded_context_dim, 
-                sequence_embedded_context_dim
+                sequence_features_dim
             )
         )
 
@@ -755,7 +755,7 @@ class TransformerEmbedder(Embedder):
         reduce_axes: tuple[str, ...] = (),
         training: bool = False,
     ):
-        sequence_embedded_context = self.encode(observations)
+        sequence_features = self.encode(observations)
 
         if self.position_mode is not None:
             position_features = _build_position_features(
@@ -767,16 +767,16 @@ class TransformerEmbedder(Embedder):
                 sequence_start=sequence_start,
                 sample_mode_cache=self.pos_context,
             )
-            sequence_embedded_context = jnp.concatenate(
-                [sequence_embedded_context, position_features],
+            sequence_features = jnp.concatenate(
+                [sequence_features, position_features],
                 axis=-1,
             )
 
         downsampled_embedding = self.pooling(
-            jnp.swapaxes(sequence_embedded_context, 0, 1)
+            jnp.swapaxes(sequence_features, 0, 1)
         ).flatten()
-        context = LatentContext.build_from_sequence_and_embedded(
-            sequence_embedded_context,
+        context = LatentContext.build_from_flat_and_sequence_features(
+            sequence_features,
             downsampled_embedding,
             observations,
             conditions,

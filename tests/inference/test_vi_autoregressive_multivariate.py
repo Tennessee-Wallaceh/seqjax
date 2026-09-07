@@ -27,7 +27,7 @@ class _Latent1D(seqjtyping.Latent):
 
 def _embedder_stub() -> SimpleNamespace:
     return SimpleNamespace(
-        sequence_embedded_context_dim=3,
+        sequence_features_dim=3,
         parameter_context_dim=4,
         condition_context_dim=5,
     )

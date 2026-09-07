@@ -35,7 +35,7 @@ def test_birnn_embedder_observation_flatten_default() -> None:
 
     context = _build_context(embedding, target_posterior, sample_length)
 
-    assert context.sequence_embedded_context.shape == (sample_length, 8)
+    assert context.sequence_features.shape == (sample_length, 8)
     assert context.embedded_context.size == (
         sample_length * target_posterior.target.observation_cls.flat_dim
     )
@@ -58,7 +58,7 @@ def test_birnn_embedder_sequence_flatten_aggregation() -> None:
 
     context = _build_context(embedding, target_posterior, sample_length)
 
-    assert context.sequence_embedded_context.shape == (sample_length, 8)
+    assert context.sequence_features.shape == (sample_length, 8)
     assert context.embedded_context.shape == (sample_length * 8,)
 
 
@@ -101,5 +101,5 @@ def test_birnn_embedder_supports_positional_augmentation() -> None:
 
     context = _build_context(embedding, target_posterior, sample_length)
 
-    assert context.sequence_embedded_context.shape == (sample_length, 13)
+    assert context.sequence_features.shape == (sample_length, 13)
     assert context.embedded_context.shape == (sample_length * 13,)

@@ -10,8 +10,8 @@ import jax.random as jrandom
 import jax.scipy.stats as jstats
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
-from .interface import LatentContextDims, LatentContext, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
-
+from seqjax.inference.vi.embedder.interface import LatentContextDims, LatentContext
+from seqjax.inference.vi.interface import AmortizedVariationalApproximation
 
 _LOG_2PI = jnp.log(2.0 * jnp.pi)
 
@@ -177,7 +177,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
             (sample_length, target_struct_cls.flat_dim),
             sample_length,
         )
-        self.context_dim = latent_context_dims.sequence_embedded_context_dim
+        self.context_dim = latent_context_dims.sequence_features_dim
         self.parameter_dim = latent_context_dims.parameter_context_dim
         self.condition_dim = latent_context_dims.condition_context_dim
         self.lag_order = lag_order
@@ -226,7 +226,7 @@ class AutoregressiveApproximation(AmortizedVariationalApproximation):
             (0, init_state),
             (
                 jrandom.split(sample_key, self.shape[0]), 
-                condition.sequence_embedded_context,
+                condition.sequence_features,
                 condition.condition_context
             ),
         )

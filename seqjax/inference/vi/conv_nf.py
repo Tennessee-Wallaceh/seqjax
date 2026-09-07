@@ -27,7 +27,8 @@ import jaxtyping
 import jax.numpy as jnp
 import typing
 import jax.random as jrandom
-from .interface import LatentContext, LatentContextDims, AmortizedVariationalApproximation
+from seqjax.inference.vi.embedder.interface import LatentContextDims, LatentContext
+from seqjax.inference.vi.interface import AmortizedVariationalApproximation
 from flowjax.utils import get_ravelled_pytree_constructor
 from flowjax.bijections.masked_autoregressive import masked_autoregressive_mlp
 import paramax
@@ -570,7 +571,7 @@ class AmortizedConvCoupling[
         cond_input_dim = (
             latent_context_dims.parameter_context_dim
             + latent_context_dims.condition_context_dim
-            + latent_context_dims.sequence_embedded_context_dim
+            + latent_context_dims.sequence_features_dim
         )
         self.distribution = local_parity_coupling_flow(
             key,
@@ -614,7 +615,7 @@ class AmortizedConvCoupling[
             [
                 parameter_context, 
                 condition_context, 
-                condition.sequence_embedded_context, 
+                condition.sequence_features, 
             ], axis=-1
         )
 

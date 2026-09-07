@@ -16,7 +16,8 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import typing
 
-from .interface import LatentContextDims, LatentContext, VariationalApproximationFactory, UnconditionalVariationalApproximation, AmortizedVariationalApproximation
+from seqjax.inference.vi.embedder.interface import LatentContextDims, LatentContext
+from seqjax.inference.vi.interface import UnconditionalVariationalApproximation, AmortizedVariationalApproximation, VariationalApproximationFactory
 
 
 class MaskedAutoregressiveFlow[

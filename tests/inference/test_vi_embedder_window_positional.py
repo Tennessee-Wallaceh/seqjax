@@ -38,7 +38,7 @@ def test_passthrough_embedder_supports_sample_positional_augmentation() -> None:
     observations, conditions, parameters = _make_inputs(target_posterior, sample_length)
     context = embedding.embed(observations, conditions, parameters)
 
-    assert context.sequence_embedded_context.shape == (sample_length, 1 + 5)
+    assert context.sequence_features.shape == (sample_length, 1 + 5)
 
 
 def test_window_embedder_sequence_positional_requires_sequence_start() -> None:
@@ -74,6 +74,6 @@ def test_window_embedder_sequence_positional_adds_global_position_channel() -> N
     context = embedding.embed(observations, conditions, parameters, sequence_start=3)
 
     # short-window default is prev/post 2 with y_dim=1 => 5 base dims + 5 positional dims
-    assert context.sequence_embedded_context.shape == (sample_length, 10)
+    assert context.sequence_features.shape == (sample_length, 10)
     expected_positions = (jax.numpy.arange(sample_length) + 3.5) / 12
-    assert jax.numpy.allclose(context.sequence_embedded_context[:, 5], expected_positions)
+    assert jax.numpy.allclose(context.sequence_features[:, 5], expected_positions)
