@@ -8,6 +8,7 @@ from .embedder import (
     WindowEmbedder,
 )
 from .interface import Embedder, LatentContext, LatentContextDims, SequenceAggregator
+from .norm import NormalizationConfig
 from .registry import (
     BiRNNEmbedder,
     Conv1DEmbedderConfig,
@@ -32,6 +33,7 @@ __all__ = [
     "LatentContext",
     "LatentContextDims",
     "LongContextEmbedder",
+    "NormalizationConfig",
     "PassthroughEmbedder",
     "PositionalEmbedder",
     "PositionalEmbedderConfig",

@@ -119,7 +119,7 @@ def test_conv1d_embedder_builds_optional_normalizers() -> None:
         vi.embedder.Conv1DEmbedderConfig(
             hidden_dim=4,
             embed_norm_kind="layer-norm",
-            param_norm=True,
+            normalization=vi.embedder.NormalizationConfig(parameter="ema"),
         ),
         target=target_posterior.target,
         inference_parameter_cls=target_posterior.parameterization.inference_parameter_cls,
@@ -129,4 +129,4 @@ def test_conv1d_embedder_builds_optional_normalizers() -> None:
     )
 
     assert embedding.embedding_norm is not None
-    assert embedding.param_norm is not None
+    assert embedding.normalization.parameter is not None

@@ -3,11 +3,13 @@ import typing
 from dataclasses import dataclass
 
 from seqjax.model.interface import SequentialModelProtocol
+from .norm import InputNormalization
 
 import jax
 import equinox as eqx
 import jaxtyping
 import seqjax.model.typing as seqjtyping
+
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True, kw_only=True)
@@ -146,10 +148,86 @@ class Embedder[
     """Builds flat and per-position inference features for a sequence."""
 
     target: SequentialModelProtocol
-    parameter_cls: InferenceParameterT
+    parameter_cls: type[InferenceParameterT]
     sample_length: int
     sequence_length: int
     latent_context_dims: LatentContextDims
+    normalization: InputNormalization
+
+    def _normalize_inputs(
+        self,
+        observations: ObservationT,
+        conditions: ConditionT,
+        parameters: InferenceParameterT,
+        state: typing.Any,
+        *,
+        reduce_axes: tuple[str, ...],
+        training: bool,
+    ) -> tuple[ObservationT, jaxtyping.Array, jaxtyping.Array, typing.Any]:
+        observation_values = observations.ravel()
+        condition_values = conditions.ravel()
+        parameter_values = parameters.ravel()
+        if observation_values.shape != (
+            self.sample_length,
+            self.target.observation_cls.flat_dim,
+        ):
+            raise ValueError(
+                "observations must have shape "
+                f"({self.sample_length}, {self.target.observation_cls.flat_dim}), "
+                f"got {observation_values.shape}"
+            )
+        if condition_values.shape != (
+            self.sample_length,
+            self.target.condition_cls.flat_dim,
+        ):
+            raise ValueError(
+                "conditions must have shape "
+                f"({self.sample_length}, {self.target.condition_cls.flat_dim}), "
+                f"got {condition_values.shape}"
+            )
+        if parameter_values.shape != (self.parameter_cls.flat_dim,):
+            raise ValueError(
+                "parameters must have shape "
+                f"({self.parameter_cls.flat_dim},), got {parameter_values.shape}"
+            )
+        observation_values, condition_values, parameter_values, state = (
+            self.normalization.normalize(
+                observation_values,
+                condition_values,
+                parameter_values,
+                state,
+                reduce_axes=reduce_axes,
+                training=training,
+            )
+        )
+        return (
+            observations.unravel(observation_values),
+            condition_values,
+            parameter_values,
+            state,
+        )
+
+    def _augment_sequence_features(
+        self,
+        sequence_features: jaxtyping.Array,
+        normalized_conditions: jaxtyping.Array,
+    ) -> jaxtyping.Array:
+        if self.normalization.include_condition:
+            return jax.numpy.concatenate(
+                [sequence_features, normalized_conditions], axis=-1
+            )
+        return sequence_features
+
+    def _augment_flat_features(
+        self,
+        flat_features: jaxtyping.Array,
+        normalized_parameters: jaxtyping.Array,
+    ) -> jaxtyping.Array:
+        if self.normalization.include_parameter:
+            return jax.numpy.concatenate(
+                [flat_features.ravel(), normalized_parameters.ravel()]
+            )
+        return flat_features
 
     @abstractmethod
     def embed(

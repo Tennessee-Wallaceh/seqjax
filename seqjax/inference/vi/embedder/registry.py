@@ -1,6 +1,7 @@
 """
 Embedding configurations
 """
+
 import typing
 from dataclasses import dataclass, field
 
@@ -9,21 +10,21 @@ import jaxtyping
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.vi.embedder import embedder
 from seqjax.inference.vi.embedder import aggregation
+from seqjax.inference.vi.embedder.norm import NormalizationConfig
 from seqjax.model import interface as model_interface
-
 
 
 PositionMode = typing.Literal["sample", "sequence"]
 
 
 EmbedderName = typing.Literal[
-    "short-window", 
-    "long-window", 
-    "bi-rnn", 
-    "passthrough", 
-    "conv1d", 
-    "transformer", 
-    "positional"
+    "short-window",
+    "long-window",
+    "bi-rnn",
+    "passthrough",
+    "conv1d",
+    "transformer",
+    "positional",
 ]
 
 
@@ -33,7 +34,9 @@ class PassthroughEmbedder:
     prev_window: int = field(init=False, default=0)
     post_window: int = field(init=False, default=0)
     position_mode: None | PositionMode = None
-    n_pos_embedding: int = 8 
+    n_pos_embedding: int = 8
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
+
 
 @dataclass
 class ShortContextEmbedder:
@@ -42,7 +45,9 @@ class ShortContextEmbedder:
     post_window: int = field(init=False, default=2)
     position_mode: None | PositionMode = None
     n_pos_embedding: int = 8
-    
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
+
+
 @dataclass
 class LongContextEmbedder:
     label: EmbedderName = field(init=False, default="long-window")
@@ -50,6 +55,8 @@ class LongContextEmbedder:
     post_window: int = 10
     position_mode: None | PositionMode = None
     n_pos_embedding: int = 1
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
+
 
 @dataclass
 class Conv1DEmbedderConfig:
@@ -62,7 +69,8 @@ class Conv1DEmbedderConfig:
     position_mode: None | PositionMode = None
     n_pos_embedding: int = 1
     embed_norm_kind: None | str = None
-    param_norm: bool = False
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
+
 
 @dataclass
 class BiRNNEmbedder:
@@ -72,6 +80,7 @@ class BiRNNEmbedder:
     position_mode: None | PositionMode = None
     n_pos_embedding: int = 1
     condition_on_parameters: bool = False
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
 
 
 @dataclass
@@ -84,6 +93,7 @@ class TransformerEmbedderConfig:
     pool_dim: None | int = None
     position_mode: None | PositionMode = None
     n_pos_embedding: int = 8
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
 
 
 @dataclass
@@ -91,12 +101,13 @@ class PositionalEmbedderConfig:
     label: EmbedderName = field(init=False, default="positional")
     n_pos_embedding: int = 8
     position_mode: PositionMode = "sample"
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
 
 
 EmbedderConfig = (
-    ShortContextEmbedder 
-    | LongContextEmbedder 
-    | BiRNNEmbedder 
+    ShortContextEmbedder
+    | LongContextEmbedder
+    | BiRNNEmbedder
     | PassthroughEmbedder
     | Conv1DEmbedderConfig
     | TransformerEmbedderConfig
@@ -112,6 +123,7 @@ embedder_registry: dict[EmbedderName, type[EmbedderConfig]] = {
     "transformer": TransformerEmbedderConfig,
     "positional": PositionalEmbedderConfig,
 }
+
 
 def build_embedder(
     embedder_config: EmbedderConfig,
@@ -132,6 +144,8 @@ def build_embedder(
             post_window=embedder_config.post_window,
             position_mode=embedder_config.position_mode,
             n_pos_embedding=embedder_config.n_pos_embedding,
+            normalization=embedder_config.normalization,
+            normalization_key=embedding_key,
         )
     elif isinstance(embedder_config, PassthroughEmbedder):
         embed = embedder.WindowEmbedder(
@@ -143,6 +157,8 @@ def build_embedder(
             post_window=embedder_config.post_window,
             position_mode=embedder_config.position_mode,
             n_pos_embedding=embedder_config.n_pos_embedding,
+            normalization=embedder_config.normalization,
+            normalization_key=embedding_key,
         )
     elif isinstance(embedder_config, LongContextEmbedder):
         embed = embedder.WindowEmbedder(
@@ -154,6 +170,8 @@ def build_embedder(
             post_window=embedder_config.post_window,
             position_mode=embedder_config.position_mode,
             n_pos_embedding=embedder_config.n_pos_embedding,
+            normalization=embedder_config.normalization,
+            normalization_key=embedding_key,
         )
     elif isinstance(embedder_config, Conv1DEmbedderConfig):
         embed = embedder.Conv1DEmbedder(
@@ -170,7 +188,7 @@ def build_embedder(
             pool_kind=embedder_config.pool_kind,
             position_mode=embedder_config.position_mode,
             n_pos_embedding=embedder_config.n_pos_embedding,
-            use_param_norm=embedder_config.param_norm,
+            normalization=embedder_config.normalization,
         )
     elif isinstance(embedder_config, BiRNNEmbedder):
         embed = embedder.RNNEmbedder(
@@ -183,6 +201,7 @@ def build_embedder(
             position_mode=embedder_config.position_mode,
             n_pos_embedding=embedder_config.n_pos_embedding,
             condition_on_parameters=embedder_config.condition_on_parameters,
+            normalization=embedder_config.normalization,
             key=embedding_key,
         )
     elif isinstance(embedder_config, TransformerEmbedderConfig):
@@ -198,6 +217,7 @@ def build_embedder(
             pool_dim=embedder_config.pool_dim,
             position_mode=embedder_config.position_mode,
             n_pos_embedding=embedder_config.n_pos_embedding,
+            normalization=embedder_config.normalization,
             key=embedding_key,
         )
     elif isinstance(embedder_config, PositionalEmbedderConfig):
@@ -208,6 +228,8 @@ def build_embedder(
             sequence_length=sequence_length,
             n_pos_embedding=embedder_config.n_pos_embedding,
             position_mode=embedder_config.position_mode,
+            normalization=embedder_config.normalization,
+            normalization_key=embedding_key,
         )
     else:
         raise ValueError(f"Unknown embedder type: {embedder_config.label}")
