@@ -1,4 +1,23 @@
-"""Data types for struct of array representations common in jax"""
+"""
+Data types for struct of array representations common in jax.
+These are split into our common purposes (Observation, Latent, etc), for readability.
+It also allows us to define some generic helpers, such as flattening and conversion to 
+dataframes for storage.
+
+My intent was to be able to support axes based typing.
+But currently the python typing system supports either
+    Observation[SequenceLength] -> Observation[BufferedLength]
+or 
+    ObservationT -> ObservationT.
+In the first, we know how axes have changed, but not that the Observation is the same type.
+In the second, we can know that the Observation type is the same, but how the axes info has been 
+altered.
+My solution is to use the weaker and slightly more verbose pattern:
+    Annotated[ObservationT, Axes("sequence_length")]
+        -> Annotated[ObservationT, Axes("buffered_length")]
+
+In this way, function signatures are clear, and type systems know 
+"""
 
 from functools import lru_cache
 import math
@@ -15,7 +34,14 @@ import jax
 import jax.numpy as jnp
 import equinox as eqx
 
-BatchAxes = TypeVarTuple("BatchAxes")
+
+
+@dataclasses.dataclass(frozen=True)
+class BatchAxes:
+    names: tuple[str, ...]
+
+    def __init__(self, *names: str):
+        object.__setattr__(self, "names", names)
 
 class classproperty:
     def __init__(self, fget):
@@ -24,7 +50,7 @@ class classproperty:
         return self.fget(cls)
     
 
-class Packable[*BatchAxes](eqx.Module):
+class Packable(eqx.Module):
     """
     Mix-in that flattens only the *feature* axis, leaving any leading batch
     axes intact.  Sub-classes provide `_shape_template`, a dict whose values
@@ -191,28 +217,27 @@ class Packable[*BatchAxes](eqx.Module):
                     specs.append((leaf_name, ix, flat_name))
         return tuple(specs)
 
-class Latent[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
+class Latent(Packable, abstract=True): ...
 
+class Observation(Packable, abstract=True): ...
 
-class Observation[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
+class Condition(Packable, abstract=True): ...
 
-
-class Condition[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
-
+class BatchedObservation[Observation, BatchAxes]: ...
 
 class NoCondition(Condition):
     __slots__ = ()
     _shape_template = OrderedDict()
 
 
-class Parameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
+class Parameters(Packable, abstract=True): ...
 
 class NoParam(Parameters):
     __slots__ = ()
     _shape_template = OrderedDict()
 
 
-class HyperParameters[*BatchAxes](Packable[*BatchAxes], abstract=True): ...
+class HyperParameters(Packable, abstract=True): ...
 
 class NoHyper(HyperParameters):
     __slots__ = ()
