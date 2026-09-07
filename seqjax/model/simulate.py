@@ -12,6 +12,7 @@ from seqjax.model import (
 )
 from seqjax import util
 import seqjax.model.typing as seqjtyping
+from seqjax.model.condition import layout_for
 
 def step[
     LatentT: seqjtyping.Latent,
@@ -30,7 +31,7 @@ def step[
         model_interface.LatentContext[LatentT],
         model_interface.ObservationContext[ObservationT],
     ],
-    inputs: tuple[PRNGKeyArray, ConditionT],
+    inputs: tuple[PRNGKeyArray, ConditionT, ConditionT],
 ) -> tuple[
     tuple[
         model_interface.LatentContext[LatentT],
@@ -40,8 +41,7 @@ def step[
 ]:
     """Single simulation step returning updated state and new sample."""
 
-    # pad the RHS with a None, then no condition => condition is None
-    step_key, condition = inputs
+    step_key, transition_condition, emission_condition = inputs
     latents, observation_history = state
     transition_key, emission_key = jrandom.split(step_key)
 
@@ -50,7 +50,7 @@ def step[
     next_latent = target.transition_sample(
         transition_key,
         latents,
-        condition,
+        transition_condition,
         parameters,
     )
 
@@ -59,7 +59,7 @@ def step[
         emission_key,
         latents,
         observation_history,
-        condition,
+        emission_condition,
         parameters,
     )
     observation_history = model_util.add_history(observation_history, emission)
@@ -91,18 +91,17 @@ def simulate[
     
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
-    prior_conditions = model_util.slice_prior_context(
-        target,
-        condition,
+    condition_layout = layout_for(target)
+    prepared_conditions = condition_layout.prepare(target, condition, sequence_length)
+    latent_context = target.prior_sample(
+        init_x_key, prepared_conditions.prior, parameters
     )
-    initial_condition = model_util.initial_context(target, condition)
-    latent_context = target.prior_sample(init_x_key, prior_conditions, parameters)
 
     initial_obs = target.emission_sample(
         init_y_key,
         latent_context,
         observation_history,
-        initial_condition,
+        prepared_conditions.initial_emission,
         parameters
     )
 
@@ -111,15 +110,16 @@ def simulate[
     init_state = (latent_context, observation_history)
 
     inputs = (
-        (jnp.array(step_keys), (seqjtyping.NoCondition(),)* (sequence_length - 1))
+        (
+            jnp.array(step_keys),
+            (seqjtyping.NoCondition(),) * (sequence_length - 1),
+            (seqjtyping.NoCondition(),) * (sequence_length - 1),
+        )
         if isinstance(condition, seqjtyping.NoCondition)
         else (
             jnp.array(step_keys),
-            util.slice_pytree(
-                condition,
-                target.prior_order,
-                sequence_length + target.prior_order - 1,
-            ),
+            prepared_conditions.transitions,
+            prepared_conditions.recurrent_emissions,
         )
     )
 
@@ -128,7 +128,7 @@ def simulate[
             model_interface.LatentContext[LatentT],
             model_interface.ObservationContext[ObservationT],
         ],
-        inputs: tuple[PRNGKeyArray, ConditionT],
+        inputs: tuple[PRNGKeyArray, ConditionT, ConditionT],
     ) -> tuple[
         tuple[
             model_interface.LatentContext[LatentT],

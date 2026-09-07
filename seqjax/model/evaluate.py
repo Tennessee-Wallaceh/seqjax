@@ -8,7 +8,7 @@ from jaxtyping import Scalar
 import seqjax.model.typing as seqjtyping
 from seqjax import util
 from seqjax.model import interface as model_interface
-from seqjax.model import util as model_util
+from seqjax.model.condition import layout_for
 
 
 def _validate_x_sequence_lengths[
@@ -36,7 +36,7 @@ def _validate_x_sequence_lengths[
 
     if not isinstance(condition, seqjtyping.NoCondition):
         condition_length = condition.batch_shape[0]
-        min_condition_length = target.prior_order + sequence_length - 1
+        min_condition_length = sequence_length
         if condition_length < min_condition_length:
             raise ValueError(
                 "condition length is too short for latent evaluation, got "
@@ -172,10 +172,12 @@ def log_prob_x[
     prior_latent = target.latent_context(
         tuple(util.index_pytree(x_path, ix) for ix in range(target.prior_order))
     )
-    prior_condition = model_util.slice_prior_context(target, condition)
+    prepared_conditions = layout_for(target).prepare(
+        target, condition, sequence_length
+    )
     prior_log_p = target.prior_log_prob(
         prior_latent,
-        prior_condition,
+        prepared_conditions.prior,
         util.index_pytree(parameters_batched, 0),
     )
 
@@ -210,11 +212,7 @@ def log_prob_x[
             transition_parameters,
         )
     else:
-        transition_condition = util.slice_pytree(
-            condition,
-            target.prior_order,
-            target.prior_order + transition_steps,
-        )
+        transition_condition = prepared_conditions.transitions
         transition_log_ps = jax.vmap(target.transition_log_prob)(
             transition_history,
             transition_latent,
@@ -293,11 +291,9 @@ def log_prob_y_given_x[
             parameters_batched,
         )
     else:
-        observation_condition = util.slice_pytree(
-            condition,
-            observation_start,
-            observation_start + sequence_length,
-        )
+        observation_condition = layout_for(target).prepare(
+            target, condition, sequence_length
+        ).emissions
         emission_log_ps = jax.vmap(target.emission_log_prob)(
             emission_latent_history,
             observations,

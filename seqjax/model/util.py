@@ -1,45 +1,8 @@
 import typing
 
 import seqjax.model.typing as seqjtyping
-from seqjax import util
 from . import interface
 from seqjax.inference.particlefilter.interface import ProposalContext, FilterContext
-
-def slice_prior_context[
-    LatentT: seqjtyping.Latent,
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition,
-    ParametersT: seqjtyping.Parameters,
-](
-    model: interface.SequentialModelProtocol[LatentT, ObservationT, ConditionT, ParametersT],
-    condition_sequence: ConditionT,
-) -> interface.ConditionContext[ConditionT]:
-    if isinstance(condition_sequence, seqjtyping.NoCondition):
-        return model.condition_context(())
-    else:
-        return model.condition_context(tuple(
-            util.dynamic_index_pytree_in_dim(
-                condition_sequence,
-                ix,
-                0,
-            )
-            for ix in range(model.prior_order)
-        ))
-    
-
-def initial_context[
-    LatentT: seqjtyping.Latent,
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition,
-    ParametersT: seqjtyping.Parameters,
-](
-    model: interface.SequentialModelProtocol[LatentT, ObservationT, ConditionT, ParametersT],
-    condition_sequence: ConditionT,
-) -> ConditionT:
-    if isinstance(condition_sequence, seqjtyping.NoCondition):
-        return condition_sequence
-    else:
-        return util.index_pytree(condition_sequence, model.prior_order)
     
 @typing.overload
 def add_history[LatentT: seqjtyping.Latent](

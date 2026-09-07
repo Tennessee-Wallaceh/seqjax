@@ -15,6 +15,7 @@ import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import InferenceDataset
 from seqjax.model.evaluate import log_prob_joint
 from seqjax.model.interface import BayesianSequentialModelProtocol
+from seqjax.model.condition import layout_for
 from seqjax.inference.vi.sampling import VISamplingKwargs
 from .interface import LatentContext, Embedder, AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 
@@ -593,6 +594,7 @@ def sample_batch_and_mask(
     observation_path, 
     condition,
     prior_order: int = 1,
+    condition_layout=None,
 ):
     # usually the latent prior length is 1
     # if it exceeds this, then we should sample a shorter sequence of observations
@@ -622,13 +624,17 @@ def sample_batch_and_mask(
         ),
         observation_path,
     )
-    csamples = jax.tree_util.tree_map(
-        partial(
-            jax.lax.dynamic_slice_in_dim,
-            start_index=approx_start,
-            slice_size=sample_length,
-        ),
-        condition,
+    csamples = (
+        jax.tree_util.tree_map(
+            partial(
+                jax.lax.dynamic_slice_in_dim,
+                start_index=approx_start,
+                slice_size=sample_length,
+            ),
+            condition,
+        )
+        if condition_layout is None
+        else condition_layout.slice_window(condition, approx_start, sample_length)
     )
 
     return approx_start, samples, csamples, theta_mask
@@ -683,6 +689,7 @@ class BufferedSSMVI[
             observation_path=observation_sequence, 
             condition=condition_sequence,
             prior_order=self.target_posterior.target.prior_order,
+            condition_layout=layout_for(self.target_posterior.target),
         )
 
         parameters = self.target_posterior.parameterization.sample(parameter_key)
@@ -739,6 +746,7 @@ class BufferedSSMVI[
             observation_path=observation_sequence, 
             condition=condition_sequence,
             prior_order=self.target_posterior.target.prior_order,
+            condition_layout=layout_for(self.target_posterior.target),
         )
 
         parameters, log_q_theta, param_state = self.parameter_approximation.sample_and_log_prob(
@@ -1139,6 +1147,7 @@ class IWBufferedSSMVI[
             observation_path=observation_sequence,
             condition=condition_sequence,
             prior_order=self.target_posterior.target.prior_order,
+            condition_layout=layout_for(self.target_posterior.target),
         )
 
         parameters, log_q_theta, param_state = self.parameter_approximation.sample_and_log_prob(
