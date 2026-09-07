@@ -20,11 +20,11 @@ def _build_dataset(sequence_length: int = 16) -> tuple[ObservationDataset, ar.AR
         ar.ar_model,
         true_params,
         sequence_length=sequence_length,
-        condition=seqjtyping.NoCondition(),
+        condition=None,
     )
     dataset = ObservationDataset.from_single_sequence(
         observation_path=observations,
-        condition_path=seqjtyping.NoCondition(),
+        condition_path=None,
     )
     return dataset, true_params
 
@@ -77,7 +77,7 @@ def test_run_latent_nuts_rejects_initial_latents_without_sequence_axis() -> None
         ar.ar_model,
         fixed_params,
         sequence_length=dataset.sequence_length,
-        condition=seqjtyping.NoCondition(),
+        condition=None,
     )
 
     with pytest.raises(ValueError, match="leading num_sequences axis"):

@@ -12,7 +12,7 @@ from seqjax.model import (
 )
 from seqjax import util
 import seqjax.model.typing as seqjtyping
-from seqjax.model.condition import layout_for
+from seqjax.model.condition import layout_for, normalize_condition_path
 
 def step[
     LatentT: seqjtyping.Latent,
@@ -81,7 +81,7 @@ def simulate[
     ],
     parameters: ParametersT,
     sequence_length: int,
-    condition: ConditionT,
+    condition: ConditionT | None = None,
     observation_history: model_interface.ObservationContext[ObservationT] =  model_interface.ObservationContext.from_values(length=0)
 ):
     if sequence_length < 1:
@@ -89,6 +89,8 @@ def simulate[
             f"sequence_length must be >= 1, got {sequence_length}"
         )
     
+    condition = normalize_condition_path(target, condition, (sequence_length,))
+
     init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
     condition_layout = layout_for(target)
@@ -110,17 +112,9 @@ def simulate[
     init_state = (latent_context, observation_history)
 
     inputs = (
-        (
-            jnp.array(step_keys),
-            (seqjtyping.NoCondition(),) * (sequence_length - 1),
-            (seqjtyping.NoCondition(),) * (sequence_length - 1),
-        )
-        if isinstance(condition, seqjtyping.NoCondition)
-        else (
-            jnp.array(step_keys),
-            prepared_conditions.transitions,
-            prepared_conditions.recurrent_emissions,
-        )
+        jnp.array(step_keys),
+        prepared_conditions.transitions,
+        prepared_conditions.recurrent_emissions,
     )
 
     def model_step(

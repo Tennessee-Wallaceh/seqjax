@@ -191,28 +191,16 @@ def run_full_sgld_mcmc[
             config.num_sequence_minibatch,
         )
 
-        if isinstance(conditions, seqjtyping.NoCondition):
-            minibatch_likelihood_score = jax.vmap(
-                lambda sequence_key, sequence_observation: sequence_score_estimator(
-                    particle_filter,
-                    model,
-                    params,
-                    sequence_key,
-                    sequence_observation,
-                    seqjtyping.NoCondition(),
-                )
-            )(sequence_pf_keys, sampled_observations)
-        else:
-            minibatch_likelihood_score = jax.vmap(
-                lambda sequence_key, sequence_observation, sequence_condition: sequence_score_estimator(
-                    particle_filter,
-                    model,
-                    params,
-                    sequence_key,
-                    sequence_observation,
-                    sequence_condition,
-                )
-            )(sequence_pf_keys, sampled_observations, sampled_conditions)
+        minibatch_likelihood_score = jax.vmap(
+            lambda sequence_key, sequence_observation, sequence_condition: sequence_score_estimator(
+                particle_filter,
+                model,
+                params,
+                sequence_key,
+                sequence_observation,
+                sequence_condition,
+            )
+        )(sequence_pf_keys, sampled_observations, sampled_conditions)
 
         rescaled_likelihood_score = jax.tree_util.tree_map(
             lambda score_leaf:  jnp.sum(score_leaf, axis=0),

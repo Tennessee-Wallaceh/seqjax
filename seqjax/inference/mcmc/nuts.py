@@ -132,12 +132,7 @@ def run_bayesian_nuts[
                 f"Expected {num_sequences}, got {latent_shape[0]}."
             )
 
-        if isinstance(conditions, seqjtyping.NoCondition):
-            in_axes = (0, 0, None, None)
-        else:
-            in_axes = (0, 0, 0, None)
-
-        log_like = jax.vmap(log_prob_joint, in_axes=in_axes)(
+        log_like = jax.vmap(log_prob_joint, in_axes=(0, 0, 0, None))(
             latents, observations, conditions, model_params,
         ).sum()
     
@@ -164,26 +159,15 @@ def run_bayesian_nuts[
         else:
             simulation_keys = jrandom.split(latent_key, num_sequences)
             model_parameters = target_posterior.parameterization.to_model_parameters(initial_parameters)
-            if isinstance(conditions, seqjtyping.NoCondition):
-                initial_latents, _ = jax.vmap(
-                    lambda sim_key: simulate(
-                        sim_key,
-                        target_posterior.target,
-                        model_parameters,
-                        sequence_length,
-                        condition=conditions,
-                    )
-                )(simulation_keys)
-            else:
-                initial_latents, _ = jax.vmap(
-                    lambda sim_key, condition_path: simulate(
-                        sim_key,
-                        target_posterior.target,
-                        model_parameters,
-                        sequence_length,
-                        condition=condition_path,
-                    )
-                )(simulation_keys, conditions)
+            initial_latents, _ = jax.vmap(
+                lambda sim_key, condition_path: simulate(
+                    sim_key,
+                    target_posterior.target,
+                    model_parameters,
+                    sequence_length,
+                    condition=condition_path,
+                )
+            )(simulation_keys, conditions)
         return (initial_latents, initial_parameters)
 
     warmup_key, init_key, sample_key = jrandom.split(key, 3)

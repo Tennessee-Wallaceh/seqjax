@@ -16,7 +16,7 @@ from seqjax.model.interface import (
 )
 import seqjax.model.typing as seqjtyping
 from seqjax.model import util as model_util
-from seqjax.model.condition import layout_for
+from seqjax.model.condition import layout_for, normalize_condition_path
 from seqjax import util
 from .resampling import Resampler
 from . import interface as pf_interface
@@ -289,7 +289,7 @@ def run_filter[
     parameters: InferenceParameterT,
     observation_path: ObservationT,
     *,
-    condition_path: ConditionT = seqjtyping.NoCondition(),
+    condition_path: ConditionT | None = None,
     recorders: tuple[pf_interface.Recorder, ...] | None = None,
 ) -> tuple[
     Array,
@@ -303,6 +303,10 @@ def run_filter[
     """
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
+
+    condition_path = normalize_condition_path(
+        smc.target, condition_path, (sequence_length,)
+    )
 
     condition_layout = layout_for(smc.target)
     prepared_conditions = condition_layout.prepare(
@@ -388,23 +392,12 @@ def run_filter[
         return (step_data.log_w, step_data.particles), recorder_vals
 
     observation_path = util.slice_pytree(observation_path, 1, sequence_length)
-    if isinstance(prepared_conditions.transitions, seqjtyping.NoCondition):
-        transition_conditions = util.broadcast_packable(
-            prepared_conditions.transitions, sequence_length - 1
-        )
-        emission_step_conditions = util.broadcast_packable(
-            prepared_conditions.recurrent_emissions, sequence_length - 1
-        )
-    else:
-        transition_conditions = prepared_conditions.transitions
-        emission_step_conditions = prepared_conditions.recurrent_emissions
-    
     body_inputs = (
         jnp.arange(1, sequence_length),
         jnp.array(step_keys),
         observation_path,
-        transition_conditions,
-        emission_step_conditions,
+        prepared_conditions.transitions,
+        prepared_conditions.recurrent_emissions,
     )
     init_state = (filter_data.log_w, filter_data.particles)
 

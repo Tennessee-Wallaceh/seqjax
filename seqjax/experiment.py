@@ -271,11 +271,9 @@ def run_experiment(
             )
         )
 
-    condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
-
     dataset = inference_interface.ObservationDataset(
         observations=cast(seqjtyping.Observation, observations),
-        conditions=cast(seqjtyping.Condition, condition_paths),
+        conditions=cast(seqjtyping.Condition | None, conditions),
     )
 
     if data_wandb_run is not None:

@@ -116,14 +116,9 @@ def _make_log_joint_estimator[
         Sequences are treated as IID. So vmap down seed per sequence.
         """
         sequence_keys = jrandom.split(key, num_sequences)
-        if isinstance(conditions, seqjtyping.NoCondition):
-            in_axes = (None, 0, None, 0, None)
-        else:
-            in_axes = (None, 0, None, 0, 0)
-
         log_marginal = jax.vmap(
             sequence_log_marginal_estimator,
-            in_axes=in_axes
+            in_axes=(None, 0, None, 0, 0)
         )(
             particle_filter,
             sequence_keys,

@@ -138,8 +138,6 @@ def run_latent_nuts[
     def logdensity(latents: LatentPathT) -> jaxtyping.Scalar:
         _validate_dataset_and_latents(latents=latents, dataset=dataset)
 
-        condition_in_axes = None if isinstance(conditions, seqjtyping.NoCondition) else 0
-
         log_like = jax.vmap(
             lambda latent_path, observation_path, condition_path: evaluate.log_prob_joint(
                 target,
@@ -148,7 +146,7 @@ def run_latent_nuts[
                 condition_path,
                 fixed_parameters,
             ),
-            in_axes=(0, 0, condition_in_axes),
+            in_axes=(0, 0, 0),
         )(latents, observations, conditions)
 
         return jnp.sum(log_like)
@@ -159,7 +157,6 @@ def run_latent_nuts[
             _validate_dataset_and_latents(latents=init_latents, dataset=dataset)
             return init_latents
 
-        condition_in_axes = None if isinstance(conditions, seqjtyping.NoCondition) else 0
         simulation_keys = jrandom.split(sample_key, num_sequences)
 
         simulated_latents, _ = jax.vmap(
@@ -170,7 +167,7 @@ def run_latent_nuts[
                 dataset.sequence_length,
                 condition=condition_path,
             ),
-            in_axes=(0, condition_in_axes)
+            in_axes=(0, 0)
         )(simulation_keys, conditions)
 
         _validate_dataset_and_latents(latents=simulated_latents, dataset=dataset)

@@ -505,10 +505,9 @@ def latent_fit(
     storage = io.LocalFilesystemDataStorage(local_root)
     _x_paths, observation_paths, conditions = storage.get_data(data_config)
 
-    condition_paths = seqjtyping.NoCondition() if conditions is None else conditions
     dataset = ObservationDataset(
         observations=typing.cast(seqjtyping.Observation, observation_paths),
-        conditions=typing.cast(seqjtyping.Condition, condition_paths),
+        conditions=typing.cast(seqjtyping.Condition | None, conditions),
     )
 
     target = data_config.target

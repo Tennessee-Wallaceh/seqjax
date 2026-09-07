@@ -349,15 +349,11 @@ class FullVI[
 
         # x_path [n_seq, n_mc, sample_length]
         # y_batch [n_seq, sample_length]
-        # c_batch [n_seq, sample_length] | NoCondition()
+        # c_batch [n_seq, sample_length]
         # buffered_params [n_seq, n_mc, sample_length]
         
-        if isinstance(c_batch, seqjtyping.NoCondition):
-            ax_spec = (0, None, None, 0)
-            ax_spec_2 = (0, 0, None, 0)
-        else:
-            ax_spec = (0, None, None, 0)
-            ax_spec_2 = (0, 0, 0, 0)
+        ax_spec = (0, None, None, 0)
+        ax_spec_2 = (0, 0, 0, 0)
 
         def _log_joint(
             x_path: LatentT, 
@@ -465,10 +461,7 @@ class FullVI[
             parameter_keys
         )
 
-        if isinstance(sampled_conditions, seqjtyping.NoCondition):
-            ax_spec = (0, None, 0, None)
-        else:
-            ax_spec = (0, 0, 0, None)
+        ax_spec = (0, 0, 0, None)
 
         latent_context, embed_state = jax.vmap(
             partial(
@@ -486,10 +479,7 @@ class FullVI[
             state,
         )
 
-        if isinstance(sampled_conditions, seqjtyping.NoCondition):
-            condition_spec = None
-        else:
-            condition_spec = 0
+        condition_spec = 0
 
         inner_ax_spec = (
             0,
@@ -531,12 +521,8 @@ class FullVI[
             embed_state,
         )
 
-        if isinstance(sampled_conditions, seqjtyping.NoCondition):
-            inner_ax_spec = (0, None, None, 0)
-            outer_ax_spec = (0, 0, None, 0)
-        else:
-            inner_ax_spec = (0, None, None, 0)
-            outer_ax_spec = (0, 0, 0, 0)
+        inner_ax_spec = (0, None, None, 0)
+        outer_ax_spec = (0, 0, 0, 0)
 
         batched_log_p_joint = jax.vmap(
             partial(log_prob_joint, self.target_posterior.target),
@@ -923,13 +909,10 @@ class BufferedSSMVI[
 
         # x_path [n_seq, n_subseq, n_mc, sample_length]
         # y_batch [n_seq, n_subseq, sample_length]
-        # c_batch [n_seq, n_subseq, sample_length] | NoCondition()
+        # c_batch [n_seq, n_subseq, sample_length]
         # buffered_params [n_seq, n_subseq, n_mc, sample_length]
         
-        if isinstance(c_batch, seqjtyping.NoCondition):
-            ax_spec = (0, 0, None, 0)
-        else:
-            ax_spec = (0, 0, 0, 0)
+        ax_spec = (0, 0, 0, 0)
 
         def _log_joint(
             x_path: LatentT, 
@@ -1260,15 +1243,11 @@ class IWBufferedSSMVI[
 
         # x_path [n_seq, n_subseq, n_mc, sample_length]
         # y_batch [n_seq, n_subseq, sample_length]
-        # c_batch [n_seq, n_subseq, sample_length] | NoCondition()
+        # c_batch [n_seq, n_subseq, sample_length]
         # buffered_params [n_seq, n_subseq, sample_length]
         
-        if isinstance(c_batch, seqjtyping.NoCondition):
-            ax_spec = (0, 0, None, 0)
-            ax_spec2 = (0, None, None, None)
-        else:
-            ax_spec = (0, 0, 0, 0)
-            ax_spec2 = (0, None, None, None)
+        ax_spec = (0, 0, 0, 0)
+        ax_spec2 = (0, None, None, None)
 
         def _log_joint(
             x_path: LatentT, 

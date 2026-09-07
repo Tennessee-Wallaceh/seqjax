@@ -250,11 +250,6 @@ def buffered_score_estimate(
         sampled_conditions,
     )
 
-    if isinstance(c_batch, seqjtyping.NoCondition):
-        in_axes = (0, 0, None)
-    else:
-        in_axes = (0, 0, 0)
-
     batched_out = jax.vmap(
         lambda sequence_key, sequence_obs, c_batch: run_filter(
             sequence_key,
@@ -267,7 +262,7 @@ def buffered_score_estimate(
                 lambda fd: fd.ancestor_ix,
             ),
         ),
-        in_axes
+        (0, 0, 0)
     )(sequence_pf_keys, y_batch, c_batch)
 
     log_weights, _, (score_increments, ancestor_ix) = batched_out

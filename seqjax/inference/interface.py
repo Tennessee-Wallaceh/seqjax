@@ -31,7 +31,7 @@ class InferenceDataset[
     def sequence(self, idx: int) -> tuple[ObservationT, ConditionT]: ...
 
 @jax.tree_util.register_dataclass
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class ObservationDataset[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
@@ -41,21 +41,44 @@ class ObservationDataset[
     observations: ObservationT
     conditions: ConditionT
 
+    def __init__(
+        self,
+        observations: ObservationT,
+        conditions: ConditionT | None = None,
+    ) -> None:
+        if conditions is None:
+            conditions = typing.cast(
+                ConditionT,
+                seqjtyping.NoCondition.for_batch_shape(observations.batch_shape),
+            )
+        elif isinstance(conditions, seqjtyping.NoCondition):
+            expected_shape = observations.batch_shape
+            if conditions.batch_shape != expected_shape:
+                raise ValueError(
+                    "NoCondition batch shape must match observations: "
+                    f"got {conditions.batch_shape}, expected {expected_shape}."
+                )
+        object.__setattr__(self, "observations", observations)
+        object.__setattr__(self, "conditions", conditions)
+
     @classmethod
     def from_single_sequence(
         cls,
         observation_path: ObservationT,
-        condition_path: ConditionT,
+        condition_path: ConditionT | None = None,
     ) -> typing.Self:
-        return cls.from_sequences((observation_path,), (condition_path,))
+        return cls.from_sequences(
+            (observation_path,),
+            None if condition_path is None else (condition_path,),
+        )
 
     @classmethod
     def from_sequences(
         cls,
         observation_paths: tuple[ObservationT, ...],
-        condition_paths: tuple[ConditionT, ...],
+        condition_paths: tuple[ConditionT, ...] | None = None,
     ) -> typing.Self:
-        if len(observation_paths) != len(condition_paths):
+        if condition_paths is not None and len(observation_paths) != len(condition_paths):
             raise ValueError(
                 "Observation and condition collections must have matching lengths. "
                 f"Got {len(observation_paths)} observations and "
@@ -65,14 +88,16 @@ class ObservationDataset[
             raise ValueError("At least one sequence is required for inference.")
 
         first_length = observation_paths[0].batch_shape[0]
-        for idx, (obs, cond) in enumerate(zip(observation_paths, condition_paths)):
+        for idx, obs in enumerate(observation_paths):
             if obs.batch_shape[0] != first_length:
                 raise ValueError(
                     "InferenceDataset currently supports only equal-length sequences. "
                     f"Sequence 0 has length {first_length}, sequence {idx} has "
                     f"length {obs.batch_shape[0]}."
                 )
-            cond_shape = cond.batch_shape
+            if condition_paths is None:
+                continue
+            cond_shape = condition_paths[idx].batch_shape
             if len(cond_shape) > 0 and cond_shape[0] != first_length:
                 raise ValueError(
                     "Condition sequence length must match observation sequence length. "
@@ -87,12 +112,16 @@ class ObservationDataset[
                 *observation_paths,
             ),
         )
-        conditions = typing.cast(
-            ConditionT,
-            jax.tree_util.tree_map(
-                lambda *leaves: jnp.stack(leaves, axis=0),
-                *condition_paths,
-            ),
+        conditions = (
+            None
+            if condition_paths is None
+            else typing.cast(
+                ConditionT,
+                jax.tree_util.tree_map(
+                    lambda *leaves: jnp.stack(leaves, axis=0),
+                    *condition_paths,
+                ),
+            )
         )
         return cls(observations=observations, conditions=conditions)
 
