@@ -1,8 +1,7 @@
 import typing
 from functools import cached_property, partial
-from typing import Callable, Protocol
+from typing import Callable
 from abc import abstractmethod
-from dataclasses import dataclass
 
 import equinox as eqx
 import jax
@@ -17,6 +16,7 @@ from seqjax.model.interface import (
 )
 import seqjax.model.typing as seqjtyping
 from seqjax.model import util as model_util
+from seqjax.model.condition import layout_for
 from seqjax import util
 from .resampling import Resampler
 from . import interface as pf_interface
@@ -195,7 +195,9 @@ class SMCSampler[
         particles: pf_interface.FilterContext[ParticleT],
         observation_history: tuple[ObservationT, ...],
         observation: ObservationT,
-        condition: ConditionT,
+        prior_condition: typing.Any,
+        transition_condition: ConditionT,
+        emission_condition: ConditionT,
         params: InferenceParameterT,
     ) -> pf_interface.FilterData:
         resample_key, proposal_key = jrandom.split(step_key)
@@ -214,7 +216,7 @@ class SMCSampler[
             jrandom.split(proposal_key, self.num_particles),
             proposal_history,
             observation,
-            condition,
+            transition_condition,
             params,
         )
 
@@ -231,18 +233,18 @@ class SMCSampler[
             self.transition_log_prob(
                 transition_history,
                 proposed_particles,
-                condition,
+                transition_condition,
                 model_params,
             )
             + self.emission_log_prob(
                 emission_particles,
                 observation,
                 obs_history,
-                condition,
+                emission_condition,
                 model_params,
             )
             - self.proposal_log_prob(
-                proposal_history, observation, proposed_particles, condition, params
+                proposal_history, observation, proposed_particles, transition_condition, params
             )
         )
         particles = model_util.add_history(resampled_particles, proposed_particles)
@@ -261,7 +263,9 @@ class SMCSampler[
             log_w_inc=log_weight_inc,
             resampled_particles=resampled_particles,
             observation=observation,
-            condition=condition,
+            prior_condition=prior_condition,
+            transition_condition=transition_condition,
+            emission_condition=emission_condition,
             inference_parameters=params,
             log_z_inc=log_z_inc
         )
@@ -300,7 +304,10 @@ def run_filter[
 
     sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
 
-    initial_conditions =  model_util.slice_prior_context(smc.target, condition_path)
+    condition_layout = layout_for(smc.target)
+    prepared_conditions = condition_layout.prepare(
+        smc.target, condition_path, sequence_length
+    )
     observation_history = util.slice_pytree(
         observation_path,
         smc.target.observation_dependency,
@@ -312,14 +319,14 @@ def run_filter[
     # rather than the proposal.
     init_particles = jax.vmap(smc.target.prior_sample, in_axes=[0, None, None])(
         jrandom.split(init_key, smc.num_particles),
-        initial_conditions,
+        prepared_conditions.prior,
         smc.parameterization.to_model_parameters(parameters),
     )
     log_uw = smc.emission_log_prob(
         init_particles,
         util.index_pytree(observation_path, 0),
         observation_history,
-        initial_conditions,
+        prepared_conditions.initial_emission,
         smc.parameterization.to_model_parameters(parameters),
     )
 
@@ -339,7 +346,9 @@ def run_filter[
         ancestor_ix=jnp.full((smc.num_particles,), -1, dtype=jnp.int32),
         log_w_inc=log_uw,
         observation=util.index_pytree(observation_path, 0),
-        condition=initial_conditions,
+        prior_condition=prepared_conditions.prior,
+        transition_condition=prepared_conditions.initial_emission,
+        emission_condition=prepared_conditions.initial_emission,
         inference_parameters=parameters,
         log_z_inc=log_z_inc,
     )
@@ -352,11 +361,11 @@ def run_filter[
     def body(
         state: tuple[Array, pf_interface.FilterContext[ParticleT]], 
         inputs: tuple[
-            int, PRNGKeyArray, ObservationT, ConditionT
+            int, PRNGKeyArray, ObservationT, ConditionT, ConditionT
         ]
     ):
         obs_hist = ()  # TODO slice_emission_observation_history(
-        step_ix, step_key, observation, condition = inputs
+        step_ix, step_key, observation, transition_condition, emission_condition = inputs
 
         log_w, particles = state
         step_data = smc.sample_step(
@@ -366,7 +375,9 @@ def run_filter[
             particles,
             obs_hist,
             observation,
-            condition,
+            prepared_conditions.prior,
+            transition_condition,
+            emission_condition,
             parameters,
         )
 
@@ -377,16 +388,23 @@ def run_filter[
         return (step_data.log_w, step_data.particles), recorder_vals
 
     observation_path = util.slice_pytree(observation_path, 1, sequence_length)
-    if isinstance(condition_path, seqjtyping.NoCondition):
-        sliced_condition_path = util.broadcast_packable(condition_path, sequence_length - 1)
+    if isinstance(prepared_conditions.transitions, seqjtyping.NoCondition):
+        transition_conditions = util.broadcast_packable(
+            prepared_conditions.transitions, sequence_length - 1
+        )
+        emission_step_conditions = util.broadcast_packable(
+            prepared_conditions.recurrent_emissions, sequence_length - 1
+        )
     else:
-        sliced_condition_path = util.slice_pytree(condition_path, 1, sequence_length)
+        transition_conditions = prepared_conditions.transitions
+        emission_step_conditions = prepared_conditions.recurrent_emissions
     
     body_inputs = (
         jnp.arange(1, sequence_length),
         jnp.array(step_keys),
         observation_path,
-        sliced_condition_path,
+        transition_conditions,
+        emission_step_conditions,
     )
     init_state = (filter_data.log_w, filter_data.particles)
 

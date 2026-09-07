@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Protocol, Any, overload
+from typing import Protocol, Any
 
 import jax
 from jaxtyping import Array
@@ -44,7 +44,9 @@ class FilterData[
     resampled_particles: FilterContext[ParticleT]
 
     observation: ObservationT
-    condition: ConditionT
+    prior_condition: Any
+    transition_condition: ConditionT
+    emission_condition: ConditionT
     inference_parameters: InferenceParameterT
 
 class Recorder(Protocol):

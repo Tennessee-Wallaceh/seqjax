@@ -18,6 +18,7 @@ from seqjax.model.interface import (
     SequentialModelProtocol,
 )
 from seqjax.model.typing import Condition, Parameters
+from seqjax.model.condition import StepAlignedConditions
 
 from .types import LatentVar, LogReturnObs
 
@@ -258,6 +259,9 @@ class SimpleStochasticVar(
     observation_cls: type[LogReturnObs] = observation_cls
     parameter_cls: type[LogVarParams] = parameter_cls
     condition_cls: type[TimeStepCondition] = condition_cls
+    condition_layout: typing.ClassVar = StepAlignedConditions(
+        prior_condition_count=0
+    )
 
     latent_context: typing.Callable[..., LatentContext[LatentVar]] = (
         latent_context
