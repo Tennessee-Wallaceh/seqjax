@@ -3,10 +3,7 @@ Embedding configurations
 """
 import typing
 from dataclasses import dataclass, field
-from functools import partial
 
-import equinox as eqx
-import jax.random as jrandom
 import jaxtyping
 
 import seqjax.model.typing as seqjtyping

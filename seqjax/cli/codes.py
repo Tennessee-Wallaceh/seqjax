@@ -265,7 +265,7 @@ prior_train_config: NestedCode = {
 
 embedder_config: NestedCode = {
     "field": "embedder",
-    "registry": vi.registry.embedder_registry,
+    "registry": vi.embedder.embedder_registry,
     "options": {
         "C1D": ("conv1d", {
             "H": ("hidden_dim", parse_int_required, "2"),
