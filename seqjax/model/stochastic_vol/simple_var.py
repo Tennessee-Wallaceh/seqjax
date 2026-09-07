@@ -307,7 +307,7 @@ class FullVarParameterization(
 @dataclass
 class StochasticVarBayesian:
     target: typing.ClassVar = simple_stochastic_var_model
-    parameterization : FullVarParameterization
+    parameterization: FullVarParameterization
 
 
 def svar_full(hyperparameters: LogVarPriorHyper = LogVarPriorHyper()) -> StochasticVarBayesian:
