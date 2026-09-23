@@ -54,17 +54,17 @@ def step[
         parameters,
     )
 
-    latents = model_util.add_history(latents, next_latent)
-    emission = target.emission_sample(
+    latents = latents.append(next_latent)
+    observation = target.emission_sample(
         emission_key,
         latents,
         observation_history,
         emission_condition,
         parameters,
     )
-    observation_history = model_util.add_history(observation_history, emission)
+    observation_history = observation_history.append(observation)
 
-    return (latents, observation_history), (next_latent, emission)
+    return (latents, observation_history), (next_latent, observation)
 
 def simulate[
     LatentT: seqjtyping.Latent,
@@ -107,7 +107,7 @@ def simulate[
         parameters
     )
 
-    observation_history = model_util.add_history(observation_history, initial_obs)
+    observation_history = observation_history.append(initial_obs)
 
     init_state = (latent_context, observation_history)
 

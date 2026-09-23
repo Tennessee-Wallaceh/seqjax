@@ -1,7 +1,7 @@
 """Protocol typing for sequential models.
 
-``Condition`` and ``Parameter`` are separated. Parameters remain static over time while
-conditions vary.
+``Condition`` and ``Parameter`` are separated. 
+Parameters remain static over time while conditions vary.
 The assumption is that ``Condition`` will be supplied for every point in the overall sequence.
 
 The primary purpose of model components (e.g Prior, Transition, Emission) is to
@@ -26,19 +26,22 @@ Alternatives:
 
 import typing
 from dataclasses import dataclass, field
-from functools import partial
 
 import jax
 from jaxtyping import PRNGKeyArray, Scalar
 
 import seqjax.model.typing as seqjtyping
 
+# The context objects slice histories 
 @jax.tree_util.register_dataclass
 @dataclass
 class FixedLengthHistoryContext[ItemT]:
-    """Concrete lag-only history context with bounded length.
-    This is basically a wrapper around a tuple that gives some typing utility.
-"""
+    """Lag-only history context with a fixed target length.
+
+    The context may contain fewer values during initialization, but never more
+    than `length`. New values are appended and the oldest values discarded once
+    the target length is reached.
+    """
 
     values: tuple[ItemT, ...]
     length: int = field(metadata=dict(static=True))
@@ -50,7 +53,7 @@ class FixedLengthHistoryContext[ItemT]:
     def __getitem__(self, lag_index: int) -> ItemT:
         if not isinstance(lag_index, int):
             raise TypeError("History indices must be integers")
-        if lag_index > 0:
+        if lag_index >= 0:
             raise IndexError("History access is lag-only; use negative indices")
         if -lag_index > len(self.values):
             raise IndexError(
@@ -64,7 +67,27 @@ class FixedLengthHistoryContext[ItemT]:
     def __repr__(self) -> str:
         return "<" + "|".join([str(val) for val in self.values]) + ">"
 
+    def __post_init__(self) -> None:
+        if self.length < 0:
+            raise ValueError("History length must be non-negative")
+        if len(self.values) != self.length:
+            raise ValueError(
+                f"Expected {self.length} history values, "
+                f"received {len(self.values)}"
+            )
+        
+    def append(self, new_value: ItemT) -> typing.Self:
+        """Return a new history with the oldest value replaced."""
+        new_history = (*self.values, new_value)
+        new_context = new_history[
+            len(new_history) - self.length:
+        ]
 
+        return type(self).from_values(
+            *new_context,
+            length=self.length,
+        )
+    
 @jax.tree_util.register_dataclass
 class LatentContext[LatentT: seqjtyping.Latent](
     FixedLengthHistoryContext[LatentT],
@@ -85,6 +108,95 @@ class ConditionContext[ConditionT: seqjtyping.Condition](
 ):
     """Concrete condition history context."""
 
+# These define the distribution oper
+class PriorSampleFn[
+    LatentT: seqjtyping.Latent,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](typing.Protocol):
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        conditions: ConditionContext[ConditionT],
+        parameters: ParametersT,
+    ) -> LatentContext[LatentT]: ...
+
+
+class PriorLogProbFn[
+    LatentT: seqjtyping.Latent,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](typing.Protocol):
+    def __call__(
+        self,
+        latent: LatentContext[LatentT],
+        conditions: ConditionContext[ConditionT],
+        parameters: ParametersT,
+    ) -> Scalar: ...
+
+
+class TransitionSampleFn[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](typing.Protocol):
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentContext[LatentT],
+        observation_history: ObservationContext[ObservationT],
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> LatentT: ...
+
+
+class TransitionLogProbFn[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](typing.Protocol):
+    def __call__(
+        self,
+        latent_history: LatentContext[LatentT],
+        observation_history: ObservationContext[ObservationT],
+        latent: LatentT,
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> Scalar: ...
+
+
+class EmissionSampleFn[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](typing.Protocol):
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        latent_history: LatentContext[LatentT],
+        observation_history: ObservationContext[ObservationT],
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> ObservationT: ...
+
+
+class EmissionLogProbFn[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](typing.Protocol):
+    def __call__(
+        self,
+        latent_history: LatentContext[LatentT],
+        observation: ObservationT,
+        observation_history: ObservationContext[ObservationT],
+        condition: ConditionT,
+        parameters: ParametersT,
+    ) -> Scalar: ...
 
 class SequentialModelProtocol[
     LatentT: seqjtyping.Latent,
@@ -97,88 +209,179 @@ class SequentialModelProtocol[
     parameter_cls: type[ParametersT]
     condition_cls: type[ConditionT]
 
-    prior_order: int
-    transition_order: int
-    emission_order: int
-    observation_dependency: int
+    transition_latent_order: int
+    transition_observation_order: int
+    emission_latent_order: int
+    emission_observation_order: int
 
-    latent_context: typing.Callable[..., LatentContext[LatentT]]
-    observation_context: typing.Callable[..., ObservationContext[ObservationT]]
-    condition_context: typing.Callable[..., ConditionContext[ConditionT]]
+    @property
+    def prior_latent_order(self) -> int: ...
 
-    def prior_sample(
-        self,
-        key: PRNGKeyArray,
-        conditions: ConditionContext[ConditionT],
-        parameters: ParametersT,
-    ) -> LatentContext[LatentT]: ...
+    @property
+    def observation_context_length(self) -> int: ...
 
-    def prior_log_prob(
-        self,
-        latent: LatentContext[LatentT],
-        conditions: ConditionContext[ConditionT],
-        parameters: ParametersT,
-    ) -> Scalar: ...
+    def latent_context(self, *values: LatentT) -> LatentContext[LatentT]: ...
 
-    def transition_sample(
-        self,
-        key: PRNGKeyArray,
-        latent_history: LatentContext[LatentT],
-        condition: ConditionT,
-        parameters: ParametersT,
-    ) -> LatentT: ...
+    def observation_context(self, *values: ObservationT) -> ObservationContext[ObservationT]: ...
 
-    def transition_log_prob(
-        self,
-        latent_history: LatentContext[LatentT],
-        latent: LatentT,
-        condition: ConditionT,
-        parameters: ParametersT,
-    ) -> Scalar: ...
+    def condition_context(self, *values: ConditionT) -> ConditionContext[ConditionT]: ...
 
-    def emission_sample(
-        self,
-        key: PRNGKeyArray,
-        latent_history: LatentContext[LatentT],
-        observation_history: ObservationContext[ObservationT],
-        condition: ConditionT,
-        parameters: ParametersT,
-    ) -> ObservationT: ...
+    prior_sample: PriorSampleFn[LatentT, ConditionT, ParametersT]
+    prior_log_prob: PriorLogProbFn[LatentT, ConditionT, ParametersT]                        
 
-    def emission_log_prob(
-        self,
-        latent_history: LatentContext[LatentT],
-        observation: ObservationT,
-        observation_history: ObservationContext[ObservationT],
-        condition: ConditionT,
-        parameters: ParametersT,
-    ) -> Scalar: ...
+    transition_sample: TransitionSampleFn[LatentT, ObservationT, ConditionT, ParametersT]
+    transition_log_prob: TransitionLogProbFn[LatentT, ObservationT, ConditionT, ParametersT]
 
-def validate_sequential_model[
+    emission_sample: EmissionSampleFn[LatentT, ObservationT, ConditionT, ParametersT]
+    emission_log_prob: EmissionLogProbFn[LatentT, ObservationT, ConditionT, ParametersT]                                        
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True, kw_only=True)
+class SequentialModel[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
 ](
-    model: SequentialModelProtocol[LatentT, ObservationT, ConditionT, ParametersT],
-) -> SequentialModelProtocol[LatentT, ObservationT, ConditionT, ParametersT]:
-    if model.prior_order < max(model.transition_order, model.emission_order):
-        raise ValueError(
-            "prior_order must be >= max(transition_order, emission_order), got "
-            f"prior_order={model.prior_order} transition_order={model.transition_order} "
-            f"emission_order={model.emission_order}"
+    SequentialModelProtocol[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ],
+):
+    latent_cls: type[LatentT] = field(metadata={"static": True})
+    observation_cls: type[ObservationT] = field(metadata={"static": True})
+    parameter_cls: type[ParametersT] = field(metadata={"static": True})
+    condition_cls: type[ConditionT] = field(metadata={"static": True})
+    
+    transition_latent_order: int = field(
+        default=1,
+        metadata={"static": True},
+    )
+    transition_observation_order: int = field(
+        default=0,
+        metadata={"static": True},
+    )
+    emission_latent_order: int = field(
+        default=1,
+        metadata={"static": True},
+    )
+    emission_observation_order: int = field(
+        default=0,
+        metadata={"static": True},
+    )
+
+    prior_sample: PriorSampleFn[
+        LatentT,
+        ConditionT,
+        ParametersT,
+    ] = field(
+        metadata={"static": True},
+        repr=False,
+    )
+
+    prior_log_prob: PriorLogProbFn[
+        LatentT,
+        ConditionT,
+        ParametersT,
+    ] = field(
+        metadata={"static": True},
+        repr=False,
+    )
+
+    transition_sample: TransitionSampleFn[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ] = field(
+        metadata={"static": True},
+        repr=False,
+    )
+
+    transition_log_prob: TransitionLogProbFn[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ] = field(
+        metadata={"static": True},
+        repr=False,
+    )
+
+    emission_sample: EmissionSampleFn[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ] = field(
+        metadata={"static": True},
+        repr=False,
+    )
+
+    emission_log_prob: EmissionLogProbFn[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ] = field(
+        metadata={"static": True},
+        repr=False,
+    )
+
+    @property
+    def prior_latent_order(self) -> int:
+        return max(
+            self.transition_latent_order,
+            self.emission_latent_order,
         )
 
-    return model    
+    @property
+    def observation_context_length(self) -> int:
+        return max(
+            self.transition_observation_order,
+            self.emission_observation_order,
+        )
+
+    def latent_context(
+        self,
+        *values: LatentT,
+    ) -> LatentContext[LatentT]:
+        return LatentContext.from_values(
+            *values,
+            length=self.prior_order,
+        )
+
+    def observation_context(
+        self,
+        *values: ObservationT,
+    ) -> ObservationContext[ObservationT]:
+        return ObservationContext.from_values(
+            *values,
+            length=self.observation_context_length,
+        )
+
+    def condition_context(
+        self,
+        *values: ConditionT,
+    ) -> ConditionContext[ConditionT]:
+        return ConditionContext.from_values(
+            *values,
+            length=0,
+        )
 
 """
-A bayesian model is defined in the following way:
-SequentialModel
-+ Parameterization(InferenceParameters -> ModelParameters)
-+ Prior(InferenceParameters)
+A Bayesian model is defined in the following way:
+SequentialModel(ModelParameters)
++ Parameterization(
+    InferenceParameters -> ModelParameters,
+    HyperParameters
+)
 
-For now I package the prior with the Parameterization, since they are quite tightly 
-coupled.
+The Parameterization also expresses the prior density.
+InferenceParameters are unconstrained, 
+to enable automatic inference.
 """
 class ParameterizationProtocol[
     ParameterT: seqjtyping.Parameters,

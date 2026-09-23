@@ -102,7 +102,9 @@ def estimate_step_score[
     transition_history = model.target.latent_context(filter_data.resampled_particles.values)
     proposed_particles = filter_data.particles[-1]
 
-    emission_particles = model_util.add_history(filter_data.resampled_particles, filter_data.particles[-1])
+    emission_particles = filter_data.resampled_particles.append(
+        filter_data.particles[-1]
+    )
 
     return jax.vmap(
         model_step_score,

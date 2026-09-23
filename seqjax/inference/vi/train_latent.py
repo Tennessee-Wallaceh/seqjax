@@ -18,7 +18,7 @@ from quantiphy import Quantity
 
 from seqjax.inference.vi import interface
 from seqjax.inference.interface import InferenceDataset
-from seqjax.inference.vi.embedder import Embedder
+from seqjax.inference.vi.embedder.embedder import Embedder
 from seqjax.inference.vi.base import _sample_sequence_minibatch
 
 import seqjax.model.typing as seqjtyping

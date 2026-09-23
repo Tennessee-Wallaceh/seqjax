@@ -220,7 +220,7 @@ class SMCSampler[
             params,
         )
 
-        emission_particles = model_util.add_history(transition_history, proposed_particles)
+        emission_particles = transition_history.append(proposed_particles)
 
         obs_history = (
             observation_history[-self.target.observation_dependency :]
@@ -247,7 +247,7 @@ class SMCSampler[
                 proposal_history, observation, proposed_particles, transition_condition, params
             )
         )
-        particles = model_util.add_history(resampled_particles, proposed_particles)
+        particles = resampled_particles.append(proposed_particles)
 
         log_w_unnorm = resampled_log_w + log_weight_inc
         log_z_inc = jsp.logsumexp(log_w_unnorm)
@@ -286,7 +286,7 @@ def run_filter[
         ParameterT,
         InferenceParameterT,
     ],
-    parameters: InferenceParameterT,
+    inference_parameters: InferenceParameterT,
     observation_path: ObservationT,
     *,
     condition_path: ConditionT | None = None,
@@ -302,7 +302,7 @@ def run_filter[
     Optional observation_history provides necessary history for the first evaluation.
     """
 
-    sequence_length = jax.tree_util.tree_leaves(observation_path)[0].shape[0]
+    sequence_length = observation_path.batch_shape[0]
 
     condition_path = normalize_condition_path(
         smc.target, condition_path, (sequence_length,)
@@ -324,14 +324,14 @@ def run_filter[
     init_particles = jax.vmap(smc.target.prior_sample, in_axes=[0, None, None])(
         jrandom.split(init_key, smc.num_particles),
         prepared_conditions.prior,
-        smc.parameterization.to_model_parameters(parameters),
+        smc.parameterization.to_model_parameters(inference_parameters),
     )
     log_uw = smc.emission_log_prob(
         init_particles,
         util.index_pytree(observation_path, 0),
         observation_history,
         prepared_conditions.initial_emission,
-        smc.parameterization.to_model_parameters(parameters),
+        smc.parameterization.to_model_parameters(inference_parameters),
     )
 
     log_weight_norm = jsp.logsumexp(log_uw)
@@ -353,7 +353,7 @@ def run_filter[
         prior_condition=prepared_conditions.prior,
         transition_condition=prepared_conditions.initial_emission,
         emission_condition=prepared_conditions.initial_emission,
-        inference_parameters=parameters,
+        inference_parameters=inference_parameters,
         log_z_inc=log_z_inc,
     )
     intial_record = (
@@ -382,7 +382,7 @@ def run_filter[
             prepared_conditions.prior,
             transition_condition,
             emission_condition,
-            parameters,
+            inference_parameters,
         )
 
         recorder_vals = (
