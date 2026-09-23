@@ -46,6 +46,7 @@ def step[
     next_latent = target.transition_sample(
         transition_key,
         latents,
+        observation_history,
         condition,
         parameters,
     )
@@ -82,7 +83,9 @@ def simulate[
     *,
     sequence_length: int | None = None,
     condition: ConditionT | None = None,
-    observation_history: model_interface.ObservationContext[ObservationT] =  None
+    observation_history: model_interface.ObservedHistoryContext[
+        ObservationT, ConditionT
+    ] =  None
 ):
     if (sequence_length is None) == (condition is None):
         raise ValueError("Exactly one of sequence_length and condition must be provided") 
