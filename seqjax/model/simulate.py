@@ -6,13 +6,9 @@ import jax.numpy as jnp
 import jax.random as jrandom
 from jaxtyping import PRNGKeyArray
 
-from seqjax.model import (
-    interface as model_interface,
-    util as model_util
-)
-from seqjax import util
+from seqjax.model import interface as model_interface
 import seqjax.model.typing as seqjtyping
-from seqjax.model.condition import layout_for, normalize_condition_path
+from seqjax.model.condition import  normalize_condition_path
 
 def step[
     LatentT: seqjtyping.Latent,
@@ -29,19 +25,19 @@ def step[
     parameters: ParametersT,
     state: tuple[
         model_interface.LatentContext[LatentT],
-        model_interface.ObservationContext[ObservationT],
+        model_interface.ObservedHistoryContext[ObservationT],
     ],
-    inputs: tuple[PRNGKeyArray, ConditionT, ConditionT],
+    inputs: tuple[PRNGKeyArray, ConditionT],
 ) -> tuple[
     tuple[
         model_interface.LatentContext[LatentT],
-        model_interface.ObservationContext[ObservationT],
+        model_interface.ObservedHistoryContext[ObservationT, ConditionT],
     ],
     tuple[LatentT, ObservationT],
 ]:
     """Single simulation step returning updated state and new sample."""
 
-    step_key, transition_condition, emission_condition = inputs
+    step_key, condition = inputs
     latents, observation_history = state
     transition_key, emission_key = jrandom.split(step_key)
 
@@ -50,7 +46,7 @@ def step[
     next_latent = target.transition_sample(
         transition_key,
         latents,
-        transition_condition,
+        condition,
         parameters,
     )
 
@@ -59,10 +55,13 @@ def step[
         emission_key,
         latents,
         observation_history,
-        emission_condition,
+        condition,
         parameters,
     )
-    observation_history = observation_history.append(observation)
+    observation_history = observation_history.append_observation(
+        observation,
+        condition,
+    )
 
     return (latents, observation_history), (next_latent, observation)
 
@@ -80,53 +79,58 @@ def simulate[
         ParametersT,
     ],
     parameters: ParametersT,
-    sequence_length: int,
+    *,
+    sequence_length: int | None = None,
     condition: ConditionT | None = None,
-    observation_history: model_interface.ObservationContext[ObservationT] =  model_interface.ObservationContext.from_values(length=0)
+    observation_history: model_interface.ObservationContext[ObservationT] =  None
 ):
-    if sequence_length < 1:
-        raise jax.errors.JaxRuntimeError(
-            f"sequence_length must be >= 1, got {sequence_length}"
+    if (sequence_length is None) == (condition is None):
+        raise ValueError("Exactly one of sequence_length and condition must be provided") 
+    elif condition is None:
+        condition = normalize_condition_path(target, condition, (sequence_length,))
+    elif sequence_length is None:
+        if len(condition.batch_shape) != 1:
+            raise ValueError(
+                f"Simulation defined for single sequences, received condition.batch_shape=(condition.batch_shape)"
+            )
+        sequence_length = condition.batch_shape[0]
+
+    if observation_history is None:
+        if target.observation_context_length != 0:
+            raise ValueError(
+                "observation_history must be provided when "
+                f"target.observation_context_length="
+                f"{target.observation_context_length}"
+            )
+
+        observation_history = target.observation_context()
+
+    elif observation_history.length != target.observation_context_length:
+        raise ValueError(
+            "observation_history has the wrong length: "
+            f"expected {target.observation_context_length}, "
+            f"received {observation_history.length}"
         )
-    
-    condition = normalize_condition_path(target, condition, (sequence_length,))
 
-    init_x_key, init_y_key, *step_keys = jrandom.split(key, sequence_length + 1)
+    init_x_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
-    condition_layout = layout_for(target)
-    prepared_conditions = condition_layout.prepare(target, condition, sequence_length)
-    latent_context = target.prior_sample(
-        init_x_key, prepared_conditions.prior, parameters
-    )
+    prior_context = target.prior_sample(init_x_key, parameters)
 
-    initial_obs = target.emission_sample(
-        init_y_key,
-        latent_context,
-        observation_history,
-        prepared_conditions.initial_emission,
-        parameters
-    )
+    init_state = (prior_context, observation_history)
 
-    observation_history = observation_history.append(initial_obs)
+    inputs = (jnp.array(step_keys), condition)
 
-    init_state = (latent_context, observation_history)
-
-    inputs = (
-        jnp.array(step_keys),
-        prepared_conditions.transitions,
-        prepared_conditions.recurrent_emissions,
-    )
-
+    # closes over target and parameters
     def model_step(
         state: tuple[
             model_interface.LatentContext[LatentT],
-            model_interface.ObservationContext[ObservationT],
+            model_interface.ObservedHistoryContext[ObservationT, ConditionT],
         ],
-        inputs: tuple[PRNGKeyArray, ConditionT, ConditionT],
+        inputs: tuple[PRNGKeyArray, ConditionT],
     ) -> tuple[
         tuple[
             model_interface.LatentContext[LatentT],
-            model_interface.ObservationContext[ObservationT],
+            model_interface.ObservedHistoryContext[ObservationT, ConditionT],
         ],
         tuple[LatentT, ObservationT],
     ]:
@@ -136,16 +140,8 @@ def simulate[
         model_step,
         init_state,
         xs=inputs,
-        length=sequence_length - 1,
+        length=sequence_length,
         unroll=1
     )
 
-    latent_full = util.concat_pytree(
-        *latent_context.values,
-        latent_scan,
-    )
-    observed_full = util.concat_pytree(
-        initial_obs,
-        obs_scan,
-    )
-    return latent_full, observed_full
+    return prior_context, latent_scan, obs_scan
