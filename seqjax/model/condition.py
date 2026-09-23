@@ -6,7 +6,9 @@ import typing
 import seqjax.model.typing as seqjtyping
 from seqjax import util
 from seqjax.model.interface import ConditionContext
-
+from seqjax.model import (
+    interface as model_interface,
+)
 
 class ConditionLayoutProtocol[ConditionT: seqjtyping.Condition](typing.Protocol):
     """Map a packed condition path onto prior, transition, and emission calls."""
@@ -92,9 +94,13 @@ class StepAlignedConditions:
 
 DEFAULT_CONDITION_LAYOUT = StepAlignedConditions()
 
-
 def normalize_condition_path[ConditionT: seqjtyping.Condition](
-    model: typing.Any,
+    model: model_interface.SequentialModelProtocol[
+        typing.Any,
+        typing.Any,
+        ConditionT,
+        typing.Any,
+    ],
     path: ConditionT | None,
     batch_shape: tuple[int, ...],
 ) -> ConditionT:
@@ -115,10 +121,12 @@ def normalize_condition_path[ConditionT: seqjtyping.Condition](
         raise ValueError(
             f"{model_name} requires a condition path, but an empty condition was supplied."
         )
+    
     if not isinstance(path, seqjtyping.NoCondition) and condition_cls is seqjtyping.NoCondition:
         raise ValueError(
             f"{model_name} is unconditional, but a condition path was supplied."
         )
+    
     if (
         isinstance(path, seqjtyping.NoCondition)
         and path.batch_shape != batch_shape
