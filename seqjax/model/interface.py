@@ -166,9 +166,9 @@ class TransitionSampleFn[
         self,
         key: PRNGKeyArray,
         latent_history: LatentContext[LatentT],
-        observation_history: ObservedHistoryContext[ObservationT, ConditionT],
-        condition: ConditionT,
         parameters: ParametersT,
+        condition: ConditionT,
+        observation_history: ObservedHistoryContext[ObservationT, ConditionT],
     ) -> LatentT: ...
 
 
@@ -181,10 +181,10 @@ class TransitionLogProbFn[
     def __call__(
         self,
         latent_history: LatentContext[LatentT],
-        observation_history: ObservedHistoryContext[ObservationT, ConditionT],
         latent: LatentT,
-        condition: ConditionT,
         parameters: ParametersT,
+        condition: ConditionT,
+        observation_history: ObservedHistoryContext[ObservationT, ConditionT],
     ) -> Scalar: ...
 
 
@@ -198,9 +198,9 @@ class EmissionSampleFn[
         self,
         key: PRNGKeyArray,
         latent_history: LatentContext[LatentT],
-        observation_history: ObservedHistoryContext[ObservationT, ConditionT],
-        condition: ConditionT,
         parameters: ParametersT,
+        condition: ConditionT,
+        observation_history: ObservedHistoryContext[ObservationT, ConditionT],
     ) -> ObservationT: ...
 
 
@@ -214,9 +214,9 @@ class EmissionLogProbFn[
         self,
         latent_history: LatentContext[LatentT],
         observation: ObservationT,
-        observation_history: ObservedHistoryContext[ObservationT, ConditionT],
-        condition: ConditionT,
         parameters: ParametersT,
+        condition: ConditionT,
+        observation_history: ObservedHistoryContext[ObservationT, ConditionT],
     ) -> Scalar: ...
 
 class SequentialModelProtocol[
@@ -300,13 +300,11 @@ class SequentialModel[
 
     prior_sample: PriorSampleFn[
         LatentT,
-        ConditionT,
         ParametersT,
     ] = field(metadata={"static": True})
 
     prior_log_prob: PriorLogProbFn[
         LatentT,
-        ConditionT,
         ParametersT,
     ] = field(metadata={"static": True})
 
