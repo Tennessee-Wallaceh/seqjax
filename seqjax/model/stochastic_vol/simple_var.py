@@ -1,6 +1,5 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from functools import partial
 import typing
 
 import jax
@@ -10,22 +9,20 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    validate_sequential_model,
-    ConditionContext,
+    ObservedHistoryContext,
     LatentContext,
-    ObservationContext,
+    SequentialModel,
     ParameterizationProtocol,
-    SequentialModelProtocol,
 )
-from seqjax.model.typing import Parameters, NoCondition, NoHyper
+from seqjax.model.typing import Parameters, NoCondition
 
 from .types import LatentVar, LogReturnObs, LogVarParams
 
 
-prior_order = 1
-transition_order = 1
-emission_order = 1
-observation_dependency = 0
+transition_latent_order = 1
+emission_latent_order = 1
+transition_observation_order = 0
+emission_observation_order = 0
 
 # latent state is an annualized variance
 # observations are in annualized terms
@@ -37,46 +34,39 @@ observation_cls = LogReturnObs
 parameter_cls = LogVarParams
 condition_cls = NoCondition
 
-latent_context = partial(LatentContext, length=transition_order)
-observation_context = partial(ObservationContext, length=observation_dependency)
-condition_context = partial(ConditionContext, length=0)
-
-
 def _stationary_scale(parameters: LogVarParams) -> Scalar:
     return jnp.sqrt(jnp.square(parameters.std_log_var) / (1 - jnp.square(parameters.ar)))
 
 
 def prior_sample(
     key: PRNGKeyArray,
-    conditions: ConditionContext[NoCondition],
     parameters: LogVarParams,
 ) -> LatentContext[LatentVar]:
-    _ = conditions
     sigma = _stationary_scale(parameters)
     mu = parameters.long_term_log_var
     start_lv = LatentVar(log_var=mu + sigma * jrandom.normal(key))
-    return latent_context((start_lv,))
+    return LatentContext.from_values(start_lv, length=max(transition_latent_order, emission_latent_order))
 
 
 def prior_log_prob(
     latent: LatentContext[LatentVar],
-    conditions: ConditionContext[NoCondition],
     parameters: LogVarParams,
 ) -> Scalar:
-    _ = conditions
     sigma = _stationary_scale(parameters)
     mu = parameters.long_term_log_var
-    return jstats.norm.logpdf(latent[0].log_var, loc=mu, scale=sigma)
+    return jstats.norm.logpdf(latent[-1].log_var, loc=mu, scale=sigma)
 
 
 def transition_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[LatentVar],
-    condition: NoCondition,
     parameters: LogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> LatentVar:
+    _ = observation_history
     _ = condition
-    last_log_var = latent_history[0]
+    last_log_var = latent_history[-1]
     loc = parameters.long_term_log_var + parameters.ar * (
         last_log_var.log_var - parameters.long_term_log_var
     )
@@ -86,11 +76,13 @@ def transition_sample(
 def transition_log_prob(
     latent_history: LatentContext[LatentVar],
     latent: LatentVar,
-    condition: NoCondition,
     parameters: LogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> Scalar:
+    _ = observation_history
     _ = condition
-    last_log_var = latent_history[0]
+    last_log_var = latent_history[-1]
     loc = parameters.long_term_log_var + parameters.ar * (
         last_log_var.log_var - parameters.long_term_log_var
     )
@@ -100,14 +92,14 @@ def transition_log_prob(
 def emission_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[LatentVar],
-    observation_history: ObservationContext[LogReturnObs],
-    condition: NoCondition,
     parameters: LogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> LogReturnObs:
     _ = observation_history
     _ = condition
     _ = parameters
-    current_latent = latent_history[0]
+    current_latent = latent_history[-1]
     return_scale = jnp.exp(0.5 * current_latent.log_var)
     return LogReturnObs(log_return=jrandom.normal(key) * return_scale)
 
@@ -115,50 +107,33 @@ def emission_sample(
 def emission_log_prob(
     latent_history: LatentContext[LatentVar],
     observation: LogReturnObs,
-    observation_history: ObservationContext[LogReturnObs],
-    condition: NoCondition,
     parameters: LogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> Scalar:
     _ = observation_history
     _ = condition
     _ = parameters
-    current_latent = latent_history[0]
+    current_latent = latent_history[-1]
     return_scale = jnp.exp(0.5 * current_latent.log_var)
     return jstats.norm.logpdf(observation.log_return, loc=0.0, scale=return_scale)
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class SimpleStochasticVar(
-    SequentialModelProtocol[
-        LatentVar,
-        LogReturnObs,
-        NoCondition,
-        LogVarParams,
-    ]
-):
-    prior_order: int = prior_order
-    transition_order: int = transition_order
-    emission_order: int = emission_order
-    observation_dependency: int = observation_dependency
-
-    latent_cls: type[LatentVar] = latent_cls
-    observation_cls: type[LogReturnObs] = observation_cls
-    parameter_cls: type[LogVarParams] = parameter_cls
-    condition_cls: type[NoCondition] = condition_cls
-
-    latent_context: typing.Callable[..., LatentContext[LatentVar]] = latent_context
-    observation_context: typing.Callable[..., ObservationContext[LogReturnObs]] = observation_context
-    condition_context: typing.Callable[..., ConditionContext[NoCondition]] = condition_context
-
-    prior_sample = staticmethod(prior_sample)
-    prior_log_prob = staticmethod(prior_log_prob)
-    transition_sample = staticmethod(transition_sample)
-    transition_log_prob = staticmethod(transition_log_prob)
-    emission_sample = staticmethod(emission_sample)
-    emission_log_prob = staticmethod(emission_log_prob)
-
-
-simple_stochastic_var_model = validate_sequential_model(SimpleStochasticVar())
+simple_stochastic_var_model = SequentialModel(
+    latent_cls=latent_cls,
+    observation_cls=observation_cls,
+    parameter_cls=parameter_cls,
+    condition_cls=condition_cls,
+    transition_latent_order=transition_latent_order,
+    transition_observation_order=transition_observation_order,
+    emission_latent_order=emission_latent_order,
+    emission_observation_order=emission_observation_order,
+    prior_sample=prior_sample,
+    prior_log_prob=prior_log_prob,
+    transition_sample=transition_sample,
+    transition_log_prob=transition_log_prob,
+    emission_sample=emission_sample,
+    emission_log_prob=emission_log_prob,
+)
 
 class UncLogVarParams(Parameters):
     sft_inv_std_log_var: Scalar

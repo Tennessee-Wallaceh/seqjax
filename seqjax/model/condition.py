@@ -5,10 +5,7 @@ import typing
 
 import seqjax.model.typing as seqjtyping
 from seqjax import util
-from seqjax.model.interface import ConditionContext
-from seqjax.model import (
-    interface as model_interface,
-)
+from seqjax.model.util import normalize_condition_path as normalize_condition_path
 
 class ConditionLayoutProtocol[ConditionT: seqjtyping.Condition](typing.Protocol):
     """Map a packed condition path onto prior, transition, and emission calls."""
@@ -29,7 +26,7 @@ class SupportsConditionLayout(typing.Protocol):
 class PreparedConditions[ConditionT: seqjtyping.Condition]:
     """Conditions prepared for one complete sequential-model execution."""
 
-    prior: ConditionContext[ConditionT]
+    prior: tuple[()]
     initial_emission: ConditionT
     transitions: ConditionT
     recurrent_emissions: ConditionT
@@ -67,17 +64,9 @@ class StepAlignedConditions:
                 "Condition preparation requires at least one observation; "
                 f"got observation_count={observation_count}."
             )
-        count = (
-            0
-            if path.flat_dim == 0
-            else model.prior_order
-            if self.prior_condition_count is None
-            else self.prior_condition_count
-        )
+        count = 0
         self._require_length(path, max(count, observation_count))
-        prior = model.condition_context(
-            tuple(util.index_pytree(path, index) for index in range(count))
-        )
+        prior = ()
         emissions = util.slice_pytree(path, 0, observation_count)
         recurrent = util.slice_pytree(path, 1, observation_count)
         return PreparedConditions(

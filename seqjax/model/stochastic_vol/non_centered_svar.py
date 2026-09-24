@@ -1,6 +1,5 @@
 from collections import OrderedDict
-from dataclasses import dataclass, field
-from functools import partial
+from dataclasses import dataclass
 import typing
 
 import jax
@@ -10,18 +9,14 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    validate_sequential_model,
-    ConditionContext,
+    ObservedHistoryContext,
     LatentContext,
-    ObservationContext,
-    ParameterizationProtocol,
-    SequentialModelProtocol,
+    SequentialModel,
 )
-from seqjax.model.typing import Latent, Parameters, NoCondition, NoHyper
+from seqjax.model.typing import Latent, NoCondition, NoHyper
 
-from .common import StochVarARPrior, StochVarFullPrior, StochVarPrior, lvar_from_ar_only, lvar_from_std_only
-from .types import LatentVar, LogReturnObs, LogVarAR, LogVarParams, LogVarStd
-from .simple_var import UncLogVarParams, FullVarParameterization
+from .types import LogReturnObs, LogVarParams
+from .simple_var import FullVarParameterization
 
 class NonCenteredLatentVar(Latent):
     z: Scalar
@@ -29,75 +24,71 @@ class NonCenteredLatentVar(Latent):
         z=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
     )
 
-prior_order = 1
-transition_order = 1
-emission_order = 1
-observation_dependency = 0
+transition_latent_order = 1
+emission_latent_order = 1
+transition_observation_order = 0
+emission_observation_order = 0
 
 latent_cls = NonCenteredLatentVar
 observation_cls = LogReturnObs
 parameter_cls = LogVarParams
 condition_cls = NoCondition
 
-latent_context = partial(LatentContext, length=transition_order)
-observation_context = partial(ObservationContext, length=observation_dependency)
-condition_context = partial(ConditionContext, length=0)
-
 def _stationary_scale_nc(parameters: LogVarParams) -> Scalar:
     return jnp.sqrt(1.0 / (1 - jnp.square(parameters.ar)))
 
 def prior_sample(
     key: PRNGKeyArray,
-    conditions: ConditionContext[NoCondition],
     parameters: LogVarParams,
 ) -> LatentContext[NonCenteredLatentVar]:
-    _ = conditions
     sigma = _stationary_scale_nc(parameters)
     start_z = NonCenteredLatentVar(z=sigma * jrandom.normal(key))
-    return latent_context((start_z,))
+    return LatentContext.from_values(start_z, length=max(transition_latent_order, emission_latent_order))
 
 def prior_log_prob(
     latent: LatentContext[NonCenteredLatentVar],
-    conditions: ConditionContext[NoCondition],
     parameters: LogVarParams,
 ) -> Scalar:
-    _ = conditions
     sigma = _stationary_scale_nc(parameters)
-    return jstats.norm.logpdf(latent[0].z, loc=0.0, scale=sigma)
+    return jstats.norm.logpdf(latent[-1].z, loc=0.0, scale=sigma)
 
 
 def transition_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[NonCenteredLatentVar],
-    condition: NoCondition,
     parameters: LogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> NonCenteredLatentVar:
+    _ = observation_history
     _ = condition
-    last_z = latent_history[0].z
+    last_z = latent_history[-1].z
     loc = parameters.ar * last_z
     return NonCenteredLatentVar(z=loc + jrandom.normal(key))
 
 def transition_log_prob(
     latent_history: LatentContext[NonCenteredLatentVar],
     latent: NonCenteredLatentVar,
-    condition: NoCondition,
     parameters: LogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> Scalar:
+    _ = observation_history
     _ = condition
-    last_z = latent_history[0].z
+    last_z = latent_history[-1].z
     loc = parameters.ar * last_z
     return jstats.norm.logpdf(latent.z, loc=loc, scale=1.0)
 
 def emission_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[NonCenteredLatentVar],
-    observation_history: ObservationContext[LogReturnObs],
-    condition: NoCondition,
     parameters: LogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> LogReturnObs:
     _ = observation_history
     _ = condition
-    current_z = latent_history[0].z
+    current_z = latent_history[-1].z
     current_log_var = (
         parameters.long_term_log_var
         + parameters.std_log_var * current_z
@@ -108,13 +99,13 @@ def emission_sample(
 def emission_log_prob(
     latent_history: LatentContext[NonCenteredLatentVar],
     observation: LogReturnObs,
-    observation_history: ObservationContext[LogReturnObs],
-    condition: NoCondition,
     parameters: LogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> Scalar:
     _ = observation_history
     _ = condition
-    current_z = latent_history[0].z
+    current_z = latent_history[-1].z
     current_log_var = (
         parameters.long_term_log_var
         + parameters.std_log_var * current_z
@@ -126,39 +117,22 @@ def emission_log_prob(
         scale=return_scale,
     )
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class NCStochasticVar(
-    SequentialModelProtocol[
-        NonCenteredLatentVar,
-        LogReturnObs,
-        NoCondition,
-        LogVarParams,
-    ]
-):
-    prior_order: int = prior_order
-    transition_order: int = transition_order
-    emission_order: int = emission_order
-    observation_dependency: int = observation_dependency
-
-    latent_cls: type[NonCenteredLatentVar] = latent_cls
-    observation_cls: type[LogReturnObs] = observation_cls
-    parameter_cls: type[LogVarParams] = parameter_cls
-    condition_cls: type[NoCondition] = condition_cls
-
-    latent_context: typing.Callable[..., LatentContext[NonCenteredLatentVar]] = latent_context
-    observation_context: typing.Callable[..., ObservationContext[LogReturnObs]] = observation_context
-    condition_context: typing.Callable[..., ConditionContext[NoCondition]] = condition_context
-
-    prior_sample = staticmethod(prior_sample)
-    prior_log_prob = staticmethod(prior_log_prob)
-    transition_sample = staticmethod(transition_sample)
-    transition_log_prob = staticmethod(transition_log_prob)
-    emission_sample = staticmethod(emission_sample)
-    emission_log_prob = staticmethod(emission_log_prob)
-
-
-nc_stochastic_var_model = validate_sequential_model(NCStochasticVar())
+nc_stochastic_var_model = SequentialModel(
+    latent_cls=latent_cls,
+    observation_cls=observation_cls,
+    parameter_cls=parameter_cls,
+    condition_cls=condition_cls,
+    transition_latent_order=transition_latent_order,
+    transition_observation_order=transition_observation_order,
+    emission_latent_order=emission_latent_order,
+    emission_observation_order=emission_observation_order,
+    prior_sample=prior_sample,
+    prior_log_prob=prior_log_prob,
+    transition_sample=transition_sample,
+    transition_log_prob=transition_log_prob,
+    emission_sample=emission_sample,
+    emission_log_prob=emission_log_prob,
+)
 
 @jax.tree_util.register_dataclass
 @dataclass

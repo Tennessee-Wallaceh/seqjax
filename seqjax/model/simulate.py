@@ -25,7 +25,7 @@ def step[
     parameters: ParametersT,
     state: tuple[
         model_interface.LatentContext[LatentT],
-        model_interface.ObservedHistoryContext[ObservationT],
+        model_interface.ObservedHistoryContext[ObservationT, ConditionT],
     ],
     inputs: tuple[PRNGKeyArray, ConditionT],
 ) -> tuple[
@@ -46,18 +46,18 @@ def step[
     next_latent = target.transition_sample(
         transition_key,
         latents,
-        observation_history,
-        condition,
         parameters,
+        condition,
+        observation_history,
     )
 
     latents = latents.append(next_latent)
     observation = target.emission_sample(
         emission_key,
         latents,
-        observation_history,
-        condition,
         parameters,
+        condition,
+        observation_history,
     )
     observation_history = observation_history.append_observation(
         observation,
@@ -94,7 +94,8 @@ def simulate[
     elif sequence_length is None:
         if len(condition.batch_shape) != 1:
             raise ValueError(
-                f"Simulation defined for single sequences, received condition.batch_shape=(condition.batch_shape)"
+                "Simulation is defined for single sequences, received "
+                f"condition.batch_shape={condition.batch_shape}"
             )
         sequence_length = condition.batch_shape[0]
 
@@ -106,7 +107,7 @@ def simulate[
                 f"{target.observation_context_length}"
             )
 
-        observation_history = target.observation_context()
+        observation_history = target.observed_history_context()
 
     elif observation_history.length != target.observation_context_length:
         raise ValueError(
@@ -147,4 +148,4 @@ def simulate[
         unroll=1
     )
 
-    return prior_context, latent_scan, obs_scan
+    return latent_scan, obs_scan

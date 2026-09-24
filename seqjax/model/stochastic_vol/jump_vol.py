@@ -1,6 +1,5 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from functools import partial
 import typing
 
 import jax
@@ -10,33 +9,22 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    validate_sequential_model,
-    ConditionContext,
+    ObservedHistoryContext,
     LatentContext,
-    ObservationContext,
+    SequentialModel,
     ParameterizationProtocol,
-    SequentialModelProtocol,
 )
 
-from seqjax.model.typing import Latent, Parameters, NoCondition, NoHyper
+from seqjax.model.typing import Latent, Parameters, NoCondition
 
 from .types import LogReturnObs
 
 
-prior_order = 2
-transition_order = 1
-emission_order = 2
-observation_dependency = 0
+transition_latent_order = 1
+transition_observation_order = 0
+emission_latent_order = 2
+emission_observation_order = 0
 
-prior_context = partial(LatentContext, length=prior_order)
-latent_context = partial(LatentContext, length=transition_order)
-observation_context = partial(ObservationContext, length=observation_dependency)
-condition_context = partial(ConditionContext, length=0)
-
-latent_context = partial(LatentContext, length=transition_order)
-emission_latent_context = partial(LatentContext, length=emission_order)
-observation_context = partial(ObservationContext, length=observation_dependency)
-condition_context = partial(ConditionContext, length=0)
 
 observation_cls = LogReturnObs
 condition_cls = NoCondition
@@ -150,10 +138,8 @@ def _transition_sample_single(
 
 def prior_sample(
     key: PRNGKeyArray,
-    conditions: ConditionContext[NoCondition],
     parameters: MicroContamParams,
 ) -> LatentContext[MicroContamLatent]:
-    _ = conditions
     start_key, next_key = jrandom.split(key, 2)
 
     log_var_key, micro_key = jrandom.split(start_key, 2)
@@ -174,17 +160,15 @@ def prior_sample(
         parameters,
     )
 
-    return prior_context((start_latent, next_latent))
+    return LatentContext.from_values(start_latent, next_latent, length=2)
 
 def prior_log_prob(
     latent: LatentContext[MicroContamLatent],
-    conditions: ConditionContext[NoCondition],
     parameters: MicroContamParams,
 ) -> Scalar:
-    _ = conditions
 
-    current_latent = latent[0]
-    previous_latent = latent[-1]
+    current_latent = latent[-1]
+    previous_latent = latent[-2]
 
     return (
         _stationary_log_prob(previous_latent, parameters)
@@ -198,10 +182,11 @@ def prior_log_prob(
 def transition_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[MicroContamLatent],
-    condition: NoCondition,
     parameters: MicroContamParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> MicroContamLatent:
-    _ = condition
+    _ = (condition, observation_history)
     log_var_key, micro_key = jrandom.split(key, 2)
 
     last_latent = latent_history[-1]
@@ -221,10 +206,11 @@ def transition_sample(
 def transition_log_prob(
     latent_history: LatentContext[MicroContamLatent],
     latent: MicroContamLatent,
-    condition: NoCondition,
     parameters: MicroContamParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> Scalar:
-    _ = condition
+    _ = (condition, observation_history)
 
     last_latent = latent_history[-1]
 
@@ -251,12 +237,12 @@ def transition_log_prob(
 def emission_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[MicroContamLatent],
-    observation_history: ObservationContext[LogReturnObs],
-    condition: NoCondition,
     parameters: MicroContamParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> LogReturnObs:
     _ = observation_history
-    _ = condition
+    _ = (condition, observation_history)
 
     return_key, contam_key = jrandom.split(key, 2)
 
@@ -281,12 +267,12 @@ def emission_sample(
 def emission_log_prob(
     latent_history: LatentContext[MicroContamLatent],
     observation: LogReturnObs,
-    observation_history: ObservationContext[LogReturnObs],
-    condition: NoCondition,
     parameters: MicroContamParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
 ) -> Scalar:
     _ = observation_history
-    _ = condition
+    _ = (condition, observation_history)
 
     current_latent = latent_history[-1]
     previous_latent = latent_history[-2]
@@ -317,40 +303,16 @@ def emission_log_prob(
     )
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class MicroContamStochasticVar(
-    SequentialModelProtocol[
-        MicroContamLatent,
-        LogReturnObs,
-        NoCondition,
-        MicroContamParams,
-    ]
-):
-    prior_order: int = prior_order
-    transition_order: int = transition_order
-    emission_order: int = emission_order
-    observation_dependency: int = observation_dependency
-
-    latent_cls: type[MicroContamLatent] = MicroContamLatent
-    observation_cls: type[LogReturnObs] = observation_cls
-    parameter_cls: type[MicroContamParams] = MicroContamParams
-    condition_cls: type[NoCondition] = condition_cls
-
-    latent_context: typing.Callable[..., LatentContext[MicroContamLatent]] = latent_context
-    observation_context: typing.Callable[..., ObservationContext[LogReturnObs]] = observation_context
-    condition_context: typing.Callable[..., ConditionContext[NoCondition]] = condition_context
-
-    prior_sample = staticmethod(prior_sample)
-    prior_log_prob = staticmethod(prior_log_prob)
-    transition_sample = staticmethod(transition_sample)
-    transition_log_prob = staticmethod(transition_log_prob)
-    emission_sample = staticmethod(emission_sample)
-    emission_log_prob = staticmethod(emission_log_prob)
-
-
-micro_contam_stochastic_var_model = validate_sequential_model(
-    MicroContamStochasticVar()
+micro_contam_stochastic_var_model = SequentialModel(
+    latent_cls=MicroContamLatent, observation_cls=observation_cls,
+    parameter_cls=MicroContamParams, condition_cls=condition_cls,
+    transition_latent_order=transition_latent_order,
+    transition_observation_order=transition_observation_order,
+    emission_latent_order=emission_latent_order,
+    emission_observation_order=emission_observation_order,
+    prior_sample=prior_sample, prior_log_prob=prior_log_prob,
+    transition_sample=transition_sample, transition_log_prob=transition_log_prob,
+    emission_sample=emission_sample, emission_log_prob=emission_log_prob,
 )
 
 

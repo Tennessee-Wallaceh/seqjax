@@ -10,20 +10,19 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    validate_sequential_model,
-    ConditionContext,
+    ObservedHistoryContext,
     LatentContext,
-    ObservationContext,
+    SequentialModel,
     ParameterizationProtocol,
     SequentialModelProtocol,
 )
-from seqjax.model.typing import HyperParameters, Parameters, Latent, Observation, NoCondition, NoHyper
+from seqjax.model.typing import HyperParameters, Parameters, Latent, Observation, NoCondition
 
 
-prior_order = 1
-transition_order = 1
-emission_order = 1
-observation_dependency = 0
+transition_latent_order = 1
+emission_latent_order = 1
+transition_observation_order = 0
+emission_observation_order = 0
 
 
 @dataclass
@@ -105,9 +104,6 @@ observation_cls = LogReturnObs
 parameter_cls = RoughLogVarParams
 condition_cls = NoCondition
 
-latent_context = partial(LatentContext, length=transition_order)
-observation_context = partial(ObservationContext, length=observation_dependency)
-condition_context = partial(ConditionContext, length=0)
 
 
 def _n_factors(hyperparameters: RoughVolHyper) -> int:
@@ -174,37 +170,34 @@ def _stationary_factor_std_approx(
 
 def prior_sample(
     key: PRNGKeyArray,
-    conditions: ConditionContext[NoCondition],
     parameters: RoughLogVarParams,
     hyperparameters: RoughVolHyper,
 ) -> LatentContext[RoughLatentVar]:
-    _ = conditions
     sigma = _stationary_factor_std_approx(parameters, hyperparameters)
     z0 = sigma * jrandom.normal(key, shape=sigma.shape)
     start_latent = RoughLatentVar(z=z0)
-    return latent_context((start_latent,))
+    return LatentContext.from_values(start_latent, length=1)
 
 
 def prior_log_prob(
     latent: LatentContext[RoughLatentVar],
-    conditions: ConditionContext[NoCondition],
     parameters: RoughLogVarParams,
     hyperparameters: RoughVolHyper,
 ) -> Scalar:
-    _ = conditions
     sigma = _stationary_factor_std_approx(parameters, hyperparameters)
-    return jnp.sum(jstats.norm.logpdf(latent[0].z, loc=0.0, scale=sigma))
+    return jnp.sum(jstats.norm.logpdf(latent[-1].z, loc=0.0, scale=sigma))
 
 
 def transition_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[RoughLatentVar],
-    condition: NoCondition,
     parameters: RoughLogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
     hyperparameters: RoughVolHyper,
 ) -> RoughLatentVar:
-    _ = condition
-    last_latent = latent_history[0]
+    _ = (condition, observation_history)
+    last_latent = latent_history[-1]
 
     key_shared, key_idio = jrandom.split(key)
     eps_shared = jrandom.normal(key_shared)
@@ -224,12 +217,13 @@ def transition_sample(
 def transition_log_prob(
     latent_history: LatentContext[RoughLatentVar],
     latent: RoughLatentVar,
-    condition: NoCondition,
     parameters: RoughLogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
     hyperparameters: RoughVolHyper,
 ) -> Scalar:
-    _ = condition
-    last_latent = latent_history[0]
+    _ = (condition, observation_history)
+    last_latent = latent_history[-1]
 
     phi = _factor_ar_coefficients(hyperparameters)
     shared_loadings = _shared_innovation_loadings(parameters, hyperparameters)
@@ -258,16 +252,16 @@ def transition_log_prob(
 def emission_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[RoughLatentVar],
-    observation_history: ObservationContext[LogReturnObs],
-    condition: NoCondition,
     parameters: RoughLogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
     hyperparameters: RoughVolHyper,
 ) -> LogReturnObs:
     _ = observation_history
-    _ = condition
+    _ = (condition, observation_history)
     _ = hyperparameters
 
-    current_latent = latent_history[0]
+    current_latent = latent_history[-1]
     current_log_var = _log_var_from_latent(current_latent, parameters)
     return_scale = jnp.exp(0.5 * current_log_var)
 
@@ -279,16 +273,16 @@ def emission_sample(
 def emission_log_prob(
     latent_history: LatentContext[RoughLatentVar],
     observation: LogReturnObs,
-    observation_history: ObservationContext[LogReturnObs],
-    condition: NoCondition,
     parameters: RoughLogVarParams,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
     hyperparameters: RoughVolHyper,
 ) -> Scalar:
     _ = observation_history
-    _ = condition
+    _ = (condition, observation_history)
     _ = hyperparameters
 
-    current_latent = latent_history[0]
+    current_latent = latent_history[-1]
     current_log_var = _log_var_from_latent(current_latent, parameters)
     return_scale = jnp.exp(0.5 * current_log_var)
 
@@ -299,116 +293,6 @@ def emission_log_prob(
     )
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class RoughStochasticVar(
-    SequentialModelProtocol[
-        RoughLatentVar,
-        LogReturnObs,
-        NoCondition,
-        RoughLogVarParams,
-    ]
-):
-    prior_order: int = prior_order
-    transition_order: int = transition_order
-    emission_order: int = emission_order
-    observation_dependency: int = observation_dependency
-
-    latent_cls: type[RoughLatentVar] = latent_cls
-    observation_cls: type[LogReturnObs] = observation_cls
-    parameter_cls: type[RoughLogVarParams] = parameter_cls
-    condition_cls: type[NoCondition] = condition_cls
-
-    latent_context: typing.Callable[..., LatentContext[RoughLatentVar]] = latent_context
-    observation_context: typing.Callable[..., ObservationContext[LogReturnObs]] = observation_context
-    condition_context: typing.Callable[..., ConditionContext[NoCondition]] = condition_context
-
-    hyperparameters: RoughVolHyper = field(
-        default_factory=lambda: RoughVolHyper(
-            decay_scales=jnp.exp(jnp.linspace(jnp.log(1e-3), jnp.log(1e-1), 8)),
-            idio_scale=0.01 * jnp.ones((8,)),
-        )
-    )
-
-    def prior_sample(
-        self,
-        key: PRNGKeyArray,
-        conditions: ConditionContext[NoCondition],
-        parameters: RoughLogVarParams,
-    ) -> LatentContext[RoughLatentVar]:
-        return prior_sample(key, conditions, parameters, self.hyperparameters)
-
-    def prior_log_prob(
-        self,
-        latent: LatentContext[RoughLatentVar],
-        conditions: ConditionContext[NoCondition],
-        parameters: RoughLogVarParams,
-    ) -> Scalar:
-        return prior_log_prob(latent, conditions, parameters, self.hyperparameters)
-
-    def transition_sample(
-        self,
-        key: PRNGKeyArray,
-        latent_history: LatentContext[RoughLatentVar],
-        condition: NoCondition,
-        parameters: RoughLogVarParams,
-    ) -> RoughLatentVar:
-        return transition_sample(
-            key,
-            latent_history,
-            condition,
-            parameters,
-            self.hyperparameters,
-        )
-
-    def transition_log_prob(
-        self,
-        latent_history: LatentContext[RoughLatentVar],
-        latent: RoughLatentVar,
-        condition: NoCondition,
-        parameters: RoughLogVarParams,
-    ) -> Scalar:
-        return transition_log_prob(
-            latent_history,
-            latent,
-            condition,
-            parameters,
-            self.hyperparameters,
-        )
-
-    def emission_sample(
-        self,
-        key: PRNGKeyArray,
-        latent_history: LatentContext[RoughLatentVar],
-        observation_history: ObservationContext[LogReturnObs],
-        condition: NoCondition,
-        parameters: RoughLogVarParams,
-    ) -> LogReturnObs:
-        return emission_sample(
-            key,
-            latent_history,
-            observation_history,
-            condition,
-            parameters,
-            self.hyperparameters,
-        )
-
-    def emission_log_prob(
-        self,
-        latent_history: LatentContext[RoughLatentVar],
-        observation: LogReturnObs,
-        observation_history: ObservationContext[LogReturnObs],
-        condition: NoCondition,
-        parameters: RoughLogVarParams,
-    ) -> Scalar:
-        return emission_log_prob(
-            latent_history,
-            observation,
-            observation_history,
-            condition,
-            parameters,
-            self.hyperparameters,
-        )
 
 
 @dataclass
@@ -498,7 +382,7 @@ class RoughVarParameterization(
 @jax.tree_util.register_dataclass
 @dataclass
 class RoughStochasticVarBayesian:
-    target: RoughStochasticVar
+    target: SequentialModelProtocol[RoughLatentVar, LogReturnObs, NoCondition, RoughLogVarParams]
     parameterization: RoughVarParameterization
 
 
@@ -519,8 +403,19 @@ def rough_stochastic_var(
         dt=jnp.array(dt),
         rough_weight_power=jnp.array(rough_weight_power),
     )
-    target = validate_sequential_model(
-        RoughStochasticVar(hyperparameters=hyperparameters)
+    target = SequentialModel(
+        latent_cls=latent_cls, observation_cls=observation_cls,
+        parameter_cls=parameter_cls, condition_cls=condition_cls,
+        transition_latent_order=transition_latent_order,
+        transition_observation_order=transition_observation_order,
+        emission_latent_order=emission_latent_order,
+        emission_observation_order=emission_observation_order,
+        prior_sample=partial(prior_sample, hyperparameters=hyperparameters),
+        prior_log_prob=partial(prior_log_prob, hyperparameters=hyperparameters),
+        transition_sample=partial(transition_sample, hyperparameters=hyperparameters),
+        transition_log_prob=partial(transition_log_prob, hyperparameters=hyperparameters),
+        emission_sample=partial(emission_sample, hyperparameters=hyperparameters),
+        emission_log_prob=partial(emission_log_prob, hyperparameters=hyperparameters),
     )
     return RoughStochasticVarBayesian(
         target=target,
