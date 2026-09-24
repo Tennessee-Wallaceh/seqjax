@@ -1,10 +1,139 @@
-
 import typing
+
+import jax
 
 import seqjax.model.typing as seqjtyping
 from seqjax.model import (
     interface as model_interface,
 )
+from seqjax import util
+
+def batch_latent_context[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
+    target: model_interface.SequentialModelProtocol[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ],
+    x_prior: LatentT,
+    x_path: LatentT,
+    *,
+    context_end: typing.Literal["previous", "current"],
+) -> model_interface.LatentContext[LatentT]:
+    
+    match context_end:
+        case "previous":
+            end_shift = 0
+        case "current":
+            end_shift = 1
+        case _:
+            raise ValueError(
+                f"Invalid context_end={context_end!r}"
+            )
+
+    prior_length = x_prior.batch_shape[0]
+    sequence_length = x_path.batch_shape[0]
+    context_length = target.latent_context_length
+
+    if prior_length != target.prior_latent_order:
+        raise ValueError(
+            "x_prior has the wrong length: "
+            f"expected {target.prior_latent_order}, "
+            f"received {prior_length}"
+        )
+
+    if context_length == 0:
+        return target.latent_context()
+
+    x_full = jax.tree.map(
+        lambda x_prior_leaf, x_path_leaf: jnp.concatenate(
+            (x_prior_leaf, x_path_leaf),
+            axis=0,
+        ),
+        x_prior,
+        x_path,
+    )
+
+    return target.latent_context(
+        *(
+            util.slice_pytree(
+                x_full,
+                prior_length + lag + end_shift,
+                prior_length + lag + end_shift + sequence_length,
+            )
+            for lag in range(-context_length, 0)
+        )
+    )
+
+def batch_observation_history[
+    LatentT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+](
+    target: model_interface.SequentialModelProtocol[
+        LatentT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+    ],
+    observation_history: model_interface.ObservedHistoryContext[
+        ObservationT,
+        ConditionT,
+    ],
+    observation_path: ObservationT,
+    condition: ConditionT,
+) -> model_interface.ObservedHistoryContext[
+    ObservationT,
+    ConditionT,
+]:
+    history_length = target.observation_context_length
+    sequence_length = observation_path.batch_shape[0]
+
+    if observation_history.length != history_length:
+        raise ValueError(
+            "observation_history has the wrong length: "
+            f"expected {history_length}, "
+            f"received {observation_history.length}"
+        )
+
+    if history_length == 0:
+        return target.observation_context()
+
+    observed_prior = jax.tree.map(
+        lambda *values: jnp.stack(values, axis=0),
+        *observation_history.values,
+    )
+
+    observed_path = model_interface.ObservedItem(
+        observation=observation_path,
+        condition=condition,
+    )
+
+    observed_full = jax.tree.map(
+        lambda prior, path: jnp.concatenate(
+            (prior, path),
+            axis=0,
+        ),
+        observed_prior,
+        observed_path,
+    )
+
+    return target.observed_history_context(
+        *(
+            util.slice_pytree(
+                observed_full,
+                history_length + lag,
+                history_length + lag + sequence_length,
+            )
+            for lag in range(-history_length, 0)
+        )
+    )
 
 
 def normalize_observation_history[

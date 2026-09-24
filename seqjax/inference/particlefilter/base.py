@@ -9,11 +9,8 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.special as jsp
 from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
-from seqjax.model.interface import (
-    SequentialModelProtocol,
-    ParameterizationProtocol,
-    BayesianSequentialModelProtocol,
-)
+from seqjax.model import interface as model_interface
+
 import seqjax.model.typing as seqjtyping
 from seqjax.model import util as model_util
 from seqjax.model.condition import layout_for, normalize_condition_path
@@ -96,7 +93,7 @@ class TransitionProposal[
 
     def __init__(
         self,
-        model: BayesianSequentialModelProtocol[
+        model: model_interface.BayesianSequentialModelProtocol[
             ParticleT,
             ObservationT,
             ConditionT,
@@ -147,13 +144,13 @@ class SMCSampler[
     eqx.Module,
 ):
     """Base class implementing sequential Monte Carlo."""
-    target: SequentialModelProtocol[
+    target: model_interface.SequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
         ParameterT,
     ]
-    parameterization: ParameterizationProtocol[ParameterT, InferenceParameterT, typing.Any]
+    parameterization: model_interface.ParameterizationProtocol[ParameterT, InferenceParameterT, typing.Any]
     proposal: Proposal[ParticleT, ObservationT, ConditionT, ParameterT]
     resampler: Resampler[ParticleT]
     num_particles: int
@@ -193,12 +190,13 @@ class SMCSampler[
         step_key: PRNGKeyArray,
         start_log_w: Array,
         particles: pf_interface.FilterContext[ParticleT],
-        observation_history: tuple[ObservationT, ...],
         observation: ObservationT,
-        prior_condition: typing.Any,
-        transition_condition: ConditionT,
-        emission_condition: ConditionT,
         params: InferenceParameterT,
+        condition: ConditionT,
+        observation_history: model_interface.ObservedHistoryContext[
+            ObservationT,
+            ConditionT,
+        ]
     ) -> pf_interface.FilterData:
         resample_key, proposal_key = jrandom.split(step_key)
 
@@ -216,7 +214,7 @@ class SMCSampler[
             jrandom.split(proposal_key, self.num_particles),
             proposal_history,
             observation,
-            transition_condition,
+            condition,
             params,
         )
 
@@ -233,18 +231,18 @@ class SMCSampler[
             self.transition_log_prob(
                 transition_history,
                 proposed_particles,
-                transition_condition,
+                condition,
                 model_params,
             )
             + self.emission_log_prob(
                 emission_particles,
                 observation,
                 obs_history,
-                emission_condition,
+                condition,
                 model_params,
             )
             - self.proposal_log_prob(
-                proposal_history, observation, proposed_particles, transition_condition, params
+                proposal_history, observation, proposed_particles, condition, params
             )
         )
         particles = resampled_particles.append(proposed_particles)
@@ -263,9 +261,7 @@ class SMCSampler[
             log_w_inc=log_weight_inc,
             resampled_particles=resampled_particles,
             observation=observation,
-            prior_condition=prior_condition,
-            transition_condition=transition_condition,
-            emission_condition=emission_condition,
+            condition=condition,
             inference_parameters=params,
             log_z_inc=log_z_inc
         )
@@ -288,8 +284,12 @@ def run_filter[
     ],
     inference_parameters: InferenceParameterT,
     observation_path: ObservationT,
-    *,
     condition_path: ConditionT | None = None,
+    observation_history: model_interface.ObservedHistoryContext[
+        ObservationT,
+        ConditionT,
+    ] | None = None,
+    *,
     recorders: tuple[pf_interface.Recorder, ...] | None = None,
 ) -> tuple[
     Array,
@@ -308,114 +308,101 @@ def run_filter[
         smc.target, condition_path, (sequence_length,)
     )
 
-    condition_layout = layout_for(smc.target)
-    prepared_conditions = condition_layout.prepare(
-        smc.target, condition_path, sequence_length
-    )
-    observation_history = util.slice_pytree(
-        observation_path,
-        smc.target.observation_dependency,
-        smc.target.observation_dependency + sequence_length,
-    )
     init_key, *step_keys = jrandom.split(key, sequence_length)
 
     # Run initial step, this needs special handling because we sample from prior
     # rather than the proposal.
-    init_particles = jax.vmap(smc.target.prior_sample, in_axes=[0, None, None])(
+    model_parameters = smc.parameterization.to_model_parameters(
+        inference_parameters
+    )
+
+    # Sample the latent context ending at t=-1.
+    prior_particles = jax.vmap(
+        smc.target.prior_sample,
+        in_axes=(0, None),
+    )(
         jrandom.split(init_key, smc.num_particles),
-        prepared_conditions.prior,
-        smc.parameterization.to_model_parameters(inference_parameters),
-    )
-    log_uw = smc.emission_log_prob(
-        init_particles,
-        util.index_pytree(observation_path, 0),
-        observation_history,
-        prepared_conditions.initial_emission,
-        smc.parameterization.to_model_parameters(inference_parameters),
+        model_parameters,
     )
 
-    log_weight_norm = jsp.logsumexp(log_uw)
-    log_w = log_uw - log_weight_norm
-    log_z_inc = log_weight_norm - jnp.log(smc.num_particles)
-
-    start_context = smc.filter_context(init_particles.values)
-
-    filter_data = pf_interface.FilterData(
-        step_ix=0,
-        start_log_w=log_w,
-        resampled_log_w=log_w,
-        log_w=log_w,
-        particles=start_context,
-        resampled_particles=start_context,
-        ancestor_ix=jnp.full((smc.num_particles,), -1, dtype=jnp.int32),
-        log_w_inc=log_uw,
-        observation=util.index_pytree(observation_path, 0),
-        prior_condition=prepared_conditions.prior,
-        transition_condition=prepared_conditions.initial_emission,
-        emission_condition=prepared_conditions.initial_emission,
-        inference_parameters=inference_parameters,
-        log_z_inc=log_z_inc,
-    )
-    intial_record = (
-        tuple(r(filter_data) for r in recorders) 
-        if recorders is not None else ()
+    uniform_log_w = jnp.full(
+        (smc.num_particles,),
+        -jnp.log(smc.num_particles),
     )
 
-    # Define the main body
+    start_context = smc.filter_context(prior_particles.values)
+    
     def body(
-        state: tuple[Array, pf_interface.FilterContext[ParticleT]], 
+        state: tuple[
+            Array,
+            pf_interface.FilterContext[ParticleT],
+        ],
         inputs: tuple[
-            int, PRNGKeyArray, ObservationT, ConditionT, ConditionT
-        ]
+            int,
+            PRNGKeyArray,
+            ObservationT,
+            ConditionT,
+            model_interface.ObservedHistoryContext[
+                ObservationT,
+                ConditionT,
+            ]
+        ],
     ):
-        obs_hist = ()  # TODO slice_emission_observation_history(
-        step_ix, step_key, observation, transition_condition, emission_condition = inputs
+        (
+            step_ix,
+            step_key,
+            observation,
+            condition,
+            observation_history,
+        ) = inputs
 
         log_w, particles = state
+
         step_data = smc.sample_step(
             step_ix,
             step_key,
             log_w,
             particles,
-            obs_hist,
             observation,
-            prepared_conditions.prior,
-            transition_condition,
-            emission_condition,
             inference_parameters,
+            condition,
+            observation_history,
         )
 
-        recorder_vals = (
-            tuple(r(step_data) for r in recorders) 
-            if recorders is not None else ()
+        recorder_values = (
+            tuple(recorder(step_data) for recorder in recorders)
+            if recorders is not None
+            else ()
         )
-        return (step_data.log_w, step_data.particles), recorder_vals
 
-    observation_path = util.slice_pytree(observation_path, 1, sequence_length)
+        return (
+            step_data.log_w,
+            step_data.particles,
+        ), recorder_values
+
+    batched_observation_history = model_util.batch_observation_history(
+        smc.target,
+        observation_history,
+        observation_path,
+        condition_path,
+    )
     body_inputs = (
-        jnp.arange(1, sequence_length),
+        jnp.arange(sequence_length),
         jnp.array(step_keys),
         observation_path,
-        prepared_conditions.transitions,
-        prepared_conditions.recurrent_emissions,
+        condition_path,
+        batched_observation_history,
     )
-    init_state = (filter_data.log_w, filter_data.particles)
+    init_state = (uniform_log_w, start_context)
 
-    final_state, recorder_history = jax.lax.scan(
+    (log_w, particles), recorder_history = jax.lax.scan(
         body,
         init=init_state,
         xs=body_inputs,
     )
 
-    def expand_concat(value, array):
-        return jnp.concatenate([jnp.expand_dims(value, axis=0), array], axis=0)
-
-    recorder_history = jax.tree_util.tree_map(
-        expand_concat, intial_record, recorder_history
-    )
-    (log_w, particles) = final_state
     return (
         log_w,
-        typing.cast(ParticleT, particles),
+        particles,
         recorder_history,
     )

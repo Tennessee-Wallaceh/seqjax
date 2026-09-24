@@ -44,9 +44,7 @@ class FilterData[
     resampled_particles: FilterContext[ParticleT]
 
     observation: ObservationT
-    prior_condition: Any
-    transition_condition: ConditionT
-    emission_condition: ConditionT
+    condition: ConditionT
     inference_parameters: InferenceParameterT
 
 class Recorder(Protocol):
