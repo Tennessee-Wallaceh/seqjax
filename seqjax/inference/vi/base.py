@@ -15,7 +15,6 @@ import seqjax.model.typing as seqjtyping
 from seqjax.inference.interface import InferenceDataset
 from seqjax.model.evaluate import log_prob_joint
 from seqjax.model.interface import BayesianSequentialModelProtocol
-from seqjax.model.condition import layout_for
 from seqjax.inference.vi.sampling import VISamplingKwargs
 from seqjax.inference.vi.embedder.interface import LatentContext, Embedder
 from seqjax.inference.vi.interface import AmortizedVariationalApproximation, UnconditionalVariationalApproximation
@@ -676,7 +675,6 @@ class BufferedSSMVI[
             observation_path=observation_sequence, 
             condition=condition_sequence,
             prior_order=self.target_posterior.target.prior_order,
-            condition_layout=layout_for(self.target_posterior.target),
         )
 
         parameters = self.target_posterior.parameterization.sample(parameter_key)
@@ -733,7 +731,6 @@ class BufferedSSMVI[
             observation_path=observation_sequence, 
             condition=condition_sequence,
             prior_order=self.target_posterior.target.prior_order,
-            condition_layout=layout_for(self.target_posterior.target),
         )
 
         parameters, log_q_theta, param_state = self.parameter_approximation.sample_and_log_prob(
@@ -1131,7 +1128,6 @@ class IWBufferedSSMVI[
             observation_path=observation_sequence,
             condition=condition_sequence,
             prior_order=self.target_posterior.target.prior_order,
-            condition_layout=layout_for(self.target_posterior.target),
         )
 
         parameters, log_q_theta, param_state = self.parameter_approximation.sample_and_log_prob(

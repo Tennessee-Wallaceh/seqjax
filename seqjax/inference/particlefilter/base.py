@@ -13,7 +13,6 @@ from seqjax.model import interface as model_interface
 
 import seqjax.model.typing as seqjtyping
 from seqjax.model import util as model_util
-from seqjax.model.condition import layout_for, normalize_condition_path
 from seqjax import util
 from .resampling import Resampler
 from . import interface as pf_interface
@@ -304,7 +303,7 @@ def run_filter[
 
     sequence_length = observation_path.batch_shape[0]
 
-    condition_path = normalize_condition_path(
+    condition_path = model_util.normalize_condition_path(
         smc.target, condition_path, (sequence_length,)
     )
 
