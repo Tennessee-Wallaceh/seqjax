@@ -1,6 +1,5 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from functools import partial
 import typing
 
 import jax
@@ -10,15 +9,12 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    validate_sequential_model,
-    ConditionContext,
+    ObservedHistoryContext,
     LatentContext,
-    ObservationContext,
+    SequentialModel,
     ParameterizationProtocol,
-    SequentialModelProtocol,
 )
 from seqjax.model.typing import Condition, Parameters
-from seqjax.model.condition import StepAlignedConditions
 
 from .types import LatentVar, LogReturnObs
 
@@ -54,6 +50,16 @@ from .types import LatentVar, LogReturnObs
 minimum_df = 2.5
 
 
+class TimeStepCondition(Condition):
+    """Elapsed trading time associated with one model step."""
+
+    timestep: Scalar
+
+    _shape_template: typing.ClassVar = OrderedDict(
+        timestep=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+    )
+
+
 class LogVarParams(Parameters):
     std_log_var: Scalar
     mean_reversion_rate: Scalar
@@ -77,23 +83,15 @@ class LogVarParams(Parameters):
     )
 
 
-prior_order = 1
-transition_order = 1
-emission_order = 1
-observation_dependency = 0
+transition_latent_order = 1
+emission_latent_order = 1
+transition_observation_order = 0
+emission_observation_order = 0
 
 latent_cls = LatentVar
 observation_cls = LogReturnObs
 parameter_cls = LogVarParams
-condition_cls = TimeIncrement
-
-latent_context = partial(LatentContext, length=transition_order)
-observation_context = partial(
-    ObservationContext,
-    length=observation_dependency,
-)
-condition_context = partial(ConditionContext, length=0)
-
+condition_cls = TimeStepCondition
 
 def _stationary_scale(parameters: LogVarParams) -> Scalar:
     return parameters.std_log_var / jnp.sqrt(
@@ -122,10 +120,8 @@ def _stationary_log_var_mean(
 
 def prior_sample(
     key: PRNGKeyArray,
-    conditions: ConditionContext[TimeIncrement],
     parameters: LogVarParams,
 ) -> LatentContext[LatentVar]:
-    _ = conditions
 
     start_lv = LatentVar(
         log_var=(
@@ -133,18 +129,16 @@ def prior_sample(
             + _stationary_scale(parameters) * jrandom.normal(key)
         )
     )
-    return latent_context((start_lv,))
+    return LatentContext.from_values(start_lv, length=max(transition_latent_order, emission_latent_order))
 
 
 def prior_log_prob(
     latent: LatentContext[LatentVar],
-    conditions: ConditionContext[TimeIncrement],
     parameters: LogVarParams,
 ) -> Scalar:
-    _ = conditions
 
     return jstats.norm.logpdf(
-        latent[0].log_var,
+        latent[-1].log_var,
         loc=_stationary_log_var_mean(parameters),
         scale=_stationary_scale(parameters),
     )
@@ -178,10 +172,12 @@ def _transition_scale(
 def transition_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[LatentVar],
-    condition: TimeStepCondition,
     parameters: LogVarParams,
+    condition: TimeStepCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition],
 ) -> LatentVar:
-    last_log_var = latent_history[0]
+    _ = observation_history
+    last_log_var = latent_history[-1]
     decay = _transition_decay(condition.timestep, parameters)
     stationary_log_var_mean = _stationary_log_var_mean(parameters)
     loc = stationary_log_var_mean + decay * (
@@ -196,10 +192,12 @@ def transition_sample(
 def transition_log_prob(
     latent_history: LatentContext[LatentVar],
     latent: LatentVar,
-    condition: TimeStepCondition,
     parameters: LogVarParams,
+    condition: TimeStepCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition],
 ) -> Scalar:
-    last_log_var = latent_history[0]
+    _ = observation_history
+    last_log_var = latent_history[-1]
     decay = _transition_decay(condition.timestep, parameters)
     stationary_log_var_mean = _stationary_log_var_mean(parameters)
     loc = stationary_log_var_mean + decay * (
@@ -216,12 +214,12 @@ def transition_log_prob(
 def emission_sample(
     key: PRNGKeyArray,
     latent_history: LatentContext[LatentVar],
-    observation_history: ObservationContext[LogReturnObs],
-    condition: TimeStepCondition,
     parameters: LogVarParams,
+    condition: TimeStepCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition],
 ) -> LogReturnObs:
     _ = observation_history
-    current_latent = latent_history[0]
+    current_latent = latent_history[-1]
 
     # jrandom.t has variance df / (df - 2). Multiplying its scale by
     # sqrt((df - 2) / df) makes exp(log_var) remain the conditional
@@ -241,12 +239,12 @@ def emission_sample(
 def emission_log_prob(
     latent_history: LatentContext[LatentVar],
     observation: LogReturnObs,
-    observation_history: ObservationContext[LogReturnObs],
-    condition: TimeStepCondition,
     parameters: LogVarParams,
+    condition: TimeStepCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition],
 ) -> Scalar:
     _ = observation_history
-    current_latent = latent_history[0]
+    current_latent = latent_history[-1]
     return_scale = (
         jnp.sqrt(condition.timestep)
         * jnp.exp(0.5 * current_latent.log_var)
@@ -260,50 +258,28 @@ def emission_log_prob(
     )
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class SimpleStochasticVar(
-    SequentialModelProtocol[
-        LatentVar,
-        LogReturnObs,
-        TimeStepCondition,
-        LogVarParams,
-    ]
-):
-    prior_order: int = prior_order
-    transition_order: int = transition_order
-    emission_order: int = emission_order
-    observation_dependency: int = observation_dependency
-
-    latent_cls: type[LatentVar] = latent_cls
-    observation_cls: type[LogReturnObs] = observation_cls
-    parameter_cls: type[LogVarParams] = parameter_cls
-    condition_cls: type[TimeStepCondition] = condition_cls
-    condition_layout: typing.ClassVar = StepAlignedConditions(
-        prior_condition_count=0
-    )
-
-    latent_context: typing.Callable[..., LatentContext[LatentVar]] = (
-        latent_context
-    )
-    observation_context: typing.Callable[
-        ..., ObservationContext[LogReturnObs]
-    ] = observation_context
-    condition_context: typing.Callable[
-        ..., ConditionContext[TimeStepCondition]
-    ] = condition_context
-
-    prior_sample = staticmethod(prior_sample)
-    prior_log_prob = staticmethod(prior_log_prob)
-    transition_sample = staticmethod(transition_sample)
-    transition_log_prob = staticmethod(transition_log_prob)
-    emission_sample = staticmethod(emission_sample)
-    emission_log_prob = staticmethod(emission_log_prob)
-
-
-simple_stochastic_var_model = validate_sequential_model(
-    SimpleStochasticVar()
+simple_stochastic_var_model = SequentialModel(
+    latent_cls=latent_cls,
+    observation_cls=observation_cls,
+    parameter_cls=parameter_cls,
+    condition_cls=condition_cls,
+    transition_latent_order=transition_latent_order,
+    transition_observation_order=transition_observation_order,
+    emission_latent_order=emission_latent_order,
+    emission_observation_order=emission_observation_order,
+    prior_sample=prior_sample,
+    prior_log_prob=prior_log_prob,
+    transition_sample=transition_sample,
+    transition_log_prob=transition_log_prob,
+    emission_sample=emission_sample,
+    emission_log_prob=emission_log_prob,
 )
+
+
+def SimpleStochasticVar() -> SequentialModel:
+    """Construct the time-varying stochastic-variance model."""
+
+    return simple_stochastic_var_model
 
 
 class UncLogVarParams(Parameters):
