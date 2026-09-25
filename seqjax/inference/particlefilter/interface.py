@@ -121,7 +121,6 @@ class FilterData[
 
     step_ix: int
     start_log_w: Array
-    resampled_log_w: Array
     log_w: Array
     log_z_inc: Array
 
@@ -133,7 +132,6 @@ class FilterData[
         FilterObservationHistoryLength,
     ]
     ancestor_ix: Array
-    log_w_inc: Array
     resampled_particles: FilterContext[
         ParticleT,
         ObservationT,
@@ -145,6 +143,36 @@ class FilterData[
     observation: ObservationT
     condition: ConditionT
     inference_parameters: InferenceParameterT
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class ProposalResult[
+    ParticleT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    FilterLatentHistoryLength: int,
+    FilterObservationHistoryLength: int,
+]:
+    """Complete result of a population proposal/mutation kernel."""
+
+    particles: FilterContext[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        FilterLatentHistoryLength,
+        FilterObservationHistoryLength,
+    ]
+    resampled_history: FilterContext[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        FilterLatentHistoryLength,
+        FilterObservationHistoryLength,
+    ]
+    ancestor_indices: Array
+    log_weight: Array
+    log_normalizer_increment: Array
 
 
 class Recorder(typing.Protocol):

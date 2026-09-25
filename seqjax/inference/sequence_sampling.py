@@ -78,7 +78,7 @@ def sample_buffered_subsequence[
     key: PRNGKeyArray, 
     sequence_length: SequenceLength, 
     sample_length: seqjtyping.SampleLength, 
-    buffer_length: seqjtyping.BufferLength, 
+    buffer_length: int,
     observation_path: seqjtyping.Batched[ObservationT, SequenceLength],
     condition: seqjtyping.Batched[ConditionT, SequenceLength],
 ) -> tuple[

@@ -13,7 +13,9 @@ import seqjax.model.typing as seqjtyping
 from seqjax import util
 from seqjax.inference.interface import InferenceDataset, inference_method
 from seqjax.inference.particlefilter import registry as particle_filter_registry
-from seqjax.inference.vi.base import _sample_sequence_minibatch, sample_batch_and_mask
+from seqjax.inference.sequence_sampling import (
+    sample_sequence_minibatch as _sample_sequence_minibatch,
+)
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from .score_estimator import buffered_score_estimate
 
