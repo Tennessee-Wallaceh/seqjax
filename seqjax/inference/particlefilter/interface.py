@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import typing
 
 import jax
-from jaxtyping import Array, PyTree
+from jaxtyping import Array, PyTree, PRNGKeyArray
 
 from seqjax.model import interface as model_interface
 import seqjax.model.typing as seqjtyping
@@ -106,6 +106,11 @@ class FilterContext[
             length=length,
         )
 
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class WeightedPopulation[ContextT]:
+    context: ContextT
+    normalized_log_weights: Array
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
@@ -113,66 +118,158 @@ class FilterData[
     ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
-    InferenceParameterT: seqjtyping.Parameters,
-    FilterLatentHistoryLength: int = int,
-    FilterObservationHistoryLength: int = int,
+    ParameterT: seqjtyping.Parameters,
+    FilterLatentContextLength: int = int,
+    FilterObservationContextLength: int = int,
 ]:
-    """Data produced by one filtering step."""
+    """Data encapsulating one filtering step."""
 
     step_ix: int
-    start_log_w: Array
-    log_w: Array
-    log_z_inc: Array
 
-    particles: FilterContext[
+    incoming: WeightedPopulation[FilterContext[
         ParticleT,
         ObservationT,
         ConditionT,
-        FilterLatentHistoryLength,
-        FilterObservationHistoryLength,
-    ]
-    ancestor_ix: Array
-    resampled_particles: FilterContext[
+        FilterLatentContextLength,
+        FilterObservationContextLength
+    ]]
+    selected: WeightedPopulation[FilterContext[
         ParticleT,
         ObservationT,
         ConditionT,
-        FilterLatentHistoryLength,
-        FilterObservationHistoryLength,
-    ]
+        FilterLatentContextLength,
+        FilterObservationContextLength
+    ]]
+    updated: WeightedPopulation[FilterContext[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        FilterLatentContextLength,
+        FilterObservationContextLength
+    ]]
+
+    ancestor_ix: Array # incoming_ix_for_selected
+    selection_log_z_adjustment: Array
+    log_z_inc: Array
 
     observation: ObservationT
     condition: ConditionT
-    inference_parameters: InferenceParameterT
+    parameters: ParameterT
 
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class ProposalResult[
+class AncestorSample:
+    ancestor_ix: Array
+    normalized_log_weights: Array
+
+class Resampler(typing.Protocol):
+    """Return a weighted particle representation of the supplied log probabilities."""
+
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        normalized_log_weights: Array,
+        num_resample: int,
+    ) -> AncestorSample: ...
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class AncestorSelectionResult[
     ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
+    FilterLatentContextLength: int,
+    FilterObservationContextLength: int,
+]:
+    selected: WeightedPopulation[FilterContext[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        FilterLatentContextLength,
+        FilterObservationContextLength
+    ]]
+    ancestor_ix: Array
+    selection_log_z_adjustment: Array 
+
+
+class AncestorSelection[
+    ParticleT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    FilterLatentContextLength: int,
+    FilterObservationContextLength: int,
+](typing.Protocol):
+
+    @property
+    def latent_context_length(self) -> int: ...
+
+    @property
+    def observation_context_length(self) -> int: ...
+
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        incoming: WeightedPopulation[FilterContext[
+            ParticleT,
+            ObservationT,
+            ConditionT,
+            FilterLatentContextLength,
+            FilterObservationContextLength
+        ]],
+        observation: ObservationT,
+        parameters: ParametersT,
+        condition: ConditionT,
+        num_particles: int,
+    ) -> AncestorSelectionResult[
+        ParticleT, ObservationT, ConditionT,
+        FilterLatentContextLength, FilterObservationContextLength,
+    ]: ...
+
+
+@dataclass(frozen=True)
+class ProposalResult[ParticleT: seqjtyping.Latent]:
+    particles: ParticleT
+    log_prob: Array
+
+class Proposal[
+    ParticleT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
     FilterLatentHistoryLength: int,
     FilterObservationHistoryLength: int,
-]:
-    """Complete result of a population proposal/mutation kernel."""
+](typing.Protocol):
+    """
+    Draw new latent states and evaluate their conditional proposal density.
+    """
 
-    particles: FilterContext[
+    @property
+    def latent_context_length(self) -> int: ...
+
+    @property
+    def observation_context_length(self) -> int: ...
+
+    def __call__(
+        self,
+        key: PRNGKeyArray,
+        context: FilterContext[
+            ParticleT,
+            ObservationT,
+            ConditionT,
+            FilterLatentHistoryLength,
+            FilterObservationHistoryLength,
+        ],
+        observation: ObservationT,
+        parameters: ParametersT,
+        condition: ConditionT,
+        num_particles: int,
+    ) -> ProposalResult[
         ParticleT,
-        ObservationT,
-        ConditionT,
-        FilterLatentHistoryLength,
-        FilterObservationHistoryLength,
-    ]
-    resampled_history: FilterContext[
-        ParticleT,
-        ObservationT,
-        ConditionT,
-        FilterLatentHistoryLength,
-        FilterObservationHistoryLength,
-    ]
-    ancestor_indices: Array
-    log_weight: Array
-    log_normalizer_increment: Array
+    ]: ...
+
 
 
 class Recorder(typing.Protocol):

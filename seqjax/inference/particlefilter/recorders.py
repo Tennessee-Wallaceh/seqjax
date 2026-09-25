@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Sequence
 
 import jax
@@ -7,20 +5,13 @@ import jax.numpy as jnp
 from jaxtyping import Array, PyTree
 
 from .interface import FilterData
-
-
-def _normalised_weights(log_w: Array) -> Array:
-    """Convert log weights to normalised weights."""
-    lw_max = jnp.max(log_w)
-    w = jnp.exp(log_w - lw_max)
-    return w / jnp.sum(w)
-
+from .metrics import compute_esse_from_log_weights
 
 def current_particle_mean(filter_data: FilterData) -> PyTree:
     """Record the weighted mean of the current particles."""
 
-    weights = _normalised_weights(filter_data.log_w)
-    particle: PyTree = filter_data.particles[-1]
+    weights = filter_data.updated.normalized_log_weights
+    particle: PyTree = filter_data.updated.context.particles[-1]
 
     def _mean(arr: Array) -> Array:
         expanded = jnp.reshape(weights, weights.shape + (1,) * (arr.ndim - 1))
@@ -52,8 +43,8 @@ def current_particle_quantiles(
 ) -> PyTree:
     """Record ``quantiles`` of the current particles."""
 
-    weights = _normalised_weights(filter_data.log_w)
-    particle: PyTree = filter_data.particles[-1]
+    weights = filter_data.updated.normalized_log_weights
+    particle: PyTree = filter_data.updated.context.particles[-1]
     qs = jnp.array(quantiles)
 
     def _quant(arr: Array) -> Array:
@@ -67,12 +58,25 @@ def current_particle_quantiles(
 def current_particle_variance(filter_data: FilterData) -> PyTree:
     """Record the weighted variance of the current particles."""
 
-    weights = _normalised_weights(filter_data.log_w)
-    particle: PyTree = filter_data.particles[-1]
-
+    weights = filter_data.updated.normalized_log_weights
+    particle: PyTree = filter_data.updated.context.particles[-1]
     def _var(arr: Array) -> Array:
         expanded = jnp.reshape(weights, weights.shape + (1,) * (arr.ndim - 1))
         mean = jnp.sum(arr * expanded, axis=0)
         return jnp.sum(expanded * (arr - mean) ** 2, axis=0)
 
     return jax.tree_util.tree_map(_var, particle)
+
+
+def ess_efficiencies(filter_data: FilterData) -> dict[str, Array]:
+    return {
+        "incoming": compute_esse_from_log_weights(
+            filter_data.incoming.normalized_log_weights
+        ),
+        "selected": compute_esse_from_log_weights(
+            filter_data.selected.normalized_log_weights
+        ),
+        "updated": compute_esse_from_log_weights(
+            filter_data.updated.normalized_log_weights
+        ),
+    }

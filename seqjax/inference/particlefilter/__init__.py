@@ -1,11 +1,8 @@
 from .base import (
     SMCSampler,
-    Proposal,
-    AuxiliaryTransitionProposal,
     run_filter,
 )
 from .resampling import (
-    Resampler,
     multinomial_resample_from_log_weights,
     systematic_resample_from_log_weights,
     no_resample,
@@ -18,14 +15,11 @@ from .recorders import (
     current_particle_quantiles,
     current_particle_variance,
 )
-from . import registry
 
 __all__ = [
     "SMCSampler",
-    "Proposal",
     "AuxiliaryTransitionProposal",
     "run_filter",
-    "Resampler",
     "multinomial_resample_from_log_weights",
     "systematic_resample_from_log_weights",
     "no_resample",
@@ -36,5 +30,4 @@ __all__ = [
     "current_particle_mean",
     "current_particle_quantiles",
     "current_particle_variance",
-    "registry",
 ]
