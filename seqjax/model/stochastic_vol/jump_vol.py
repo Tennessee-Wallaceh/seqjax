@@ -22,7 +22,7 @@ from .types import LogReturnObs
 
 transition_latent_order = 1
 transition_observation_order = 0
-emission_latent_order = 2
+emission_latent_order = 1
 emission_observation_order = 0
 
 
@@ -94,55 +94,11 @@ def _stationary_log_prob(
     )
 
 
-def _transition_log_prob_single(
-    last_latent: MicroContamLatent,
-    latent: MicroContamLatent,
-    parameters: MicroContamParams,
-) -> Scalar:
-    log_var_loc = parameters.long_term_log_var + parameters.ar * (
-        last_latent.log_var - parameters.long_term_log_var
-    )
-
-    micro_loc = parameters.micro_ar * last_latent.micro_noise
-
-    return (
-        jstats.norm.logpdf(
-            latent.log_var,
-            loc=log_var_loc,
-            scale=parameters.std_log_var,
-        )
-        + jstats.norm.logpdf(
-            latent.micro_noise,
-            loc=micro_loc,
-            scale=parameters.micro_std,
-        )
-    )
-
-def _transition_sample_single(
-    key: PRNGKeyArray,
-    last_latent: MicroContamLatent,
-    parameters: MicroContamParams,
-) -> MicroContamLatent:
-    log_var_key, micro_key = jrandom.split(key, 2)
-
-    log_var_loc = parameters.long_term_log_var + parameters.ar * (
-        last_latent.log_var - parameters.long_term_log_var
-    )
-
-    micro_loc = parameters.micro_ar * last_latent.micro_noise
-
-    return MicroContamLatent(
-        log_var=log_var_loc + parameters.std_log_var * jrandom.normal(log_var_key),
-        micro_noise=micro_loc + parameters.micro_std * jrandom.normal(micro_key),
-    )
-
 def prior_sample(
     key: PRNGKeyArray,
     parameters: MicroContamParams,
-) -> LatentContext[MicroContamLatent]:
-    start_key, next_key = jrandom.split(key, 2)
-
-    log_var_key, micro_key = jrandom.split(start_key, 2)
+) -> LatentContext[MicroContamLatent, typing.Literal[1]]:
+    log_var_key, micro_key = jrandom.split(key, 2)
 
     start_latent = MicroContamLatent(
         log_var=(
@@ -154,37 +110,21 @@ def prior_sample(
         ),
     )
 
-    next_latent = _transition_sample_single(
-        next_key,
-        start_latent,
-        parameters,
-    )
-
-    return LatentContext.from_values(start_latent, next_latent, length=2)
+    return LatentContext.from_values(start_latent, length=1)
 
 def prior_log_prob(
-    latent: LatentContext[MicroContamLatent],
+    latent: LatentContext[MicroContamLatent, typing.Literal[1]],
     parameters: MicroContamParams,
 ) -> Scalar:
 
-    current_latent = latent[-1]
-    previous_latent = latent[-2]
-
-    return (
-        _stationary_log_prob(previous_latent, parameters)
-        + _transition_log_prob_single(
-            previous_latent,
-            current_latent,
-            parameters,
-        )
-    )
+    return _stationary_log_prob(latent[-1], parameters)
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[MicroContamLatent],
+    latent_history: LatentContext[MicroContamLatent, typing.Literal[1]],
     parameters: MicroContamParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> MicroContamLatent:
     _ = (condition, observation_history)
     log_var_key, micro_key = jrandom.split(key, 2)
@@ -204,11 +144,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[MicroContamLatent],
     latent: MicroContamLatent,
+    latent_history: LatentContext[MicroContamLatent, typing.Literal[1]],
     parameters: MicroContamParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = (condition, observation_history)
 
@@ -236,18 +176,18 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[MicroContamLatent],
+    current_latent: MicroContamLatent,
     parameters: MicroContamParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    latent_history: LatentContext[MicroContamLatent, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> LogReturnObs:
     _ = observation_history
     _ = (condition, observation_history)
 
     return_key, contam_key = jrandom.split(key, 2)
 
-    current_latent = latent_history[-1]
-    previous_latent = latent_history[-2]
+    previous_latent = latent_history[-1]
 
     return_scale = jnp.exp(0.5 * current_latent.log_var)
     micro_shift = current_latent.micro_noise - previous_latent.micro_noise
@@ -265,17 +205,17 @@ def emission_sample(
 
 
 def emission_log_prob(
-    latent_history: LatentContext[MicroContamLatent],
     observation: LogReturnObs,
+    current_latent: MicroContamLatent,
     parameters: MicroContamParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    latent_history: LatentContext[MicroContamLatent, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     _ = (condition, observation_history)
 
-    current_latent = latent_history[-1]
-    previous_latent = latent_history[-2]
+    previous_latent = latent_history[-1]
 
     return_scale = jnp.exp(0.5 * current_latent.log_var)
     micro_shift = current_latent.micro_noise - previous_latent.micro_noise

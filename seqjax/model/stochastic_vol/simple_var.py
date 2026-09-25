@@ -20,7 +20,7 @@ from .types import LatentVar, LogReturnObs, LogVarParams
 
 
 transition_latent_order = 1
-emission_latent_order = 1
+emission_latent_order = 0
 transition_observation_order = 0
 emission_observation_order = 0
 
@@ -41,15 +41,15 @@ def _stationary_scale(parameters: LogVarParams) -> Scalar:
 def prior_sample(
     key: PRNGKeyArray,
     parameters: LogVarParams,
-) -> LatentContext[LatentVar]:
+) -> LatentContext[LatentVar, typing.Literal[1]]:
     sigma = _stationary_scale(parameters)
     mu = parameters.long_term_log_var
     start_lv = LatentVar(log_var=mu + sigma * jrandom.normal(key))
-    return LatentContext.from_values(start_lv, length=max(transition_latent_order, emission_latent_order))
+    return LatentContext.from_values(start_lv, length=1)
 
 
 def prior_log_prob(
-    latent: LatentContext[LatentVar],
+    latent: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
 ) -> Scalar:
     sigma = _stationary_scale(parameters)
@@ -59,10 +59,10 @@ def prior_log_prob(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVar],
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> LatentVar:
     _ = observation_history
     _ = condition
@@ -74,11 +74,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[LatentVar],
     latent: LatentVar,
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     _ = condition
@@ -91,30 +91,30 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVar],
+    current_latent: LatentVar,
     parameters: LogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> LogReturnObs:
     _ = observation_history
     _ = condition
     _ = parameters
-    current_latent = latent_history[-1]
     return_scale = jnp.exp(0.5 * current_latent.log_var)
     return LogReturnObs(log_return=jrandom.normal(key) * return_scale)
 
 
 def emission_log_prob(
-    latent_history: LatentContext[LatentVar],
     observation: LogReturnObs,
+    current_latent: LatentVar,
     parameters: LogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     _ = condition
     _ = parameters
-    current_latent = latent_history[-1]
     return_scale = jnp.exp(0.5 * current_latent.log_var)
     return jstats.norm.logpdf(observation.log_return, loc=0.0, scale=return_scale)
 

@@ -84,7 +84,7 @@ class LogVarParams(Parameters):
 
 
 transition_latent_order = 1
-emission_latent_order = 1
+emission_latent_order = 0
 transition_observation_order = 0
 emission_observation_order = 0
 
@@ -121,7 +121,7 @@ def _stationary_log_var_mean(
 def prior_sample(
     key: PRNGKeyArray,
     parameters: LogVarParams,
-) -> LatentContext[LatentVar]:
+) -> LatentContext[LatentVar, typing.Literal[1]]:
 
     start_lv = LatentVar(
         log_var=(
@@ -129,11 +129,11 @@ def prior_sample(
             + _stationary_scale(parameters) * jrandom.normal(key)
         )
     )
-    return LatentContext.from_values(start_lv, length=max(transition_latent_order, emission_latent_order))
+    return LatentContext.from_values(start_lv, length=1)
 
 
 def prior_log_prob(
-    latent: LatentContext[LatentVar],
+    latent: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
 ) -> Scalar:
 
@@ -171,10 +171,10 @@ def _transition_scale(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVar],
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
     condition: TimeStepCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition, typing.Literal[0]],
 ) -> LatentVar:
     _ = observation_history
     last_log_var = latent_history[-1]
@@ -190,11 +190,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[LatentVar],
     latent: LatentVar,
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
     condition: TimeStepCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     last_log_var = latent_history[-1]
@@ -213,13 +213,13 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVar],
+    current_latent: LatentVar,
     parameters: LogVarParams,
     condition: TimeStepCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition],
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition, typing.Literal[0]],
 ) -> LogReturnObs:
     _ = observation_history
-    current_latent = latent_history[-1]
 
     # jrandom.t has variance df / (df - 2). Multiplying its scale by
     # sqrt((df - 2) / df) makes exp(log_var) remain the conditional
@@ -237,14 +237,14 @@ def emission_sample(
 
 
 def emission_log_prob(
-    latent_history: LatentContext[LatentVar],
     observation: LogReturnObs,
+    current_latent: LatentVar,
     parameters: LogVarParams,
     condition: TimeStepCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition],
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
-    current_latent = latent_history[-1]
     return_scale = (
         jnp.sqrt(condition.timestep)
         * jnp.exp(0.5 * current_latent.log_var)

@@ -255,7 +255,7 @@ def _validate_parameter_shapes(parameters: _LGSSMParametersBase) -> int:
 def prior_sample(
     key: PRNGKeyArray,
     parameters: _LGSSMParametersBase,
-) -> LatentContext[_VectorStateBase]:
+) -> LatentContext[_VectorStateBase, typing.Literal[1]]:
     dim = _validate_parameter_shapes(parameters)
     mean = jnp.zeros((dim,), dtype=parameters.transition_matrix.dtype)
     x0 = _mvn_sample(
@@ -268,7 +268,7 @@ def prior_sample(
 
 
 def prior_log_prob(
-    latent: LatentContext[_VectorStateBase],
+    latent: LatentContext[_VectorStateBase, typing.Literal[1]],
     parameters: _LGSSMParametersBase,
 ) -> Scalar:
     dim = _validate_parameter_shapes(parameters)
@@ -282,10 +282,10 @@ def prior_log_prob(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[_VectorStateBase],
+    latent_history: LatentContext[_VectorStateBase, typing.Literal[1]],
     parameters: _LGSSMParametersBase,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition],
+    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition, typing.Literal[0]],
 ) -> _VectorStateBase:
     _ = (condition, observation_history)
     _validate_parameter_shapes(parameters)
@@ -301,11 +301,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[_VectorStateBase],
     latent: _VectorStateBase,
+    latent_history: LatentContext[_VectorStateBase, typing.Literal[1]],
     parameters: _LGSSMParametersBase,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition],
+    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = (condition, observation_history)
     _validate_parameter_shapes(parameters)
@@ -320,15 +320,15 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[_VectorStateBase],
+    current_latent: _VectorStateBase,
     parameters: _LGSSMParametersBase,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition],
+    latent_history: LatentContext[_VectorStateBase, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition, typing.Literal[0]],
 ) -> _VectorObservationBase:
     _ = (observation_history, condition)
     _validate_parameter_shapes(parameters)
-    state = latent_history[-1]
-    mean = parameters.emission_matrix @ state.x
+    mean = parameters.emission_matrix @ current_latent.x
     y = _mvn_sample(
         key,
         mean=mean,
@@ -339,16 +339,16 @@ def emission_sample(
 
 
 def emission_log_prob(
-    latent_history: LatentContext[_VectorStateBase],
     observation: _VectorObservationBase,
+    current_latent: _VectorStateBase,
     parameters: _LGSSMParametersBase,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition],
+    latent_history: LatentContext[_VectorStateBase, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = (observation_history, condition)
     _validate_parameter_shapes(parameters)
-    state = latent_history[-1]
-    mean = parameters.emission_matrix @ state.x
+    mean = parameters.emission_matrix @ current_latent.x
     return _mvn_log_prob(
         observation.y,
         mean=mean,
@@ -367,7 +367,7 @@ def lgssm(dim: int = DEFAULT_DIM) -> SequentialModel:
         parameter_cls=make_lgssm_parameters_cls(dim),
         condition_cls=NoCondition,
         transition_latent_order=1, transition_observation_order=0,
-        emission_latent_order=1, emission_observation_order=0,
+        emission_latent_order=0, emission_observation_order=0,
         prior_sample=prior_sample, prior_log_prob=prior_log_prob,
         transition_sample=transition_sample, transition_log_prob=transition_log_prob,
         emission_sample=emission_sample, emission_log_prob=emission_log_prob,

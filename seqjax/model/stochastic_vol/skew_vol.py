@@ -18,8 +18,8 @@ from .common import SkewStochVolParamPrior, random_walk_loc_scale, skew_return_m
 from .types import LatentVol, LogReturnObs, LogVolWithSkew, TimeIncrement
 
 
-transition_latent_order = 2
-emission_latent_order = 2
+transition_latent_order = 1
+emission_latent_order = 1
 transition_observation_order = 0
 emission_observation_order = 0
 
@@ -31,18 +31,16 @@ condition_cls = TimeIncrement
 def prior_sample(
     key: PRNGKeyArray,
     parameters: LogVolWithSkew,
-) -> LatentContext[LatentVol]:
+) -> LatentContext[LatentVol, typing.Literal[1]]:
     mu = jnp.array(-2.0)
     sigma = jnp.array(0.5)
 
-    start_key, next_key = jrandom.split(key)
-    start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(start_key))
-    next_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(next_key))
-    return LatentContext.from_values(start_lv, next_lv, length=max(transition_latent_order, emission_latent_order))
+    start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(key))
+    return LatentContext.from_values(start_lv, length=1)
 
 
 def prior_log_prob(
-    latent: LatentContext[LatentVol],
+    latent: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolWithSkew,
 ) -> Scalar:
     mu = jnp.array(-2.0)
@@ -56,10 +54,10 @@ def prior_log_prob(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVol],
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolWithSkew,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> LatentVol:
     _ = observation_history
     loc, scale = random_walk_loc_scale(latent_history[-1], condition, parameters)
@@ -67,11 +65,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[LatentVol],
     latent: LatentVol,
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolWithSkew,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     loc, scale = random_walk_loc_scale(latent_history[-1], condition, parameters)
@@ -80,15 +78,16 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVol],
+    current_latent: LatentVol,
     parameters: LogVolWithSkew,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement],
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> LogReturnObs:
     _ = observation_history
     return_mean, return_scale = skew_return_mean_and_scale(
         latent_history[-1],
-        latent_history[-1],
+        current_latent,
         condition,
         parameters,
     )
@@ -97,16 +96,17 @@ def emission_sample(
 
 
 def emission_log_prob(
-    latent_history: LatentContext[LatentVol],
     observation: LogReturnObs,
+    current_latent: LatentVol,
     parameters: LogVolWithSkew,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement],
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     return_mean, return_scale = skew_return_mean_and_scale(
         latent_history[-1],
-        latent_history[-1],
+        current_latent,
         condition,
         parameters,
     )

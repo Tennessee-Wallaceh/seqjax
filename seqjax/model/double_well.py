@@ -83,7 +83,7 @@ parameter_cls = DoubleWellParams
 condition_cls = TimeIncrement
 
 def _transition_mean(
-    latent_history: LatentContext[LatentValue],
+    latent_history: LatentContext[LatentValue, typing.Literal[1]],
     condition: TimeIncrement,
     parameters: DoubleWellParams,
 ) -> Scalar:
@@ -96,7 +96,7 @@ def _transition_mean(
 def prior_sample(
     key: PRNGKeyArray,
     parameters: DoubleWellParams,
-) -> LatentContext[LatentValue]:
+) -> LatentContext[LatentValue, typing.Literal[1]]:
     """Sample the initial latent value from a unit Gaussian."""
     _ = parameters
     x0 = jrandom.normal(key)
@@ -104,7 +104,7 @@ def prior_sample(
 
 
 def prior_log_prob(
-    latent: LatentContext[LatentValue],
+    latent: LatentContext[LatentValue, typing.Literal[1]],
     parameters: DoubleWellParams,
 ) -> Scalar:
     """Evaluate the prior log-density for the initial latent."""
@@ -114,10 +114,10 @@ def prior_log_prob(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentValue],
+    latent_history: LatentContext[LatentValue, typing.Literal[1]],
     parameters: DoubleWellParams,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[NoisyObservation, TimeIncrement],
+    observation_history: ObservedHistoryContext[NoisyObservation, TimeIncrement, typing.Literal[0]],
 ) -> LatentValue:
     _ = observation_history
     """Sample next latent by Euler-Maruyama discretisation."""
@@ -127,11 +127,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[LatentValue],
     latent: LatentValue,
+    latent_history: LatentContext[LatentValue, typing.Literal[1]],
     parameters: DoubleWellParams,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[NoisyObservation, TimeIncrement],
+    observation_history: ObservedHistoryContext[NoisyObservation, TimeIncrement, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     """Transition log-density under Gaussian discretisation noise."""
@@ -142,31 +142,31 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentValue],
+    current_latent: LatentValue,
     parameters: DoubleWellParams,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[NoisyObservation, TimeIncrement],
+    latent_history: LatentContext[LatentValue, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[NoisyObservation, TimeIncrement, typing.Literal[0]],
 ) -> NoisyObservation:
     """Sample noisy observation from the current latent state."""
     _ = (observation_history, condition)
-    current = latent_history[-1].latent_state
-    y = current + jrandom.normal(key) * parameters.observation_std
+    y = current_latent.latent_state + jrandom.normal(key) * parameters.observation_std
     return NoisyObservation(observation=y)
 
 
 def emission_log_prob(
-    latent_history: LatentContext[LatentValue],
     observation: NoisyObservation,
+    current_latent: LatentValue,
     parameters: DoubleWellParams,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[NoisyObservation, TimeIncrement],
+    latent_history: LatentContext[LatentValue, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[NoisyObservation, TimeIncrement, typing.Literal[0]],
 ) -> Scalar:
     """Observation log-density given current latent state."""
     _ = (observation_history, condition)
-    current = latent_history[-1].latent_state
     return jstats.norm.logpdf(
         observation.observation,
-        loc=current,
+        loc=current_latent.latent_state,
         scale=parameters.observation_std,
     )
 
@@ -177,7 +177,7 @@ double_well_model = SequentialModel(
     latent_cls=latent_cls, observation_cls=observation_cls,
     parameter_cls=parameter_cls, condition_cls=condition_cls,
     transition_latent_order=1, transition_observation_order=0,
-    emission_latent_order=1, emission_observation_order=0,
+    emission_latent_order=0, emission_observation_order=0,
     prior_sample=prior_sample, prior_log_prob=prior_log_prob,
     transition_sample=transition_sample, transition_log_prob=transition_log_prob,
     emission_sample=emission_sample, emission_log_prob=emission_log_prob,
