@@ -75,7 +75,12 @@ class LatentNUTSDiagnostics:
 def _validate_dataset_and_latents(
     *,
     latents: seqjtyping.Latent,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
 ) -> None:
     latent_shape = pytree_shape(latents)[0]
     if len(latent_shape) == 0:
@@ -117,7 +122,12 @@ def run_latent_nuts[
         ModelParametersT,
     ],
     key: jaxtyping.PRNGKeyArray,
-    dataset: InferenceDataset[ObservationPathT, ConditionPathT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     config: LatentNUTSConfig,
     tracker: LatentNUTSTracker | None = None,
 ) -> tuple[

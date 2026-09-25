@@ -13,18 +13,21 @@ def batch_latent_context[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
+    LatentContextLength: int,
 ](
     target: model_interface.SequentialModelProtocol[
         LatentT,
         ObservationT,
         ConditionT,
         ParametersT,
+        LatentContextLength,
+        typing.Any,
     ],
     x_prior: LatentT,
     x_path: LatentT,
     *,
     context_end: typing.Literal["previous", "current"],
-) -> model_interface.LatentContext[LatentT]:
+) -> model_interface.LatentContext[LatentT, LatentContextLength]:
     
     match context_end:
         case "previous":
@@ -75,22 +78,27 @@ def batch_observation_history[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
+    ObservationContextLength: int,
 ](
     target: model_interface.SequentialModelProtocol[
         LatentT,
         ObservationT,
         ConditionT,
         ParametersT,
+        typing.Any,
+        ObservationContextLength,
     ],
     observation_history: model_interface.ObservedHistoryContext[
         ObservationT,
         ConditionT,
+        ObservationContextLength,
     ],
     observation_path: ObservationT,
     condition: ConditionT,
 ) -> model_interface.ObservedHistoryContext[
     ObservationT,
     ConditionT,
+    ObservationContextLength,
 ]:
     history_length = target.observation_context_length
     sequence_length = observation_path.batch_shape[0]
@@ -135,29 +143,32 @@ def batch_observation_history[
         )
     )
 
-
 def normalize_observation_history[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
+    ObservationContextLength: int,
 ](
     target: model_interface.SequentialModelProtocol[
         LatentT,
         ObservationT,
         ConditionT,
         ParametersT,
+        typing.Any,
     ],
     observation_history: (
         model_interface.ObservedHistoryContext[
             ObservationT,
             ConditionT,
+            ObservationContextLength,
         ]
         | None
     ),
 ) -> model_interface.ObservedHistoryContext[
     ObservationT,
     ConditionT,
+    ObservationContextLength,
 ]:
     expected_length = target.observation_context_length
 

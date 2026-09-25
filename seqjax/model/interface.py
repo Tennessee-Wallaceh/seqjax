@@ -132,6 +132,16 @@ class ObservedHistoryContext[
             )
         )
 
+class NoObservedHistoryContext[
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+](
+    ObservedHistoryContext[
+        ObservationT, ConditionT, typing.Literal[0],
+    ]
+): ...
+
+
 
 # These define the distribution operations
 class PriorSampleFn[
@@ -253,8 +263,8 @@ class SequentialModelProtocol[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-    LatentContextLength: int,
-    ObservationContextLength: int,
+    LatentContextLength: int = typing.Literal[1],
+    ObservationContextLength: int = typing.Literal[0],
 ](typing.Protocol):
     latent_cls: type[LatentT]
     observation_cls: type[ObservationT]
@@ -513,10 +523,10 @@ class BayesianSequentialModelProtocol[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParameterT: seqjtyping.Parameters,
-    LatentContextLength: int,
-    ObservationContextLength: int,
     InferenceParametersT: seqjtyping.Parameters,
     HyperParametersT,
+    LatentContextLength: int = typing.Literal[1],
+    ObservationContextLength: int = typing.Literal[0],
 ](typing.Protocol):
     target: SequentialModelProtocol[
         LatentT, 

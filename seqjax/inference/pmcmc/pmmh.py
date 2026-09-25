@@ -52,7 +52,12 @@ def _make_log_joint_estimator[
         InferenceParametersT,
         HyperParametersT,
     ],
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
 ):
     observations = dataset.observations
     conditions = dataset.conditions
@@ -150,7 +155,12 @@ def run_particle_mcmc[
         HyperParametersT,
     ],
     key: jaxtyping.PRNGKeyArray,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     test_samples: int,
     config: ParticleMCMCConfig,
     tracker: typing.Any = None,
