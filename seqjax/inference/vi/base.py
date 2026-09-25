@@ -19,8 +19,8 @@ from seqjax.inference.vi.sampling import VISamplingKwargs
 from seqjax.inference.vi.embedder.interface import LatentContext, Embedder
 from seqjax.inference.vi.interface import AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 from seqjax.inference.sequence_sampling import (
-    sample_sequence_minibatch as _sample_sequence_minibatch,
-    sample_buffered_subsequence as sample_batch_and_mask,
+    sample_sequence_minibatch,
+    sample_buffered_subsequence,
 )
 
 class MeanField[TargetStructT: seqjtyping.Packable](
@@ -426,7 +426,7 @@ class FullVI[
         num_sequence_minibatch = sample_kwargs["num_sequence_minibatch"]
 
         key, sequence_key = jrandom.split(key)
-        sampled_observations, sampled_conditions = _sample_sequence_minibatch(
+        sampled_observations, sampled_conditions = sample_sequence_minibatch(
             dataset,
             sequence_key,
             num_sequence_minibatch,
@@ -673,8 +673,8 @@ class BufferedSSMVI[
         jaxtyping.Float[jaxtyping.Scalar, ""],
         typing.Any,
     ]:
-        observation_sequence, condition_sequence = _sample_sequence_minibatch(dataset, seq_key)
-        approx_start, y_batch, c_batch, theta_mask = sample_batch_and_mask(
+        observation_sequence, condition_sequence = sample_sequence_minibatch(dataset, seq_key)
+        approx_start, y_batch, c_batch, theta_mask = sample_buffered_subsequence(
             subseq_key, 
             sequence_length=dataset.sequence_length,
             batch_length=self.batch_length,
@@ -1099,9 +1099,9 @@ class IWBufferedSSMVI[
         typing.Any,
     ]:
         latent_keys = jrandom.split(latent_key, sample_kwargs["samples_per_context"])
-        observation_sequence, condition_sequence = _sample_sequence_minibatch(dataset, seq_key)
+        observation_sequence, condition_sequence = sample_sequence_minibatch(dataset, seq_key)
 
-        approx_start, y_batch, c_batch, theta_mask = sample_batch_and_mask(
+        approx_start, y_batch, c_batch, theta_mask = sample_buffered_subsequence(
             subseq_key,
             sequence_length=dataset.sequence_length,
             batch_length=self.batch_length,

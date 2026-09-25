@@ -19,7 +19,7 @@ from quantiphy import Quantity
 from seqjax.inference.vi import interface
 from seqjax.inference.interface import InferenceDataset
 from seqjax.inference.vi.embedder.embedder import Embedder
-from seqjax.inference.vi.base import _sample_sequence_minibatch
+from seqjax.inference.sequence_sampling import sample_sequence_minibatch
 
 import seqjax.model.typing as seqjtyping
 import seqjax.model.interface as model_interface
@@ -317,7 +317,7 @@ def loss_neg_elbo(
     approximation, embedder = eqx.combine(trainable, static)
     
     seq_key, sample_key = jrandom.split(key)
-    y_seqs, c_seqs = _sample_sequence_minibatch(dataset, seq_key, sample_kwargs["sequence-samples"])
+    y_seqs, c_seqs = sample_sequence_minibatch(dataset, seq_key, sample_kwargs["sequence-samples"])
 
     contexts, _ = jax.vmap(
         embedder.embed,

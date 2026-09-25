@@ -13,9 +13,7 @@ import seqjax.model.typing as seqjtyping
 from seqjax import util
 from seqjax.inference.interface import InferenceDataset, inference_method
 from seqjax.inference.particlefilter import registry as particle_filter_registry
-from seqjax.inference.sequence_sampling import (
-    sample_sequence_minibatch as _sample_sequence_minibatch,
-)
+from seqjax.inference.sequence_sampling import sample_sequence_minibatch
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from .score_estimator import buffered_score_estimate
 
@@ -187,7 +185,7 @@ def run_full_sgld_mcmc[
     def _estimate_score(particle_filter, model, params, grad_key):
         minibatch_key, sequence_pf_keys_key = jrandom.split(grad_key)
         sampled_observations, sampled_conditions = (
-            _sample_sequence_minibatch(
+            sample_sequence_minibatch(
                 dataset,
                 minibatch_key,
                 config.num_sequence_minibatch,
