@@ -18,6 +18,10 @@ from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.inference.vi.sampling import VISamplingKwargs
 from seqjax.inference.vi.embedder.interface import LatentContext, Embedder
 from seqjax.inference.vi.interface import AmortizedVariationalApproximation, UnconditionalVariationalApproximation
+from seqjax.inference.sequence_sampling import (
+    sample_sequence_minibatch,
+    sample_buffered_subsequence,
+)
 
 class MeanField[TargetStructT: seqjtyping.Packable](
     UnconditionalVariationalApproximation[TargetStructT]
@@ -109,47 +113,6 @@ def buffer_params(
 
 
 
-def _sample_sequence_minibatch[
-    ObservationT: seqjtyping.Observation,
-    ConditionT: seqjtyping.Condition,
-](
-    dataset: InferenceDataset[ObservationT, ConditionT],
-    key: jaxtyping.PRNGKeyArray,
-    num_sequence_minibatch: int | None = None,
-) -> tuple[ObservationT, ConditionT]:
-    if num_sequence_minibatch is None:
-        minibatch_index = jrandom.choice(key, dataset.num_sequences)
-    else:
-        if num_sequence_minibatch <= 0:
-            raise ValueError(
-                "num_sequence_minibatch must be positive. "
-                f"Received {num_sequence_minibatch}."
-            )
-        if num_sequence_minibatch > dataset.num_sequences:
-            raise ValueError(
-                "num_sequence_minibatch cannot exceed dataset.num_sequences. "
-                f"Received num_sequence_minibatch={num_sequence_minibatch}, "
-                f"dataset.num_sequences={dataset.num_sequences}."
-            )
-        minibatch_index = jrandom.choice(
-            key,
-            dataset.num_sequences,
-            shape=(num_sequence_minibatch,),
-            replace=False,
-        )
-
-    sampled_observations = jax.tree_util.tree_map(
-        lambda leaf: leaf[minibatch_index],
-        dataset.observations,
-    )
-    sampled_conditions = jax.tree_util.tree_map(
-        lambda leaf: leaf[minibatch_index],
-        dataset.conditions,
-    )
-
-    return sampled_observations, sampled_conditions
-
-
 class SSMVariationalApproximation[
     ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
@@ -220,7 +183,12 @@ class FullVI[
 
     def joint_sample_and_log_prob(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -247,7 +215,7 @@ class FullVI[
             )
 
         key, sequence_key = jrandom.split(key)
-        sampled_observations, sampled_conditions = _sample_sequence_minibatch(
+        sampled_observations, sampled_conditions = sample_sequence_minibatch(
             dataset,
             sequence_key,
             num_sequence_minibatch,
@@ -572,58 +540,6 @@ class FullVI[
         return jnp.mean(prior_elbo), next_state
 
 
-def sample_batch_and_mask(
-    key, 
-    sequence_length: int, 
-    batch_length: int, 
-    buffer_length: int, 
-    observation_path, 
-    condition,
-    prior_order: int = 1,
-    condition_layout=None,
-):
-    # usually the latent prior length is 1
-    # if it exceeds this, then we should sample a shorter sequence of observations
-    # to maintain the same target batch + buffer length
-    sample_length = batch_length + 2 * buffer_length - (prior_order - 1)
-    pad_length = batch_length - 1
-
-    # each sample will come from the data replicated onto each device
-    padded_start_ix = jrandom.randint(key, (), 0, sequence_length + pad_length)
-
-    # where the buffer would like to start, may fall outside of data
-    buffer_start = padded_start_ix - pad_length - buffer_length
-    # clip into possible starts for the latent approximation
-    approx_start = jnp.clip(buffer_start, min=0, max=sequence_length - sample_length)
-
-    # construct the mask for theta
-    batch_start = padded_start_ix - pad_length  # may be negative (left padding)
-    sample_index = approx_start + jnp.arange(sample_length)  # data indices covered by `samples`
-    theta_mask = (sample_index >= batch_start) & (sample_index < batch_start + batch_length)
-    theta_mask = theta_mask & (sample_index >= 0) & (sample_index < sequence_length)
-
-    samples = jax.tree_util.tree_map(
-        partial(
-            jax.lax.dynamic_slice_in_dim,
-            start_index=approx_start,
-            slice_size=sample_length,
-        ),
-        observation_path,
-    )
-    csamples = (
-        jax.tree_util.tree_map(
-            partial(
-                jax.lax.dynamic_slice_in_dim,
-                start_index=approx_start,
-                slice_size=sample_length,
-            ),
-            condition,
-        )
-        if condition_layout is None
-        else condition_layout.slice_window(condition, approx_start, sample_length)
-    )
-
-    return approx_start, samples, csamples, theta_mask
 
 
 class BufferedSSMVI[
@@ -666,11 +582,11 @@ class BufferedSSMVI[
         typing.Any,
         typing.Any,
     ]:
-        observation_sequence, condition_sequence = _sample_sequence_minibatch(dataset, seq_key)
-        approx_start, y_batch, c_batch, theta_mask = sample_batch_and_mask(
+        observation_sequence, condition_sequence = sample_sequence_minibatch(dataset, seq_key)
+        approx_start, y_batch, c_batch, theta_mask = sample_buffered_subsequence(
             subseq_key, 
             sequence_length=dataset.sequence_length,
-            batch_length=self.batch_length,
+            sample_length=self.batch_length + 2 * self.buffer_length,
             buffer_length=self.buffer_length,
             observation_path=observation_sequence, 
             condition=condition_sequence,

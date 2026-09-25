@@ -1,10 +1,10 @@
 import typing
-
+import seqjax.model.typing as seqjtyping
 
 class VISamplingKwargs(typing.TypedDict):
-    context_samples: int
-    samples_per_context: int
-    num_sequence_minibatch: int
+    context_samples: seqjtyping.NumBatches
+    samples_per_context: seqjtyping.NumMonteCarlo
+    num_sequence_minibatch: seqjtyping.NumSequence
 
 
 class VISampleConfig(typing.Protocol):

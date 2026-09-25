@@ -19,11 +19,10 @@ My solution is to use the weaker and slightly more verbose pattern:
 In this way, function signatures are clear, and type systems know 
 """
 
-from functools import lru_cache
 import math
 from typing import (
     ClassVar,
-    TypeVarTuple,
+    NewType,
     get_origin,
 )
 import numpy as np
@@ -34,14 +33,6 @@ import jax
 import jax.numpy as jnp
 import equinox as eqx
 
-
-
-@dataclasses.dataclass(frozen=True)
-class BatchAxes:
-    names: tuple[str, ...]
-
-    def __init__(self, *names: str):
-        object.__setattr__(self, "names", names)
 
 class classproperty:
     def __init__(self, fget):
@@ -223,7 +214,23 @@ class Observation(Packable, abstract=True): ...
 
 class Condition(Packable, abstract=True): ...
 
-class BatchedObservation[Observation, BatchAxes]: ...
+SequenceLength = NewType("SequenceLength", int)
+SampleLength = NewType("SampleLength", int)
+NumMonteCarlo = NewType("NumMonteCarlo", int)
+NumParticles = NewType("NumParticles", int)
+NumSequence = NewType("NumSequence", int)
+NumBatches = NewType("NumBatches", int)
+
+@dataclasses.dataclass(frozen=True)
+class BatchAxes[*Axes]:
+    sizes: tuple[*Axes]
+
+class Batched[Packable, *Axes]:
+    axes: BatchAxes[*Axes]
+
+    @property
+    def batch_shape(self) -> tuple[*Axes]:
+        return self.axes.sizes
 
 class NoCondition(Condition):
     """An empty condition whose zero-width leaf preserves batch axes."""
