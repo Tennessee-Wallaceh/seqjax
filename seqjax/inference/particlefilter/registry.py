@@ -7,9 +7,7 @@ from seqjax.inference.particlefilter.resampling import (
     multinomial_resample_from_log_weights,
 )
 from seqjax.inference.particlefilter.base import TransitionProposal
-from seqjax.model.interface import (
-    BayesianSequentialModelProtocol,
-)
+from seqjax.model.interface import SequentialModelProtocol
 from seqjax.model import typing as seqjtyping
 
 """
@@ -53,22 +51,18 @@ def build_filter[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-    InferenceParametersT: seqjtyping.Parameters,
-    HyperParametersT: seqjtyping.HyperParameters,
     ModelLatentContextLength: int,
     ModelObservationContextLength: int,
     FilterLatentHistoryLength: int,
     FilterObservationHistoryLength: int,
 ](
-    target_posterior: BayesianSequentialModelProtocol[
+    target_ssm: SequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
         ParametersT,
         ModelLatentContextLength,
         ModelObservationContextLength,
-        InferenceParametersT,
-        HyperParametersT,
     ],
     config: BootstrapFilterConfig[
         FilterLatentHistoryLength,
@@ -76,11 +70,10 @@ def build_filter[
     ],
 ):
     return SMCSampler(
-        target=target_posterior.target,
-        proposal=TransitionProposal(target_posterior),
+        target=target_ssm,
+        proposal=TransitionProposal(target_ssm),
         resampler=resample_registry[config.resample],
         num_particles=config.num_particles,
-        parameterization=target_posterior.parameterization,
         latent_context_length=config.latent_context_length,
         observation_context_length=config.observation_context_length,
     )

@@ -20,7 +20,7 @@ class Proposal[
     ParticleT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
-    InferenceParametersT: seqjtyping.Parameters,
+    ParametersT: seqjtyping.Parameters,
     ProposalLatentContextLength: int,
     ProposalObservationContextLength: int,
 ](eqx.Module):
@@ -44,7 +44,7 @@ class Proposal[
             ConditionT,
             ProposalObservationContextLength,
         ],
-        parameters: InferenceParametersT,
+        parameters: ParametersT,
     ) -> ParticleT: ...
 
     @abstractmethod
@@ -62,7 +62,7 @@ class Proposal[
             ConditionT,
             ProposalObservationContextLength,
         ],
-        parameters: InferenceParametersT,
+        parameters: ParametersT,
     ) -> Scalar: ...
 
 
@@ -71,8 +71,6 @@ class TransitionProposal[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-    InferenceParametersT: seqjtyping.Parameters,
-    HyperParametersT: seqjtyping.HyperParameters,
     ModelLatentContextLength: int,
     ModelObservationContextLength: int,
 ](
@@ -80,7 +78,7 @@ class TransitionProposal[
         ParticleT,
         ObservationT,
         ConditionT,
-        InferenceParametersT,
+        ParametersT,
         ModelLatentContextLength,
         ModelObservationContextLength,
     ]
@@ -89,31 +87,27 @@ class TransitionProposal[
 
     transition_sample_fn: typing.Callable[..., ParticleT]
     transition_log_prob_fn: typing.Callable[..., Scalar]
-    convert_to_model_parameters: typing.Callable[[InferenceParametersT], ParametersT]
 
     def __init__(
         self,
-        model: model_interface.BayesianSequentialModelProtocol[
+        model: model_interface.SequentialModelProtocol[
             ParticleT,
             ObservationT,
             ConditionT,
             ParametersT,
             ModelLatentContextLength,
             ModelObservationContextLength,
-            InferenceParametersT,
-            HyperParametersT,
         ],
     ):
-        self.transition_sample_fn = model.target.transition_sample
-        self.transition_log_prob_fn = model.target.transition_log_prob
-        self.convert_to_model_parameters = model.parameterization.to_model_parameters
+        self.transition_sample_fn = model.transition_sample
+        self.transition_log_prob_fn = model.transition_log_prob
         self.latent_context_length = typing.cast(
             ModelLatentContextLength,
-            model.target.latent_context_length,
+            model.latent_context_length,
         )
         self.observation_context_length = typing.cast(
             ModelObservationContextLength,
-            model.target.observation_context_length,
+            model.observation_context_length,
         )
 
     def sample(
@@ -130,13 +124,13 @@ class TransitionProposal[
             ConditionT,
             ModelObservationContextLength,
         ],
-        parameters: InferenceParametersT,
+        parameters: ParametersT,
     ) -> ParticleT:
         del observation
         return self.transition_sample_fn(
             key,
             latent_history,
-            self.convert_to_model_parameters(parameters),
+            parameters,
             condition,
             observation_history,
         )
@@ -155,13 +149,13 @@ class TransitionProposal[
             ConditionT,
             ModelObservationContextLength,
         ],
-        parameters: InferenceParametersT,
+        parameters: ParametersT,
     ) -> Array:
         del observation
         return self.transition_log_prob_fn(
             particle,
             latent_history,
-            self.convert_to_model_parameters(parameters),
+            parameters,
             condition,
             observation_history,
         )
@@ -172,8 +166,6 @@ class SMCSampler[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParameterT: seqjtyping.Parameters,
-    InferenceParameterT: seqjtyping.Parameters,
-    HyperParametersT: seqjtyping.HyperParameters = seqjtyping.HyperParameters,
     ModelLatentContextLength: int = int,
     ModelObservationContextLength: int = int,
     ProposalLatentContextLength: int = int,
@@ -191,16 +183,11 @@ class SMCSampler[
         ModelLatentContextLength,
         ModelObservationContextLength,
     ]
-    parameterization: model_interface.ParameterizationProtocol[
-        ParameterT,
-        InferenceParameterT,
-        HyperParametersT,
-    ]
     proposal: Proposal[
         ParticleT,
         ObservationT,
         ConditionT,
-        InferenceParameterT,
+        ParameterT,
         ProposalLatentContextLength,
         ProposalObservationContextLength,
     ]
@@ -220,16 +207,11 @@ class SMCSampler[
             ModelLatentContextLength,
             ModelObservationContextLength,
         ],
-        parameterization: model_interface.ParameterizationProtocol[
-            ParameterT,
-            InferenceParameterT,
-            HyperParametersT,
-        ],
         proposal: Proposal[
             ParticleT,
             ObservationT,
             ConditionT,
-            InferenceParameterT,
+            ParameterT,
             ProposalLatentContextLength,
             ProposalObservationContextLength,
         ],
@@ -239,7 +221,6 @@ class SMCSampler[
         observation_context_length: FilterObservationHistoryLength | None = None,
     ):
         self.target = target
-        self.parameterization = parameterization
         self.proposal = proposal
         self.resampler = resampler
         self.num_particles = num_particles
@@ -348,13 +329,13 @@ class SMCSampler[
             FilterObservationHistoryLength,
         ],
         observation: ObservationT,
-        params: InferenceParameterT,
+        params: ParameterT,
         condition: ConditionT,
     ) -> pf_interface.FilterData[
         ParticleT,
         ObservationT,
         ConditionT,
-        InferenceParameterT,
+        ParameterT,
         FilterLatentHistoryLength,
         FilterObservationHistoryLength,
     ]:
@@ -396,19 +377,18 @@ class SMCSampler[
             params,
         )
 
-        model_params = self.parameterization.to_model_parameters(params)
         log_weight_inc = (
             self.transition_log_prob(
                 proposed_particles,
                 model_latent_history,
-                model_params,
+                params,
                 condition,
                 model_observation_history,
             )
             + self.emission_log_prob(
                 observation,
                 proposed_particles,
-                model_params,
+                params,
                 condition,
                 model_latent_history,
                 model_observation_history,
@@ -453,8 +433,6 @@ def run_filter[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParameterT: seqjtyping.Parameters,
-    InferenceParameterT: seqjtyping.Parameters,
-    HyperParametersT: seqjtyping.HyperParameters,
     ModelLatentContextLength: int,
     ModelObservationContextLength: int,
     ProposalLatentContextLength: int,
@@ -468,8 +446,6 @@ def run_filter[
         ObservationT,
         ConditionT,
         ParameterT,
-        InferenceParameterT,
-        HyperParametersT,
         ModelLatentContextLength,
         ModelObservationContextLength,
         ProposalLatentContextLength,
@@ -477,7 +453,7 @@ def run_filter[
         FilterLatentHistoryLength,
         FilterObservationHistoryLength,
     ],
-    inference_parameters: InferenceParameterT,
+    parameters: ParameterT,
     observation_path: ObservationT,
     condition_path: ConditionT | None = None,
     observation_history: model_interface.FixedLengthHistoryContext[
@@ -508,13 +484,12 @@ def run_filter[
     )
     init_key, *step_keys = jrandom.split(key, sequence_length + 1)
 
-    model_parameters = smc.parameterization.to_model_parameters(inference_parameters)
     prior_particles = jax.vmap(
         smc.target.prior_sample,
         in_axes=(0, None),
     )(
         jrandom.split(init_key, smc.num_particles),
-        model_parameters,
+        parameters,
     )
     if prior_particles.length != smc.latent_context_length:
         raise ValueError(
@@ -529,10 +504,7 @@ def run_filter[
                 "observation_history is required because the filter "
                 f"observation context length is {smc.observation_context_length}"
             )
-        observed_values: tuple[
-            model_interface.ObservedItem[ObservationT, ConditionT],
-            ...,
-        ] = ()
+        observation_history = smc.target.observed_history_context()
     else:
         if observation_history.length != smc.observation_context_length:
             raise ValueError(
@@ -540,9 +512,8 @@ def run_filter[
                 f"{smc.observation_context_length}, received "
                 f"{observation_history.length}"
             )
-        observed_values = observation_history.values
 
-    context = smc.filter_context(prior_particles.values, observed_values)
+    context = smc.filter_context(prior_particles.values, observation_history.values)
 
     uniform_log_w = jnp.full(
         (smc.num_particles,),
@@ -558,7 +529,7 @@ def run_filter[
             log_w,
             filter_context,
             observation,
-            inference_parameters,
+            parameters,
             condition,
         )
         recorder_values = (
