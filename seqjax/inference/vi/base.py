@@ -135,7 +135,12 @@ class SSMVariationalApproximation[
 
     def joint_sample_and_log_prob(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -154,7 +159,12 @@ class SSMVariationalApproximation[
 
     def estimate_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -348,7 +358,12 @@ class FullVI[
     
     def estimate_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -395,7 +410,12 @@ class FullVI[
 
     def estimate_pretrain_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -513,7 +533,12 @@ class FullVI[
 
     def estimate_prior_fit_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -566,7 +591,12 @@ class BufferedSSMVI[
 
     def sample_prior_and_latent_log_prob(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         seq_key: jaxtyping.PRNGKeyArray,
         subseq_key: jaxtyping.PRNGKeyArray,
         parameter_key: jaxtyping.PRNGKeyArray,
@@ -621,7 +651,12 @@ class BufferedSSMVI[
     
     def joint_sample_and_log_prob(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         seq_key: jaxtyping.PRNGKeyArray,
         subseq_key: jaxtyping.PRNGKeyArray,
         parameter_key: jaxtyping.PRNGKeyArray,
@@ -682,7 +717,12 @@ class BufferedSSMVI[
     
     def batched_sample(
         self, 
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -745,7 +785,12 @@ class BufferedSSMVI[
 
     def batched_pretrain_sample(
         self, 
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -885,7 +930,12 @@ class BufferedSSMVI[
 
     def estimate_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -941,7 +991,12 @@ class BufferedSSMVI[
 
     def estimate_pretrain_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -971,7 +1026,12 @@ class BufferedSSMVI[
 
     def estimate_prior_fit_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -1015,7 +1075,12 @@ class IWBufferedSSMVI[
 ]):
     def iw_joint_sample_and_log_prob(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         sample_kwargs: VISamplingKwargs,
         seq_key: jaxtyping.PRNGKeyArray,
         subseq_key: jaxtyping.PRNGKeyArray,
@@ -1086,7 +1151,12 @@ class IWBufferedSSMVI[
     
     def batched_sample(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -1208,7 +1278,12 @@ class IWBufferedSSMVI[
     
     def estimate_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,

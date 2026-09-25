@@ -44,7 +44,12 @@ class HybridSSMVI[
 
     def score_estimator(
         self, 
-        dataset: InferenceDataset[ObservationT, ConditionT], 
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ], 
         sample_kwargs: VISamplingKwargs,
         parameter: InferenceParametersT,
         key: jaxtyping.PRNGKeyArray,
@@ -64,7 +69,12 @@ class HybridSSMVI[
 
     def estimate_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -129,7 +139,12 @@ class HybridSSMVI[
 
     def estimate_pretrain_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -139,7 +154,12 @@ class HybridSSMVI[
 
     def estimate_prior_fit_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
