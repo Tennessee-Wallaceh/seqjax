@@ -18,13 +18,16 @@ from .types import (
     LogVolWithSkew,
     TimeIncrement,
 )
+import seqjax.model.typing as seqjtyping
 
 def generate_trading_grid(
-    target_days,
+    target_days: int,
     gap_perc: float = 0.35,
     # ie one of these is the gap
     session_minutes: int = 8 * 60 - 1, 
-):
+) -> seqjtyping.Batched[
+    TimeIncrement, seqjtyping.SequenceLength
+]:
     gap_tstep = gap_perc / 256
     day_tstep = (1 - gap_perc) / 256
     minute_tstep = day_tstep / session_minutes

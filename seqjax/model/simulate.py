@@ -86,6 +86,7 @@ def simulate[
     ParametersT: seqjtyping.Parameters,
     LatentContextLength: int,
     ObservationContextLength: int,
+    SequenceLength: seqjtyping.SequenceLength,
 ](
     key: PRNGKeyArray,
     target: model_interface.SequentialModelProtocol[
@@ -98,15 +99,17 @@ def simulate[
     ],
     parameters: ParametersT,
     *,
-    sequence_length: int | None = None,
-    condition: ConditionT | None = None,
+    sequence_length: SequenceLength | None = None,
+    condition: seqjtyping.Batched[
+        ConditionT, SequenceLength
+    ] | None = None,
     observation_history: model_interface.ObservedHistoryContext[
         ObservationT, ConditionT, ObservationContextLength
     ] =  None
 ) -> tuple[
     model_interface.LatentContext[LatentT, LatentContextLength],
-    LatentT,
-    ObservationT,
+    seqjtyping.Batched[LatentT, SequenceLength],
+    seqjtyping.Batched[ObservationT, SequenceLength],
 ]:
     if (sequence_length is None) == (condition is None):
         raise ValueError("Exactly one of sequence_length and condition must be provided") 
@@ -148,14 +151,18 @@ def simulate[
     # closes over target and parameters
     def model_step(
         state: tuple[
-            model_interface.LatentContext[LatentT],
-            model_interface.ObservedHistoryContext[ObservationT, ConditionT],
+            model_interface.LatentContext[LatentT, LatentContextLength],
+            model_interface.ObservedHistoryContext[
+                ObservationT, ConditionT, ObservationContextLength
+            ],
         ],
         inputs: tuple[PRNGKeyArray, ConditionT],
     ) -> tuple[
         tuple[
-            model_interface.LatentContext[LatentT],
-            model_interface.ObservedHistoryContext[ObservationT, ConditionT],
+            model_interface.LatentContext[LatentT, LatentContextLength],
+            model_interface.ObservedHistoryContext[
+                ObservationT, ConditionT, ObservationContextLength
+            ],
         ],
         tuple[LatentT, ObservationT],
     ]:

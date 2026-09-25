@@ -177,7 +177,12 @@ class InferenceMethod[
         ],
         hyperparameters: HyperParametersT,
         key: jaxtyping.PRNGKeyArray,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         test_samples: int,
         config: typing.Any,
         tracker: typing.Any = None,
