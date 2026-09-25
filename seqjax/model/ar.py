@@ -2,7 +2,7 @@
 AR(1) model implementations - a univariate LGSSM.
 """
 from dataclasses import field
-from typing import ClassVar
+from typing import ClassVar, Literal
 from collections import OrderedDict
 
 import jax
@@ -64,7 +64,7 @@ parameter_cls = ARParameters
 condition_cls = NoCondition
 
 def _ar_loc_scale(
-    latent_history: LatentContext[LatentValue],
+    latent_history: LatentContext[LatentValue, Literal[1]],
     condition: NoCondition,
     parameters: ARParameters,
 ) -> tuple[jax.Array, jax.Array]:
@@ -78,7 +78,7 @@ def _ar_loc_scale(
 def prior_sample(
     key: PRNGKeyArray,
     parameters: ARParameters,
-) -> LatentContext[LatentValue]:
+) -> LatentContext[LatentValue, Literal[1]]:
     stationary_scale = jnp.sqrt(
         jnp.square(parameters.transition_std) / (1 - jnp.square(parameters.ar))
     )
@@ -87,7 +87,7 @@ def prior_sample(
 
 
 def prior_log_prob(
-    latent: LatentContext[LatentValue],
+    latent: LatentContext[LatentValue, Literal[1]],
     parameters: ARParameters,
 ) -> Scalar:
     stationary_scale = jnp.sqrt(
@@ -98,10 +98,10 @@ def prior_log_prob(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentValue],
+    latent_history: LatentContext[LatentValue, Literal[1]],
     parameters: ARParameters,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[NoisyEmission, NoCondition],
+    observation_history: ObservedHistoryContext[NoisyEmission, NoCondition, Literal[0]],
 ) -> LatentValue:
     _ = observation_history
     loc_x, scale_x = _ar_loc_scale(latent_history, condition, parameters)
@@ -111,11 +111,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[LatentValue],
     latent: LatentValue,
+    latent_history: LatentContext[LatentValue, Literal[1]],
     parameters: ARParameters,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[NoisyEmission, NoCondition],
+    observation_history: ObservedHistoryContext[NoisyEmission, NoCondition, Literal[0]],
 ) -> Scalar:
     _ = observation_history
     loc_x, scale_x = _ar_loc_scale(latent_history, condition, parameters)
@@ -126,28 +126,28 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentValue],
+    current_latent: LatentValue,
     parameters: ARParameters,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[NoisyEmission, NoCondition],
+    latent_history: LatentContext[LatentValue, Literal[1]],
+    observation_history: ObservedHistoryContext[NoisyEmission, NoCondition, Literal[0]],
 ) -> NoisyEmission:
     del observation_history
     del condition
-    current_latent = latent_history[-1]
     y = current_latent.x + jrandom.normal(key) * parameters.observation_std
     return NoisyEmission(y=y)
 
 
 def emission_log_prob(
-    latent_history: LatentContext[LatentValue],
     observation: NoisyEmission,
+    current_latent: LatentValue,
     parameters: ARParameters,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[NoisyEmission, NoCondition],
+    latent_history: LatentContext[LatentValue, Literal[1]],
+    observation_history: ObservedHistoryContext[NoisyEmission, NoCondition, Literal[0]],
 ) -> Scalar:
     del observation_history
     del condition
-    current_latent = latent_history[-1]
     return jstats.norm.logpdf(
         observation.y,
         loc=current_latent.x,
@@ -161,7 +161,7 @@ ar_model = SequentialModel(
     latent_cls=latent_cls, observation_cls=observation_cls,
     parameter_cls=parameter_cls, condition_cls=condition_cls,
     transition_latent_order=1, transition_observation_order=0,
-    emission_latent_order=1, emission_observation_order=0,
+    emission_latent_order=0, emission_observation_order=0,
     prior_sample=prior_sample, prior_log_prob=prior_log_prob,
     transition_sample=transition_sample, transition_log_prob=transition_log_prob,
     emission_sample=emission_sample, emission_log_prob=emission_log_prob,

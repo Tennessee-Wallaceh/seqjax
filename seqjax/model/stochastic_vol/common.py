@@ -48,8 +48,8 @@ def random_walk_loc_scale(
     condition: TimeIncrement,
     parameters: RandomWalkParameters,
 ) -> tuple[Scalar, Scalar]:
-    move_scale = jnp.sqrt(condition.dt) * parameters.std_log_vol
-    move_loc = prev_latent.log_vol + condition.dt * parameters.mean_reversion * (
+    move_scale = jnp.sqrt(condition.timestep) * parameters.std_log_vol
+    move_loc = prev_latent.log_vol + condition.timestep * parameters.mean_reversion * (
         jnp.log(parameters.long_term_vol) - prev_latent.log_vol
     )
     return move_loc, move_scale
@@ -61,20 +61,22 @@ def skew_return_mean_and_scale(
     condition: TimeIncrement,
     parameters: LogVolWithSkew,
 ) -> tuple[Scalar, Scalar]:
-    dt = condition.dt
+    timestep = condition.timestep
     current_vol = jnp.exp(current_latent.log_vol)
     current_var = jnp.exp(2 * current_latent.log_vol)
 
     log_vol_mean, _ = random_walk_loc_scale(last_latent, condition, parameters)
 
-    return_mean = -0.5 * dt * current_var
+    return_mean = -0.5 * timestep * current_var
     return_mean += (
         parameters.skew
         * (current_vol / parameters.std_log_vol)
         * (current_latent.log_vol - log_vol_mean)
     )
 
-    return_scale = jnp.sqrt(dt) * current_vol * jnp.sqrt(1 - parameters.skew**2)
+    return_scale = (
+        jnp.sqrt(timestep) * current_vol * jnp.sqrt(1 - parameters.skew**2)
+    )
     return return_mean, return_scale
 
 

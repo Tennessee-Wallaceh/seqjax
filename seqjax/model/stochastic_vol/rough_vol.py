@@ -20,7 +20,7 @@ from seqjax.model.typing import HyperParameters, Parameters, Latent, Observation
 
 
 transition_latent_order = 1
-emission_latent_order = 1
+emission_latent_order = 0
 transition_observation_order = 0
 emission_observation_order = 0
 
@@ -172,7 +172,7 @@ def prior_sample(
     key: PRNGKeyArray,
     parameters: RoughLogVarParams,
     hyperparameters: RoughVolHyper,
-) -> LatentContext[RoughLatentVar]:
+) -> LatentContext[RoughLatentVar, typing.Literal[1]]:
     sigma = _stationary_factor_std_approx(parameters, hyperparameters)
     z0 = sigma * jrandom.normal(key, shape=sigma.shape)
     start_latent = RoughLatentVar(z=z0)
@@ -180,7 +180,7 @@ def prior_sample(
 
 
 def prior_log_prob(
-    latent: LatentContext[RoughLatentVar],
+    latent: LatentContext[RoughLatentVar, typing.Literal[1]],
     parameters: RoughLogVarParams,
     hyperparameters: RoughVolHyper,
 ) -> Scalar:
@@ -190,10 +190,10 @@ def prior_log_prob(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[RoughLatentVar],
+    latent_history: LatentContext[RoughLatentVar, typing.Literal[1]],
     parameters: RoughLogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
     hyperparameters: RoughVolHyper,
 ) -> RoughLatentVar:
     _ = (condition, observation_history)
@@ -215,11 +215,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[RoughLatentVar],
     latent: RoughLatentVar,
+    latent_history: LatentContext[RoughLatentVar, typing.Literal[1]],
     parameters: RoughLogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
     hyperparameters: RoughVolHyper,
 ) -> Scalar:
     _ = (condition, observation_history)
@@ -251,17 +251,17 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[RoughLatentVar],
+    current_latent: RoughLatentVar,
     parameters: RoughLogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    latent_history: LatentContext[RoughLatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
     hyperparameters: RoughVolHyper,
 ) -> LogReturnObs:
     _ = observation_history
     _ = (condition, observation_history)
     _ = hyperparameters
 
-    current_latent = latent_history[-1]
     current_log_var = _log_var_from_latent(current_latent, parameters)
     return_scale = jnp.exp(0.5 * current_log_var)
 
@@ -271,18 +271,18 @@ def emission_sample(
 
 
 def emission_log_prob(
-    latent_history: LatentContext[RoughLatentVar],
     observation: LogReturnObs,
+    current_latent: RoughLatentVar,
     parameters: RoughLogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    latent_history: LatentContext[RoughLatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
     hyperparameters: RoughVolHyper,
 ) -> Scalar:
     _ = observation_history
     _ = (condition, observation_history)
     _ = hyperparameters
 
-    current_latent = latent_history[-1]
     current_log_var = _log_var_from_latent(current_latent, parameters)
     return_scale = jnp.exp(0.5 * current_log_var)
 
@@ -382,7 +382,14 @@ class RoughVarParameterization(
 @jax.tree_util.register_dataclass
 @dataclass
 class RoughStochasticVarBayesian:
-    target: SequentialModelProtocol[RoughLatentVar, LogReturnObs, NoCondition, RoughLogVarParams]
+    target: SequentialModelProtocol[
+        RoughLatentVar,
+        LogReturnObs,
+        NoCondition,
+        RoughLogVarParams,
+        typing.Literal[1],
+        typing.Literal[0],
+    ]
     parameterization: RoughVarParameterization
 
 

@@ -20,7 +20,7 @@ from .types import LVolStd, LatentVol, LogReturnObs, LogVolRW, TimeIncrement
 
 
 transition_latent_order = 1
-emission_latent_order = 1
+emission_latent_order = 0
 transition_observation_order = 0
 emission_observation_order = 0
 
@@ -32,16 +32,16 @@ condition_cls = TimeIncrement
 def prior_sample(
     key: PRNGKeyArray,
     parameters: LogVolRW,
-) -> LatentContext[LatentVol]:
+) -> LatentContext[LatentVol, typing.Literal[1]]:
     _ = parameters
     mu = jnp.log(jnp.array(0.1))
     sigma = jnp.array(1.6) / jnp.sqrt(2.0 * 6.0)
     start_lv = LatentVol(log_vol=(mu + sigma * jrandom.normal(key)))
-    return LatentContext.from_values(start_lv, length=max(transition_latent_order, emission_latent_order))
+    return LatentContext.from_values(start_lv, length=1)
 
 
 def prior_log_prob(
-    latent: LatentContext[LatentVol],
+    latent: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolRW,
 ) -> Scalar:
     _ = parameters
@@ -52,10 +52,10 @@ def prior_log_prob(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVol],
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolRW,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> LatentVol:
     _ = observation_history
     loc, scale = random_walk_loc_scale(latent_history[-1], condition, parameters)
@@ -63,11 +63,11 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[LatentVol],
     latent: LatentVol,
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolRW,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     loc, scale = random_walk_loc_scale(latent_history[-1], condition, parameters)
@@ -76,30 +76,30 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVol],
+    current_latent: LatentVol,
     parameters: LogVolRW,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement],
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> LogReturnObs:
     _ = observation_history
     _ = parameters
-    current_latent = latent_history[-1]
-    return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_latent.log_vol)
+    return_scale = jnp.sqrt(condition.timestep) * jnp.exp(current_latent.log_vol)
     log_return = jrandom.normal(key) * return_scale
     return LogReturnObs(log_return=log_return)
 
 
 def emission_log_prob(
-    latent_history: LatentContext[LatentVol],
     observation: LogReturnObs,
+    current_latent: LatentVol,
     parameters: LogVolRW,
     condition: TimeIncrement,
-    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement],
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     _ = parameters
-    current_latent = latent_history[-1]
-    return_scale = jnp.sqrt(condition.dt) * jnp.exp(current_latent.log_vol)
+    return_scale = jnp.sqrt(condition.timestep) * jnp.exp(current_latent.log_vol)
     return jstats.norm.logpdf(observation.log_return, loc=0.0, scale=return_scale)
 
 
@@ -154,4 +154,4 @@ def make_constant_time_increments(
 
     dt_value = jnp.asarray(dt, dtype=jnp.float32)
     increments = jnp.full((sequence_length,), dt_value, dtype=dt_value.dtype)
-    return TimeIncrement(dt=increments)
+    return TimeIncrement(timestep=increments)

@@ -25,7 +25,7 @@ class NonCenteredLatentVar(Latent):
     )
 
 transition_latent_order = 1
-emission_latent_order = 1
+emission_latent_order = 0
 transition_observation_order = 0
 emission_observation_order = 0
 
@@ -40,13 +40,13 @@ def _stationary_scale_nc(parameters: LogVarParams) -> Scalar:
 def prior_sample(
     key: PRNGKeyArray,
     parameters: LogVarParams,
-) -> LatentContext[NonCenteredLatentVar]:
+) -> LatentContext[NonCenteredLatentVar, typing.Literal[1]]:
     sigma = _stationary_scale_nc(parameters)
     start_z = NonCenteredLatentVar(z=sigma * jrandom.normal(key))
-    return LatentContext.from_values(start_z, length=max(transition_latent_order, emission_latent_order))
+    return LatentContext.from_values(start_z, length=1)
 
 def prior_log_prob(
-    latent: LatentContext[NonCenteredLatentVar],
+    latent: LatentContext[NonCenteredLatentVar, typing.Literal[1]],
     parameters: LogVarParams,
 ) -> Scalar:
     sigma = _stationary_scale_nc(parameters)
@@ -55,10 +55,10 @@ def prior_log_prob(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[NonCenteredLatentVar],
+    latent_history: LatentContext[NonCenteredLatentVar, typing.Literal[1]],
     parameters: LogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> NonCenteredLatentVar:
     _ = observation_history
     _ = condition
@@ -67,11 +67,11 @@ def transition_sample(
     return NonCenteredLatentVar(z=loc + jrandom.normal(key))
 
 def transition_log_prob(
-    latent_history: LatentContext[NonCenteredLatentVar],
     latent: NonCenteredLatentVar,
+    latent_history: LatentContext[NonCenteredLatentVar, typing.Literal[1]],
     parameters: LogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     _ = condition
@@ -81,34 +81,34 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[NonCenteredLatentVar],
+    current_latent: NonCenteredLatentVar,
     parameters: LogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    latent_history: LatentContext[NonCenteredLatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> LogReturnObs:
     _ = observation_history
     _ = condition
-    current_z = latent_history[-1].z
     current_log_var = (
         parameters.long_term_log_var
-        + parameters.std_log_var * current_z
+        + parameters.std_log_var * current_latent.z
     )
     return_scale = jnp.exp(0.5 * current_log_var)
     return LogReturnObs(log_return=jrandom.normal(key) * return_scale)
 
 def emission_log_prob(
-    latent_history: LatentContext[NonCenteredLatentVar],
     observation: LogReturnObs,
+    current_latent: NonCenteredLatentVar,
     parameters: LogVarParams,
     condition: NoCondition,
-    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition],
+    latent_history: LatentContext[NonCenteredLatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, NoCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     _ = condition
-    current_z = latent_history[-1].z
     current_log_var = (
         parameters.long_term_log_var
-        + parameters.std_log_var * current_z
+        + parameters.std_log_var * current_latent.z
     )
     return_scale = jnp.exp(0.5 * current_log_var)
     return jstats.norm.logpdf(
