@@ -10,10 +10,12 @@ import jaxtyping
 import seqjax.model.typing as seqjtyping
 from seqjax.inference.particlefilter import run_filter
 from seqjax.inference.particlefilter.interface import FilterData
-from seqjax.inference.vi.base import _sample_sequence_minibatch, sample_batch_and_mask
 from seqjax.model.interface import BayesianSequentialModelProtocol
 from seqjax.model import util as model_util
-from seqjax.model.condition import layout_for
+from seqjax.inference.sequence_sampling import (
+    sample_buffered_subsequence,
+    sample_sequence_minibatch,
+)
 
 def estimate_initial_step_score[
     ParticleT: seqjtyping.Latent,
@@ -102,7 +104,9 @@ def estimate_step_score[
     transition_history = model.target.latent_context(filter_data.resampled_particles.values)
     proposed_particles = filter_data.particles[-1]
 
-    emission_particles = model_util.add_history(filter_data.resampled_particles, filter_data.particles[-1])
+    emission_particles = filter_data.resampled_particles.append(
+        filter_data.particles[-1]
+    )
 
     return jax.vmap(
         model_step_score,
@@ -219,7 +223,7 @@ def buffered_score_estimate(
 ):
     minibatch_key, start_keys_key, sequence_pf_keys_key = jrandom.split(grad_key, 3)
     sampled_observations, sampled_conditions = (
-        _sample_sequence_minibatch(
+        sample_sequence_minibatch(
             dataset,
             minibatch_key,
             num_sequence_minibatch,
@@ -236,10 +240,7 @@ def buffered_score_estimate(
     inserse_sequence_prob = dataset.num_sequences / num_sequence_minibatch
 
     _, y_batch, c_batch, theta_mask = jax.vmap(
-        partial(
-            sample_batch_and_mask,
-            condition_layout=layout_for(model.target),
-        ),
+        sample_buffered_subsequence,
         in_axes=(0, None, None, None, 0, 0),
     )(
         start_keys,

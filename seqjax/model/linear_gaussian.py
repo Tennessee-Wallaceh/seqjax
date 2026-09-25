@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from functools import lru_cache, partial
+from functools import lru_cache
 import types
 import typing
 
@@ -15,11 +15,9 @@ import jax.scipy as jsp
 from jaxtyping import Array, PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    ConditionContext,
     LatentContext,
-    ObservationContext,
-    SequentialModelProtocol,
-    validate_sequential_model,
+    ObservedHistoryContext,
+    SequentialModel,
 )
 from seqjax.model.typing import Latent, NoCondition, Observation, Parameters
 
@@ -235,175 +233,144 @@ def make_lgssm_parameters_cls(dim: int) -> type[_LGSSMParametersBase]:
     )
 
 
-latent_context: typing.Callable[[tuple[_VectorStateBase]], LatentContext[_VectorStateBase]]
-latent_context = partial(LatentContext, length=1)
-observation_context: typing.Callable[[tuple], ObservationContext[_VectorObservationBase]]
-observation_context = partial(ObservationContext, length=0)
-condition_context: typing.Callable[[tuple], ConditionContext[NoCondition]]
-condition_context = partial(ConditionContext, length=0)
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class LGSSMModel(
-    SequentialModelProtocol[
-        _VectorStateBase,
-        _VectorObservationBase,
-        NoCondition,
-        _LGSSMParametersBase,
-    ]
-):
-    latent_cls: type[_VectorStateBase]
-    observation_cls: type[_VectorObservationBase]
-    parameter_cls: type[_LGSSMParametersBase]
-    condition_cls: type[NoCondition] = NoCondition
+def _validate_parameter_shapes(parameters: _LGSSMParametersBase) -> int:
+    dim = parameters.transition_matrix.shape[0]
+    expected = (dim, dim)
+    field_shapes = {
+        "transition_matrix": parameters.transition_matrix.shape,
+        "transition_noise_cholesky": parameters.transition_noise_cholesky.shape,
+        "emission_matrix": parameters.emission_matrix.shape,
+        "emission_noise_cholesky": parameters.emission_noise_cholesky.shape,
+    }
+    for field_name, shape in field_shapes.items():
+        if shape != expected:
+            raise ValueError(
+                f"{field_name} must have shape {expected}, got {shape}"
+            )
+    return dim
 
-    prior_order: int = 1
-    transition_order: int = 1
-    emission_order: int = 1
-    observation_dependency: int = 0
 
-    latent_context: typing.Callable[..., LatentContext[_VectorStateBase]] = latent_context
-    observation_context: typing.Callable[..., ObservationContext[_VectorObservationBase]] = observation_context
-    condition_context: typing.Callable[..., ConditionContext[NoCondition]] = condition_context
+def prior_sample(
+    key: PRNGKeyArray,
+    parameters: _LGSSMParametersBase,
+) -> LatentContext[_VectorStateBase, typing.Literal[1]]:
+    dim = _validate_parameter_shapes(parameters)
+    mean = jnp.zeros((dim,), dtype=parameters.transition_matrix.dtype)
+    x0 = _mvn_sample(
+        key,
+        mean=mean,
+        chol=parameters.transition_noise_cholesky,
+    )
+    latent_cls = make_vector_state_cls(dim)
+    return LatentContext.from_values(latent_cls(x=x0), length=1)
 
-    @property
-    def dim(self) -> int:
-        return self.parameter_cls.dim
 
-    @staticmethod
-    def _validate_parameter_shapes(parameters: _LGSSMParametersBase) -> int:
-        dim = parameters.transition_matrix.shape[0]
-        expected = (dim, dim)
-        field_shapes = {
-            "transition_matrix": parameters.transition_matrix.shape,
-            "transition_noise_cholesky": parameters.transition_noise_cholesky.shape,
-            "emission_matrix": parameters.emission_matrix.shape,
-            "emission_noise_cholesky": parameters.emission_noise_cholesky.shape,
-        }
-        for field_name, shape in field_shapes.items():
-            if shape != expected:
-                raise ValueError(
-                    f"{field_name} must have shape {expected}, got {shape}"
-                )
-        return dim
+def prior_log_prob(
+    latent: LatentContext[_VectorStateBase, typing.Literal[1]],
+    parameters: _LGSSMParametersBase,
+) -> Scalar:
+    dim = _validate_parameter_shapes(parameters)
+    mean = jnp.zeros((dim,), dtype=parameters.transition_matrix.dtype)
+    return _mvn_log_prob(
+        latent[-1].x,
+        mean=mean,
+        chol=parameters.transition_noise_cholesky,
+    )
 
-    @staticmethod
-    def prior_sample(
-        key: PRNGKeyArray,
-        conditions: ConditionContext[NoCondition],
-        parameters: _LGSSMParametersBase,
-    ) -> LatentContext[_VectorStateBase]:
-        _ = conditions
-        dim = LGSSMModel._validate_parameter_shapes(parameters)
-        mean = jnp.zeros((dim,), dtype=parameters.transition_matrix.dtype)
-        x0 = _mvn_sample(
-            key,
-            mean=mean,
-            chol=parameters.transition_noise_cholesky,
-        )
-        latent_cls = make_vector_state_cls(dim)
-        return latent_context((latent_cls(x=x0),))
 
-    @staticmethod
-    def prior_log_prob(
-        latent: LatentContext[_VectorStateBase],
-        conditions: ConditionContext[NoCondition],
-        parameters: _LGSSMParametersBase,
-    ) -> Scalar:
-        _ = conditions
-        dim = LGSSMModel._validate_parameter_shapes(parameters)
-        mean = jnp.zeros((dim,), dtype=parameters.transition_matrix.dtype)
-        return _mvn_log_prob(
-            latent[0].x,
-            mean=mean,
-            chol=parameters.transition_noise_cholesky,
-        )
+def transition_sample(
+    key: PRNGKeyArray,
+    latent_history: LatentContext[_VectorStateBase, typing.Literal[1]],
+    parameters: _LGSSMParametersBase,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition, typing.Literal[0]],
+) -> _VectorStateBase:
+    _ = (condition, observation_history)
+    _validate_parameter_shapes(parameters)
+    last_state = latent_history[-1]
+    mean = parameters.transition_matrix @ last_state.x
+    x = _mvn_sample(
+        key,
+        mean=mean,
+        chol=parameters.transition_noise_cholesky,
+    )
+    latent_cls = make_vector_state_cls(parameters.transition_matrix.shape[0])
+    return latent_cls(x=x)
 
-    @staticmethod
-    def transition_sample(
-        key: PRNGKeyArray,
-        latent_history: LatentContext[_VectorStateBase],
-        condition: NoCondition,
-        parameters: _LGSSMParametersBase,
-    ) -> _VectorStateBase:
-        _ = condition
-        LGSSMModel._validate_parameter_shapes(parameters)
-        last_state = latent_history[0]
-        mean = parameters.transition_matrix @ last_state.x
-        x = _mvn_sample(
-            key,
-            mean=mean,
-            chol=parameters.transition_noise_cholesky,
-        )
-        latent_cls = make_vector_state_cls(parameters.transition_matrix.shape[0])
-        return latent_cls(x=x)
 
-    @staticmethod
-    def transition_log_prob(
-        latent_history: LatentContext[_VectorStateBase],
-        latent: _VectorStateBase,
-        condition: NoCondition,
-        parameters: _LGSSMParametersBase,
-    ) -> Scalar:
-        _ = condition
-        LGSSMModel._validate_parameter_shapes(parameters)
-        last_state = latent_history[0]
-        mean = parameters.transition_matrix @ last_state.x
-        return _mvn_log_prob(
-            latent.x,
-            mean=mean,
-            chol=parameters.transition_noise_cholesky,
-        )
+def transition_log_prob(
+    latent: _VectorStateBase,
+    latent_history: LatentContext[_VectorStateBase, typing.Literal[1]],
+    parameters: _LGSSMParametersBase,
+    condition: NoCondition,
+    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition, typing.Literal[0]],
+) -> Scalar:
+    _ = (condition, observation_history)
+    _validate_parameter_shapes(parameters)
+    last_state = latent_history[-1]
+    mean = parameters.transition_matrix @ last_state.x
+    return _mvn_log_prob(
+        latent.x,
+        mean=mean,
+        chol=parameters.transition_noise_cholesky,
+    )
 
-    @staticmethod
-    def emission_sample(
-        key: PRNGKeyArray,
-        latent_history: LatentContext[_VectorStateBase],
-        observation_history: ObservationContext[_VectorObservationBase],
-        condition: NoCondition,
-        parameters: _LGSSMParametersBase,
-    ) -> _VectorObservationBase:
-        _ = (observation_history, condition)
-        LGSSMModel._validate_parameter_shapes(parameters)
-        state = latent_history[0]
-        mean = parameters.emission_matrix @ state.x
-        y = _mvn_sample(
-            key,
-            mean=mean,
-            chol=parameters.emission_noise_cholesky,
-        )
-        observation_cls = make_vector_observation_cls(parameters.emission_matrix.shape[0])
-        return observation_cls(y=y)
 
-    @staticmethod
-    def emission_log_prob(
-        latent_history: LatentContext[_VectorStateBase],
-        observation: _VectorObservationBase,
-        observation_history: ObservationContext[_VectorObservationBase],
-        condition: NoCondition,
-        parameters: _LGSSMParametersBase,
-    ) -> Scalar:
-        _ = (observation_history, condition)
-        LGSSMModel._validate_parameter_shapes(parameters)
-        state = latent_history[0]
-        mean = parameters.emission_matrix @ state.x
-        return _mvn_log_prob(
-            observation.y,
-            mean=mean,
-            chol=parameters.emission_noise_cholesky,
-        )
+def emission_sample(
+    key: PRNGKeyArray,
+    current_latent: _VectorStateBase,
+    parameters: _LGSSMParametersBase,
+    condition: NoCondition,
+    latent_history: LatentContext[_VectorStateBase, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition, typing.Literal[0]],
+) -> _VectorObservationBase:
+    _ = (observation_history, condition)
+    _validate_parameter_shapes(parameters)
+    mean = parameters.emission_matrix @ current_latent.x
+    y = _mvn_sample(
+        key,
+        mean=mean,
+        chol=parameters.emission_noise_cholesky,
+    )
+    observation_cls = make_vector_observation_cls(parameters.emission_matrix.shape[0])
+    return observation_cls(y=y)
+
+
+def emission_log_prob(
+    observation: _VectorObservationBase,
+    current_latent: _VectorStateBase,
+    parameters: _LGSSMParametersBase,
+    condition: NoCondition,
+    latent_history: LatentContext[_VectorStateBase, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[_VectorObservationBase, NoCondition, typing.Literal[0]],
+) -> Scalar:
+    _ = (observation_history, condition)
+    _validate_parameter_shapes(parameters)
+    mean = parameters.emission_matrix @ current_latent.x
+    return _mvn_log_prob(
+        observation.y,
+        mean=mean,
+        chol=parameters.emission_noise_cholesky,
+    )
+
+
 
 
 @lru_cache(maxsize=None)
-def lgssm(dim: int = DEFAULT_DIM) -> LGSSMModel:
+def lgssm(dim: int = DEFAULT_DIM) -> SequentialModel:
 
-    return validate_sequential_model(
-        LGSSMModel(
-            latent_cls=make_vector_state_cls(dim),
-            observation_cls=make_vector_observation_cls(dim),
-            parameter_cls=make_lgssm_parameters_cls(dim),
-        )
+    return SequentialModel(
+        latent_cls=make_vector_state_cls(dim),
+        observation_cls=make_vector_observation_cls(dim),
+        parameter_cls=make_lgssm_parameters_cls(dim),
+        condition_cls=NoCondition,
+        transition_latent_order=1, transition_observation_order=0,
+        emission_latent_order=0, emission_observation_order=0,
+        prior_sample=prior_sample, prior_log_prob=prior_log_prob,
+        transition_sample=transition_sample, transition_log_prob=transition_log_prob,
+        emission_sample=emission_sample, emission_log_prob=emission_log_prob,
     )
 
 

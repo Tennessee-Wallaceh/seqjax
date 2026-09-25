@@ -18,7 +18,7 @@ from quantiphy import Quantity
 
 from seqjax.inference.vi import interface
 from seqjax.inference.interface import InferenceDataset
-from seqjax.inference.vi.embedder import Embedder
+from seqjax.inference.vi.embedder.embedder import Embedder
 from seqjax.inference.vi.base import _sample_sequence_minibatch
 
 import seqjax.model.typing as seqjtyping
@@ -107,7 +107,12 @@ def _slice_sequence_chunk[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
 ](
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     *,
     start: int,
     stop: int,
@@ -300,7 +305,12 @@ def loss_neg_elbo(
         Embedder,
     ],
     sample_kwargs: LatentVISamplingKwargs,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     target,
     params,
 ):
@@ -387,7 +397,12 @@ class LatentFitTracker:
 def train(
     model: interface.VariationalApproximation[LatentT, ConditionT],
     embedder: Embedder,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     target: model_interface.SequentialModelProtocol,
     params: ParametersT,
     *,

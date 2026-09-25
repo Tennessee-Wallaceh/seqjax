@@ -100,7 +100,12 @@ def run_bayesian_nuts[
         HyperParametersT,
     ],
     key: jaxtyping.PRNGKeyArray,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     test_samples: int,
     config: NUTSConfig = NUTSConfig(),
     tracker: Any = None,

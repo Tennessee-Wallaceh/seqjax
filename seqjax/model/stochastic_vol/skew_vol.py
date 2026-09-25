@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import typing
-from functools import partial
 
 import jax.numpy as jnp
 import jax.random as jrandom
@@ -10,92 +9,85 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    ConditionContext,
+    ObservedHistoryContext,
     LatentContext,
-    ObservationContext,
-    SequentialModelProtocol,
-    validate_sequential_model,
+    SequentialModel,
 )
 
 from .common import SkewStochVolParamPrior, random_walk_loc_scale, skew_return_mean_and_scale
 from .types import LatentVol, LogReturnObs, LogVolWithSkew, TimeIncrement
 
 
-prior_order = 2
-transition_order = 2
-emission_order = 2
-observation_dependency = 0
+transition_latent_order = 1
+emission_latent_order = 1
+transition_observation_order = 0
+emission_observation_order = 0
 
 latent_cls = LatentVol
 observation_cls = LogReturnObs
 parameter_cls = LogVolWithSkew
 condition_cls = TimeIncrement
 
-latent_context = partial(LatentContext, length=transition_order)
-observation_context = partial(ObservationContext, length=observation_dependency)
-condition_context = partial(ConditionContext, length=prior_order)
-
-
 def prior_sample(
     key: PRNGKeyArray,
-    conditions: ConditionContext[TimeIncrement],
     parameters: LogVolWithSkew,
-) -> LatentContext[LatentVol]:
+) -> LatentContext[LatentVol, typing.Literal[1]]:
     mu = jnp.array(-2.0)
     sigma = jnp.array(0.5)
 
-    start_key, trans_key = jrandom.split(key)
-    start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(start_key))
-    loc, scale = random_walk_loc_scale(start_lv, conditions[-1], parameters)
-    next_lv = LatentVol(log_vol=loc + scale * jrandom.normal(trans_key))
-    return latent_context((start_lv, next_lv))
+    start_lv = LatentVol(log_vol=mu + sigma * jrandom.normal(key))
+    return LatentContext.from_values(start_lv, length=1)
 
 
 def prior_log_prob(
-    latent: LatentContext[LatentVol],
-    conditions: ConditionContext[TimeIncrement],
+    latent: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolWithSkew,
 ) -> Scalar:
     mu = jnp.array(-2.0)
     sigma = jnp.array(0.5)
 
-    base_log_p = jstats.norm.logpdf(latent[0].log_vol, loc=mu, scale=sigma)
-    loc, scale = random_walk_loc_scale(latent[0], conditions[-1], parameters)
-    rw_log_p = jstats.norm.logpdf(latent[-1].log_vol, loc=loc, scale=scale)
-    return base_log_p + rw_log_p
+    return sum(
+        jstats.norm.logpdf(value.log_vol, loc=mu, scale=sigma)
+        for value in latent.to_tuple()
+    )
 
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVol],
-    condition: TimeIncrement,
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolWithSkew,
+    condition: TimeIncrement,
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> LatentVol:
+    _ = observation_history
     loc, scale = random_walk_loc_scale(latent_history[-1], condition, parameters)
     return LatentVol(log_vol=loc + scale * jrandom.normal(key))
 
 
 def transition_log_prob(
-    latent_history: LatentContext[LatentVol],
     latent: LatentVol,
-    condition: TimeIncrement,
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
     parameters: LogVolWithSkew,
+    condition: TimeIncrement,
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> Scalar:
+    _ = observation_history
     loc, scale = random_walk_loc_scale(latent_history[-1], condition, parameters)
     return jstats.norm.logpdf(latent.log_vol, loc=loc, scale=scale)
 
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVol],
-    observation_history: ObservationContext[LogReturnObs],
-    condition: TimeIncrement,
+    current_latent: LatentVol,
     parameters: LogVolWithSkew,
+    condition: TimeIncrement,
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> LogReturnObs:
     _ = observation_history
     return_mean, return_scale = skew_return_mean_and_scale(
-        latent_history[0],
         latent_history[-1],
+        current_latent,
         condition,
         parameters,
     )
@@ -104,54 +96,39 @@ def emission_sample(
 
 
 def emission_log_prob(
-    latent_history: LatentContext[LatentVol],
     observation: LogReturnObs,
-    observation_history: ObservationContext[LogReturnObs],
-    condition: TimeIncrement,
+    current_latent: LatentVol,
     parameters: LogVolWithSkew,
+    condition: TimeIncrement,
+    latent_history: LatentContext[LatentVol, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeIncrement, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
     return_mean, return_scale = skew_return_mean_and_scale(
-        latent_history[0],
         latent_history[-1],
+        current_latent,
         condition,
         parameters,
     )
     return jstats.norm.logpdf(observation.log_return, loc=return_mean, scale=return_scale)
 
 
-@dataclass(frozen=True)
-class SkewStochasticVol(
-    SequentialModelProtocol[
-        LatentVol,
-        LogReturnObs,
-        TimeIncrement,
-        LogVolWithSkew,
-    ]
-):
-    prior_order: int = prior_order
-    transition_order: int = transition_order
-    emission_order: int = emission_order
-    observation_dependency: int = observation_dependency
-
-    latent_cls: type[LatentVol] = latent_cls
-    observation_cls: type[LogReturnObs] = observation_cls
-    parameter_cls: type[LogVolWithSkew] = parameter_cls
-    condition_cls: type[TimeIncrement] = condition_cls
-
-    latent_context: typing.Callable[..., LatentContext[LatentVol]] = latent_context
-    observation_context: typing.Callable[..., ObservationContext[LogReturnObs]] = observation_context
-    condition_context: typing.Callable[..., ConditionContext[TimeIncrement]] = condition_context
-
-    prior_sample = staticmethod(prior_sample)
-    prior_log_prob = staticmethod(prior_log_prob)
-    transition_sample = staticmethod(transition_sample)
-    transition_log_prob = staticmethod(transition_log_prob)
-    emission_sample = staticmethod(emission_sample)
-    emission_log_prob = staticmethod(emission_log_prob)
-
-
-skew_stochastic_vol_model = validate_sequential_model(SkewStochasticVol())
+skew_stochastic_vol_model = SequentialModel(
+    latent_cls=latent_cls,
+    observation_cls=observation_cls,
+    parameter_cls=parameter_cls,
+    condition_cls=condition_cls,
+    transition_latent_order=transition_latent_order,
+    transition_observation_order=transition_observation_order,
+    emission_latent_order=emission_latent_order,
+    emission_observation_order=emission_observation_order,
+    prior_sample=prior_sample,
+    prior_log_prob=prior_log_prob,
+    transition_sample=transition_sample,
+    transition_log_prob=transition_log_prob,
+    emission_sample=emission_sample,
+    emission_log_prob=emission_log_prob,
+)
 
 
 @dataclass

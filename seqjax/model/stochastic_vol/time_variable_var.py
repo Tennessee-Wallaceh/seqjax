@@ -1,6 +1,5 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from functools import partial
 import typing
 
 import jax
@@ -10,15 +9,12 @@ import jax.scipy.stats as jstats
 from jaxtyping import PRNGKeyArray, Scalar
 
 from seqjax.model.interface import (
-    validate_sequential_model,
-    ConditionContext,
+    ObservedHistoryContext,
     LatentContext,
-    ObservationContext,
+    SequentialModel,
     ParameterizationProtocol,
-    SequentialModelProtocol,
 )
 from seqjax.model.typing import Condition, Parameters
-from seqjax.model.condition import StepAlignedConditions
 
 from .types import LatentVar, LogReturnObs
 
@@ -32,16 +28,31 @@ from .types import LatentVar, LogReturnObs
 #
 # Its continuous-time dynamics are
 #
-#     dh_t = mean_reversion_rate * (long_term_log_var - h_t) dt
+#     dh_t = mean_reversion_rate * (stationary_log_var_mean - h_t) dt
 #            + std_log_var dW_t.
+#
+# ``long_term_log_vol`` is parameterised as
+#
+#     log(E[exp(h_infinity / 2)]).
+#
+# Consequently, exp(long_term_log_vol) is the long-run mean annualised
+# conditional volatility, E[sqrt(V_infinity)], rather than its median.
+# The OU reversion centre is adjusted below for the stationary
+# log-variance variance.
 #
 # Parameter units:
 #   mean_reversion_rate: inverse trading years.
 #   std_log_var:         log-variance units per square-root trading year.
-#   long_term_log_var:   log annualised variance.
+#   long_term_log_vol:   log stationary mean annualised volatility.
+#   df:                  Student-t degrees of freedom.
+
+
+minimum_df = 2.5
 
 
 class TimeStepCondition(Condition):
+    """Elapsed trading time associated with one model step."""
+
     timestep: Scalar
 
     _shape_template: typing.ClassVar = OrderedDict(
@@ -52,7 +63,8 @@ class TimeStepCondition(Condition):
 class LogVarParams(Parameters):
     std_log_var: Scalar
     mean_reversion_rate: Scalar
-    long_term_log_var: Scalar
+    long_term_log_vol: Scalar
+    df: Scalar
 
     _shape_template: typing.ClassVar = OrderedDict(
         std_log_var=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
@@ -60,81 +72,75 @@ class LogVarParams(Parameters):
             shape=(),
             dtype=jnp.float32,
         ),
-        long_term_log_var=jax.ShapeDtypeStruct(
+        long_term_log_vol=jax.ShapeDtypeStruct(
+            shape=(),
+            dtype=jnp.float32,
+        ),
+        df=jax.ShapeDtypeStruct(
             shape=(),
             dtype=jnp.float32,
         ),
     )
 
 
-prior_order = 1
-transition_order = 1
-emission_order = 1
-observation_dependency = 0
+transition_latent_order = 1
+emission_latent_order = 0
+transition_observation_order = 0
+emission_observation_order = 0
 
 latent_cls = LatentVar
 observation_cls = LogReturnObs
 parameter_cls = LogVarParams
 condition_cls = TimeStepCondition
 
-latent_context = partial(LatentContext, length=transition_order)
-observation_context = partial(
-    ObservationContext,
-    length=observation_dependency,
-)
-condition_context = partial(ConditionContext, length=0)
+def _stationary_scale(parameters: LogVarParams) -> Scalar:
+    return parameters.std_log_var / jnp.sqrt(
+        2.0 * parameters.mean_reversion_rate
+    )
 
 
-# This gives annualised volatility exp(h_0 / 2) a central 95% interval of
-# exactly 5% to 50%, while retaining full support for h_0.
-initial_vol_lower = 0.05
-initial_vol_upper = 0.50
-standard_normal_975 = 1.959963984540054
-
-initial_log_var_mean = jnp.log(
-    initial_vol_lower * initial_vol_upper
-)
-initial_log_var_std = (
-    jnp.log(initial_vol_upper / initial_vol_lower)
-    / standard_normal_975
-)
+def _stationary_log_var_mean(
+    parameters: LogVarParams,
+) -> Scalar:
+    # If h_infinity ~ Normal(mu_h, stationary_scale**2), then
+    #
+    # E[exp(h_infinity / 2)]
+    #     = exp(mu_h / 2 + stationary_scale**2 / 8).
+    #
+    # This correction therefore makes
+    # exp(long_term_log_vol) = E[exp(h_infinity / 2)].
+    stationary_variance = jnp.square(
+        _stationary_scale(parameters)
+    )
+    return (
+        2.0 * parameters.long_term_log_vol
+        - 0.25 * stationary_variance
+    )
 
 
 def prior_sample(
     key: PRNGKeyArray,
-    conditions: ConditionContext[TimeStepCondition],
     parameters: LogVarParams,
-) -> LatentContext[LatentVar]:
-    _ = conditions
-    _ = parameters
+) -> LatentContext[LatentVar, typing.Literal[1]]:
 
     start_lv = LatentVar(
         log_var=(
-            initial_log_var_mean
-            + initial_log_var_std * jrandom.normal(key)
+            _stationary_log_var_mean(parameters)
+            + _stationary_scale(parameters) * jrandom.normal(key)
         )
     )
-    return latent_context((start_lv,))
+    return LatentContext.from_values(start_lv, length=1)
 
 
 def prior_log_prob(
-    latent: LatentContext[LatentVar],
-    conditions: ConditionContext[TimeStepCondition],
+    latent: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
 ) -> Scalar:
-    _ = conditions
-    _ = parameters
 
     return jstats.norm.logpdf(
-        latent[0].log_var,
-        loc=initial_log_var_mean,
-        scale=initial_log_var_std,
-    )
-
-
-def _stationary_scale(parameters: LogVarParams) -> Scalar:
-    return parameters.std_log_var / jnp.sqrt(
-        2.0 * parameters.mean_reversion_rate
+        latent[-1].log_var,
+        loc=_stationary_log_var_mean(parameters),
+        scale=_stationary_scale(parameters),
     )
 
 
@@ -165,14 +171,17 @@ def _transition_scale(
 
 def transition_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVar],
-    condition: TimeStepCondition,
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
+    condition: TimeStepCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition, typing.Literal[0]],
 ) -> LatentVar:
-    last_log_var = latent_history[0]
+    _ = observation_history
+    last_log_var = latent_history[-1]
     decay = _transition_decay(condition.timestep, parameters)
-    loc = parameters.long_term_log_var + decay * (
-        last_log_var.log_var - parameters.long_term_log_var
+    stationary_log_var_mean = _stationary_log_var_mean(parameters)
+    loc = stationary_log_var_mean + decay * (
+        last_log_var.log_var - stationary_log_var_mean
     )
     scale = _transition_scale(condition.timestep, parameters)
     return LatentVar(
@@ -181,15 +190,18 @@ def transition_sample(
 
 
 def transition_log_prob(
-    latent_history: LatentContext[LatentVar],
     latent: LatentVar,
-    condition: TimeStepCondition,
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
     parameters: LogVarParams,
+    condition: TimeStepCondition,
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition, typing.Literal[0]],
 ) -> Scalar:
-    last_log_var = latent_history[0]
+    _ = observation_history
+    last_log_var = latent_history[-1]
     decay = _transition_decay(condition.timestep, parameters)
-    loc = parameters.long_term_log_var + decay * (
-        last_log_var.log_var - parameters.long_term_log_var
+    stationary_log_var_mean = _stationary_log_var_mean(parameters)
+    loc = stationary_log_var_mean + decay * (
+        last_log_var.log_var - stationary_log_var_mean
     )
     scale = _transition_scale(condition.timestep, parameters)
     return jstats.norm.logpdf(
@@ -201,95 +213,80 @@ def transition_log_prob(
 
 def emission_sample(
     key: PRNGKeyArray,
-    latent_history: LatentContext[LatentVar],
-    observation_history: ObservationContext[LogReturnObs],
-    condition: TimeStepCondition,
+    current_latent: LatentVar,
     parameters: LogVarParams,
+    condition: TimeStepCondition,
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition, typing.Literal[0]],
 ) -> LogReturnObs:
     _ = observation_history
-    _ = parameters
-    current_latent = latent_history[0]
 
-    # The observation is the raw log return over condition.timestep; the
-    # latent variance is annualised.
-    return_scale = jnp.sqrt(condition.timestep) * jnp.exp(
-        0.5 * current_latent.log_var
+    # jrandom.t has variance df / (df - 2). Multiplying its scale by
+    # sqrt((df - 2) / df) makes exp(log_var) remain the conditional
+    # annualised return variance.
+    return_scale = (
+        jnp.sqrt(condition.timestep)
+        * jnp.exp(0.5 * current_latent.log_var)
+        * jnp.sqrt((parameters.df - 2.0) / parameters.df)
     )
     return LogReturnObs(
-        log_return=jrandom.normal(key) * return_scale
+        log_return=(
+            jrandom.t(key, parameters.df) * return_scale
+        )
     )
 
 
 def emission_log_prob(
-    latent_history: LatentContext[LatentVar],
     observation: LogReturnObs,
-    observation_history: ObservationContext[LogReturnObs],
-    condition: TimeStepCondition,
+    current_latent: LatentVar,
     parameters: LogVarParams,
+    condition: TimeStepCondition,
+    latent_history: LatentContext[LatentVar, typing.Literal[1]],
+    observation_history: ObservedHistoryContext[LogReturnObs, TimeStepCondition, typing.Literal[0]],
 ) -> Scalar:
     _ = observation_history
-    _ = parameters
-    current_latent = latent_history[0]
-    return_scale = jnp.sqrt(condition.timestep) * jnp.exp(
-        0.5 * current_latent.log_var
+    return_scale = (
+        jnp.sqrt(condition.timestep)
+        * jnp.exp(0.5 * current_latent.log_var)
+        * jnp.sqrt((parameters.df - 2.0) / parameters.df)
     )
-    return jstats.norm.logpdf(
+    return jstats.t.logpdf(
         observation.log_return,
+        df=parameters.df,
         loc=0.0,
         scale=return_scale,
     )
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class SimpleStochasticVar(
-    SequentialModelProtocol[
-        LatentVar,
-        LogReturnObs,
-        TimeStepCondition,
-        LogVarParams,
-    ]
-):
-    prior_order: int = prior_order
-    transition_order: int = transition_order
-    emission_order: int = emission_order
-    observation_dependency: int = observation_dependency
-
-    latent_cls: type[LatentVar] = latent_cls
-    observation_cls: type[LogReturnObs] = observation_cls
-    parameter_cls: type[LogVarParams] = parameter_cls
-    condition_cls: type[TimeStepCondition] = condition_cls
-    condition_layout: typing.ClassVar = StepAlignedConditions(
-        prior_condition_count=0
-    )
-
-    latent_context: typing.Callable[..., LatentContext[LatentVar]] = (
-        latent_context
-    )
-    observation_context: typing.Callable[
-        ..., ObservationContext[LogReturnObs]
-    ] = observation_context
-    condition_context: typing.Callable[
-        ..., ConditionContext[TimeStepCondition]
-    ] = condition_context
-
-    prior_sample = staticmethod(prior_sample)
-    prior_log_prob = staticmethod(prior_log_prob)
-    transition_sample = staticmethod(transition_sample)
-    transition_log_prob = staticmethod(transition_log_prob)
-    emission_sample = staticmethod(emission_sample)
-    emission_log_prob = staticmethod(emission_log_prob)
-
-
-simple_stochastic_var_model = validate_sequential_model(
-    SimpleStochasticVar()
+simple_stochastic_var_model = SequentialModel(
+    latent_cls=latent_cls,
+    observation_cls=observation_cls,
+    parameter_cls=parameter_cls,
+    condition_cls=condition_cls,
+    transition_latent_order=transition_latent_order,
+    transition_observation_order=transition_observation_order,
+    emission_latent_order=emission_latent_order,
+    emission_observation_order=emission_observation_order,
+    prior_sample=prior_sample,
+    prior_log_prob=prior_log_prob,
+    transition_sample=transition_sample,
+    transition_log_prob=transition_log_prob,
+    emission_sample=emission_sample,
+    emission_log_prob=emission_log_prob,
 )
+
+
+def SimpleStochasticVar() -> SequentialModel:
+    """Construct the time-varying stochastic-variance model."""
+
+    return simple_stochastic_var_model
 
 
 class UncLogVarParams(Parameters):
     sft_inv_std_log_var: Scalar
     sft_inv_mean_reversion_rate: Scalar
-    long_term_log_var: Scalar
+    long_term_log_vol: Scalar
+    sft_inv_df: Scalar
 
     _shape_template: typing.ClassVar = OrderedDict(
         sft_inv_std_log_var=jax.ShapeDtypeStruct(
@@ -300,7 +297,11 @@ class UncLogVarParams(Parameters):
             shape=(),
             dtype=jnp.float32,
         ),
-        long_term_log_var=jax.ShapeDtypeStruct(
+        long_term_log_vol=jax.ShapeDtypeStruct(
+            shape=(),
+            dtype=jnp.float32,
+        ),
+        sft_inv_df=jax.ShapeDtypeStruct(
             shape=(),
             dtype=jnp.float32,
         ),
@@ -313,13 +314,15 @@ class LogVarPriorHyper:
     # Log-normal prior on the annual mean-reversion rate. These defaults put
     # most prior mass on half-lives of roughly 8 to 50 trading days.
     mean_reversion_rate_mean: Scalar = field(
-        default_factory=lambda: jnp.array(10.0)
+        default_factory=lambda: jnp.array(15.0)
     )
     mean_reversion_rate_std: Scalar = field(
-        default_factory=lambda: jnp.array(5.0)
+        default_factory=lambda: jnp.array(15.0)
     )
 
-    # Log-normal prior on exp(long_term_log_var / 2).
+
+    # Log-normal prior on the long-run mean conditional volatility
+    # exp(long_term_log_vol) = E[sqrt(V_infinity)].
     long_term_vol_mean: Scalar = field(
         default_factory=lambda: jnp.array(0.16)
     )
@@ -329,10 +332,20 @@ class LogVarPriorHyper:
 
     # Log-normal prior on annualised log-variance diffusion.
     std_log_var_mean: Scalar = field(
-        default_factory=lambda: jnp.array(4.0)
+        default_factory=lambda: jnp.array(6.0)
     )
     std_log_var_std: Scalar = field(
-        default_factory=lambda: jnp.array(2.0)
+        default_factory=lambda: jnp.array(5.0)
+    )
+
+    # Log-normal prior on df - minimum_df. These defaults imply a prior
+    # mean of 10 for df while retaining support arbitrarily close to the
+    # lower bound.
+    df_excess_mean: Scalar = field(
+        default_factory=lambda: jnp.array(7.5)
+    )
+    df_excess_std: Scalar = field(
+        default_factory=lambda: jnp.array(5.0)
     )
 
     @staticmethod
@@ -355,14 +368,13 @@ class LogVarPriorHyper:
         )
 
     @property
-    def long_term_log_var_mean_std(
+    def long_term_log_vol_mean_std(
         self,
     ) -> tuple[Scalar, Scalar]:
-        log_vol_mean, log_vol_std = self._lognormal_log_mean_std(
+        return self._lognormal_log_mean_std(
             self.long_term_vol_mean,
             self.long_term_vol_std,
         )
-        return 2.0 * log_vol_mean, 2.0 * log_vol_std
 
     @property
     def std_log_var_log_mean_std(
@@ -371,6 +383,15 @@ class LogVarPriorHyper:
         return self._lognormal_log_mean_std(
             self.std_log_var_mean,
             self.std_log_var_std,
+        )
+
+    @property
+    def df_excess_log_mean_std(
+        self,
+    ) -> tuple[Scalar, Scalar]:
+        return self._lognormal_log_mean_std(
+            self.df_excess_mean,
+            self.df_excess_std,
         )
 
 
@@ -410,7 +431,13 @@ class FullVarParameterization(
             mean_reversion_rate=jax.nn.softplus(
                 inference_parameters.sft_inv_mean_reversion_rate
             ),
-            long_term_log_var=inference_parameters.long_term_log_var,
+            long_term_log_vol=inference_parameters.long_term_log_vol,
+            df=(
+                minimum_df
+                + jax.nn.softplus(
+                    inference_parameters.sft_inv_df
+                )
+            ),
         )
 
     def from_model_parameters(
@@ -424,11 +451,14 @@ class FullVarParameterization(
             sft_inv_mean_reversion_rate=_softplus_inverse(
                 model_parameters.mean_reversion_rate
             ),
-            long_term_log_var=model_parameters.long_term_log_var,
+            long_term_log_vol=model_parameters.long_term_log_vol,
+            sft_inv_df=_softplus_inverse(
+                model_parameters.df - minimum_df
+            ),
         )
 
     def sample(self, key: PRNGKeyArray) -> UncLogVarParams:
-        k1, k2, k3 = jrandom.split(key, 3)
+        k1, k2, k3, k4 = jrandom.split(key, 4)
 
         std_log_var_mean, std_log_var_std = (
             self.hyperparameters.std_log_var_log_mean_std
@@ -436,8 +466,11 @@ class FullVarParameterization(
         mean_reversion_rate_mean, mean_reversion_rate_std = (
             self.hyperparameters.mean_reversion_rate_log_mean_std
         )
-        long_term_log_var_mean, long_term_log_var_std = (
-            self.hyperparameters.long_term_log_var_mean_std
+        long_term_log_vol_mean, long_term_log_vol_std = (
+            self.hyperparameters.long_term_log_vol_mean_std
+        )
+        df_excess_mean, df_excess_std = (
+            self.hyperparameters.df_excess_log_mean_std
         )
 
         return self.from_model_parameters(
@@ -450,9 +483,16 @@ class FullVarParameterization(
                     mean_reversion_rate_mean
                     + mean_reversion_rate_std * jrandom.normal(k2)
                 ),
-                long_term_log_var=(
-                    long_term_log_var_mean
-                    + long_term_log_var_std * jrandom.normal(k3)
+                long_term_log_vol=(
+                    long_term_log_vol_mean
+                    + long_term_log_vol_std * jrandom.normal(k3)
+                ),
+                df=(
+                    minimum_df
+                    + jnp.exp(
+                        df_excess_mean
+                        + df_excess_std * jrandom.normal(k4)
+                    )
                 ),
             )
         )
@@ -493,21 +533,39 @@ class FullVarParameterization(
             inference_parameters.sft_inv_mean_reversion_rate
         )
 
-        long_term_log_var_mean, long_term_log_var_std = (
-            self.hyperparameters.long_term_log_var_mean_std
+        long_term_log_vol_mean, long_term_log_vol_std = (
+            self.hyperparameters.long_term_log_vol_mean_std
         )
         long_term_lp = jstats.norm.logpdf(
-            model_params.long_term_log_var,
-            loc=long_term_log_var_mean,
-            scale=long_term_log_var_std,
+            model_params.long_term_log_vol,
+            loc=long_term_log_vol_mean,
+            scale=long_term_log_vol_std,
+        )
+
+        df_excess_mean, df_excess_std = (
+            self.hyperparameters.df_excess_log_mean_std
+        )
+        df_excess = model_params.df - minimum_df
+        df_lp = (
+            jstats.norm.logpdf(
+                jnp.log(df_excess),
+                loc=df_excess_mean,
+                scale=df_excess_std,
+            )
+            - jnp.log(df_excess)
+        )
+        lad_df = jax.nn.log_sigmoid(
+            inference_parameters.sft_inv_df
         )
 
         return (
             std_lp
             + mean_reversion_rate_lp
             + long_term_lp
+            + df_lp
             + lad_std_log_var
             + lad_mean_reversion_rate
+            + lad_df
         )
 
 

@@ -60,7 +60,12 @@ SSMApproximationT = SSMVariationalApproximation[
 class SupportsELBOLoss(Protocol):
     def estimate_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -71,7 +76,12 @@ class SupportsELBOLoss(Protocol):
 class SupportsPretrainLoss(Protocol):
     def estimate_pretrain_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -82,7 +92,12 @@ class SupportsPretrainLoss(Protocol):
 class SupportsPriorFitLoss(Protocol):
     def estimate_prior_fit_loss(
         self,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key: jaxtyping.PRNGKeyArray,
         sample_kwargs: VISamplingKwargs,
         state: typing.Any = None,
@@ -112,7 +127,12 @@ LossFunction = Callable[
     [
         TrainableModuleT,
         StaticModuleT,
-        InferenceDataset[ObservationT, ConditionT],
+        InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         jaxtyping.PRNGKeyArray,
         typing.Any,
     ],
@@ -124,7 +144,12 @@ CompiledStepFn = Callable[
         TrainableModuleT,
         StaticModuleT,
         OptStateT,
-        InferenceDataset[ObservationT, ConditionT],
+        InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         jaxtyping.PRNGKeyArray,
         typing.Any,
     ],
@@ -135,7 +160,12 @@ LossAndGradFn = Callable[
     [
         TrainableModuleT,
         StaticModuleT,
-        InferenceDataset[ObservationT, ConditionT],
+        InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         jaxtyping.PRNGKeyArray,
         typing.Any,
     ],
@@ -146,7 +176,12 @@ LossAndGradFn = Callable[
 def loss_neg_elbo(
     trainable: TrainableModuleT,
     static: StaticModuleT,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     key: jaxtyping.PRNGKeyArray,
     state: typing.Any,
     *,
@@ -166,7 +201,12 @@ def loss_neg_elbo(
 def loss_pretrain_neg_elbo(
     trainable: TrainableModuleT,
     static: StaticModuleT,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     key: jaxtyping.PRNGKeyArray,
     state: typing.Any,
     *,
@@ -189,7 +229,12 @@ def loss_pretrain_neg_elbo(
 def loss_pre_train_prior(
     trainable: TrainableModuleT,
     static: StaticModuleT,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     key: jaxtyping.PRNGKeyArray,
     state: typing.Any,
     *,
@@ -329,7 +374,12 @@ class Tracker:
 
 def train(
     model: SSMApproximationT,
-    dataset: InferenceDataset[ObservationT, ConditionT],
+    dataset: InferenceDataset[
+        ObservationT, 
+        ConditionT,
+        seqjtyping.NumSequence,
+        seqjtyping.SequenceLength,
+    ],
     target: TargetModelT,
     *,
     key: jaxtyping.PRNGKeyArray,
@@ -397,7 +447,12 @@ def train(
         trainable_in: TrainableModuleT,
         static_in: StaticModuleT,
         opt_state_in: OptStateT,
-        dataset_in: InferenceDataset[ObservationT, ConditionT],
+        dataset_in: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         key_in: jaxtyping.PRNGKeyArray,
         state_in: typing.Any,
     ) -> tuple[jaxtyping.Scalar, TrainableModuleT, OptStateT, typing.Any]:
@@ -405,7 +460,12 @@ def train(
             carry: tuple[
                 TrainableModuleT,
                 OptStateT,
-                InferenceDataset[ObservationT, ConditionT],
+                InferenceDataset[
+                    ObservationT, 
+                    ConditionT,
+                    seqjtyping.NumSequence,
+                    seqjtyping.SequenceLength,
+                ],
                 jaxtyping.PRNGKeyArray,
                 typing.Any,
             ],

@@ -13,22 +13,31 @@ from seqjax.model.interface import BayesianSequentialModelProtocol
 class InferenceDataset[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
+    NumSequence: seqjtyping.NumSequence,
+    SequenceLength: seqjtyping.SequenceLength,
 ](typing.Protocol):
     """Equal-length batched dataset with leading sequence axis."""
 
     @property
-    def observations(self) -> ObservationT: ...
+    def observations(self) -> seqjtyping.Batched[
+        ObservationT, NumSequence, SequenceLength
+    ]: ...
 
     @property
-    def conditions(self) -> ConditionT: ...
+    def conditions(self) -> seqjtyping.Batched[
+        ConditionT, NumSequence, SequenceLength
+    ]: ...
 
     @property
-    def num_sequences(self) -> int: ...
+    def num_sequences(self) -> NumSequence: ...
 
     @property
-    def sequence_length(self) -> int: ...
+    def sequence_length(self) -> SequenceLength: ...
 
-    def sequence(self, idx: int) -> tuple[ObservationT, ConditionT]: ...
+    def sequence(self, idx: int) -> tuple[
+        seqjtyping.Batched[ObservationT, SequenceLength],
+        seqjtyping.Batched[ConditionT, SequenceLength],
+    ]: ...
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True, slots=True, init=False)
@@ -168,7 +177,12 @@ class InferenceMethod[
         ],
         hyperparameters: HyperParametersT,
         key: jaxtyping.PRNGKeyArray,
-        dataset: InferenceDataset[ObservationT, ConditionT],
+        dataset: InferenceDataset[
+            ObservationT, 
+            ConditionT,
+            seqjtyping.NumSequence,
+            seqjtyping.SequenceLength,
+        ],
         test_samples: int,
         config: typing.Any,
         tracker: typing.Any = None,

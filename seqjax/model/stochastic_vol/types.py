@@ -108,7 +108,7 @@ class LogVarAR(Parameters):
 class TimeIncrement(Condition):
     """Time increment between observations."""
 
-    dt: Scalar
+    timestep: Scalar
     _shape_template: ClassVar = OrderedDict(
-        dt=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
+        timestep=jax.ShapeDtypeStruct(shape=(), dtype=jnp.float32),
     )
