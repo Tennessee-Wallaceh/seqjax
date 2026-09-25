@@ -1,17 +1,16 @@
 import typing
-from abc import abstractmethod
-from functools import cached_property
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 import jax.scipy.special as jsp
-from jaxtyping import Array, PRNGKeyArray, PyTree, Scalar
+from jaxtyping import Array, PRNGKeyArray, PyTree
 
 from seqjax.model import interface as model_interface
 import seqjax.model.typing as seqjtyping
 from seqjax.model import util as model_util
+from seqjax.util import dynamic_index_pytree_in_dim as index_tree
 from .resampling import Resampler
 from . import interface as pf_interface
 
@@ -21,49 +20,119 @@ class Proposal[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
-    ProposalLatentContextLength: int,
-    ProposalObservationContextLength: int,
-](eqx.Module):
-    """Proposal distribution for sequential Monte Carlo."""
+    FilterLatentHistoryLength: int,
+    FilterObservationHistoryLength: int,
+](typing.Protocol):
+    """Population mutation kernel for one complete SMC step."""
 
-    latent_context_length: ProposalLatentContextLength
-    observation_context_length: ProposalObservationContextLength
+    latent_context_length: int
+    observation_context_length: int
 
-    @abstractmethod
-    def sample(
+    def __call__(
         self,
         key: PRNGKeyArray,
-        latent_history: model_interface.LatentContext[
+        start_log_weight: Array,
+        context: pf_interface.FilterContext[
             ParticleT,
-            ProposalLatentContextLength,
-        ],
-        observation: ObservationT,
-        condition: ConditionT,
-        observation_history: model_interface.ObservedHistoryContext[
             ObservationT,
             ConditionT,
-            ProposalObservationContextLength,
+            FilterLatentHistoryLength,
+            FilterObservationHistoryLength,
         ],
+        observation: ObservationT,
         parameters: ParametersT,
-    ) -> ParticleT: ...
+        condition: ConditionT,
+        num_particles: int,
+    ) -> pf_interface.ProposalResult[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        FilterLatentHistoryLength,
+        FilterObservationHistoryLength,
+    ]: ...
 
-    @abstractmethod
-    def log_prob(
-        self,
-        latent_history: model_interface.LatentContext[
-            ParticleT,
-            ProposalLatentContextLength,
-        ],
-        observation: ObservationT,
-        particle: ParticleT,
-        condition: ConditionT,
-        observation_history: model_interface.ObservedHistoryContext[
-            ObservationT,
-            ConditionT,
-            ProposalObservationContextLength,
-        ],
-        parameters: ParametersT,
-    ) -> Scalar: ...
+
+def _resample_context(
+    resampler,
+    key,
+    ancestor_log_prob,
+    context,
+    num_particles,
+):
+    ancestor_sample = resampler(key, ancestor_log_prob, num_particles)
+    resampled_particles = (
+        context.particles
+        if len(context.particles) == 0
+        else jax.vmap(index_tree, in_axes=(None, 0, None))(
+            context.particles,
+            ancestor_sample.indices,
+            0,
+        )
+    )
+    return context.with_particles(resampled_particles), ancestor_sample
+
+
+def _transition_and_emission_log_prob(
+    target,
+    key,
+    resampled_context,
+    observation,
+    parameters,
+    condition,
+    num_particles,
+):
+    latent_history = resampled_context.latent_context(target.latent_context_length)
+    observation_history = resampled_context.observed_context(
+        target.observation_context_length
+    )
+    proposed_particles = jax.vmap(
+        target.transition_sample,
+        in_axes=(0, 0, None, None, None),
+    )(
+        jrandom.split(key, num_particles),
+        latent_history,
+        parameters,
+        condition,
+        observation_history,
+    )
+    emission_log_prob = jax.vmap(
+        target.emission_log_prob,
+        in_axes=(None, 0, None, None, 0, None),
+    )(
+        observation,
+        proposed_particles,
+        parameters,
+        condition,
+        latent_history,
+        observation_history,
+    )
+    return proposed_particles, emission_log_prob
+
+
+def _proposal_result(
+    resampled_context,
+    proposed_particles,
+    observation,
+    condition,
+    ancestor_sample,
+    second_stage_log_weight,
+    first_stage_log_normalizer,
+):
+    unnormalized_log_weight = ancestor_sample.log_weights + second_stage_log_weight
+    second_stage_log_normalizer = jsp.logsumexp(unnormalized_log_weight)
+    return pf_interface.ProposalResult(
+        particles=resampled_context.append(
+            proposed_particles,
+            observation,
+            condition,
+        ),
+        resampled_history=resampled_context,
+        ancestor_indices=ancestor_sample.indices,
+        log_weight=unnormalized_log_weight - second_stage_log_normalizer,
+        log_normalizer_increment=(
+            first_stage_log_normalizer + second_stage_log_normalizer
+        ),
+    )
 
 
 class TransitionProposal[
@@ -73,8 +142,10 @@ class TransitionProposal[
     ParametersT: seqjtyping.Parameters,
     ModelLatentContextLength: int,
     ModelObservationContextLength: int,
-](
-    Proposal[
+](eqx.Module):
+    """Bootstrap population kernel using the model transition proposal."""
+
+    target: model_interface.SequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
@@ -82,82 +153,132 @@ class TransitionProposal[
         ModelLatentContextLength,
         ModelObservationContextLength,
     ]
-):
-    """Use the model transition as a bootstrap-filter proposal."""
+    resampler: Resampler
+    latent_context_length: int = eqx.field(static=True)
+    observation_context_length: int = eqx.field(static=True)
 
-    transition_sample_fn: typing.Callable[..., ParticleT]
-    transition_log_prob_fn: typing.Callable[..., Scalar]
-
-    def __init__(
+    def __call__(
         self,
-        model: model_interface.SequentialModelProtocol[
-            ParticleT,
-            ObservationT,
-            ConditionT,
-            ParametersT,
-            ModelLatentContextLength,
-            ModelObservationContextLength,
-        ],
+        key,
+        start_log_weight,
+        context,
+        observation,
+        parameters,
+        condition,
+        num_particles,
     ):
-        self.transition_sample_fn = model.transition_sample
-        self.transition_log_prob_fn = model.transition_log_prob
-        self.latent_context_length = typing.cast(
-            ModelLatentContextLength,
-            model.latent_context_length,
+        resample_key, proposal_key = jrandom.split(key)
+        first_stage_log_normalizer = jsp.logsumexp(start_log_weight)
+        ancestor_log_prob = start_log_weight - first_stage_log_normalizer
+        resampled_context, ancestor_sample = _resample_context(
+            self.resampler,
+            resample_key,
+            ancestor_log_prob,
+            context,
+            num_particles,
         )
-        self.observation_context_length = typing.cast(
-            ModelObservationContextLength,
-            model.observation_context_length,
-        )
-
-    def sample(
-        self,
-        key: PRNGKeyArray,
-        latent_history: model_interface.LatentContext[
-            ParticleT,
-            ModelLatentContextLength,
-        ],
-        observation: ObservationT,
-        condition: ConditionT,
-        observation_history: model_interface.ObservedHistoryContext[
-            ObservationT,
-            ConditionT,
-            ModelObservationContextLength,
-        ],
-        parameters: ParametersT,
-    ) -> ParticleT:
-        del observation
-        return self.transition_sample_fn(
-            key,
-            latent_history,
+        proposed_particles, emission_log_prob = _transition_and_emission_log_prob(
+            self.target,
+            proposal_key,
+            resampled_context,
+            observation,
             parameters,
             condition,
-            observation_history,
+            num_particles,
+        )
+        return _proposal_result(
+            resampled_context,
+            proposed_particles,
+            observation,
+            condition,
+            ancestor_sample,
+            emission_log_prob,
+            first_stage_log_normalizer,
         )
 
-    def log_prob(
+
+class AuxiliaryTransitionProposal[
+    ParticleT: seqjtyping.Latent,
+    ObservationT: seqjtyping.Observation,
+    ConditionT: seqjtyping.Condition,
+    ParametersT: seqjtyping.Parameters,
+    ModelLatentContextLength: int,
+    ModelObservationContextLength: int,
+](eqx.Module):
+    """Transition kernel with emission-based auxiliary ancestor selection."""
+
+    target: model_interface.SequentialModelProtocol[
+        ParticleT,
+        ObservationT,
+        ConditionT,
+        ParametersT,
+        ModelLatentContextLength,
+        ModelObservationContextLength,
+    ]
+    resampler: Resampler
+    latent_context_length: int = eqx.field(static=True)
+    observation_context_length: int = eqx.field(static=True)
+
+    def __call__(
         self,
-        latent_history: model_interface.LatentContext[
-            ParticleT,
-            ModelLatentContextLength,
-        ],
-        observation: ObservationT,
-        particle: ParticleT,
-        condition: ConditionT,
-        observation_history: model_interface.ObservedHistoryContext[
-            ObservationT,
-            ConditionT,
-            ModelObservationContextLength,
-        ],
-        parameters: ParametersT,
-    ) -> Array:
-        del observation
-        return self.transition_log_prob_fn(
-            particle,
-            latent_history,
+        key,
+        start_log_weight,
+        context,
+        observation,
+        parameters,
+        condition,
+        num_particles,
+    ):
+        if context.length == 0:
+            raise ValueError("Auxiliary proposals require at least one latent value")
+
+        resample_key, proposal_key = jrandom.split(key)
+        latent_history = context.latent_context(self.target.latent_context_length)
+        observation_history = context.observed_context(
+            self.target.observation_context_length
+        )
+        current_particles = context.particles[-1]
+        lookahead_log_weight = jax.vmap(
+            self.target.emission_log_prob,
+            in_axes=(None, 0, None, None, 0, None),
+        )(
+            observation,
+            current_particles,
             parameters,
             condition,
+            latent_history,
             observation_history,
+        )
+        ancestor_logits = start_log_weight + lookahead_log_weight
+        first_stage_log_normalizer = jsp.logsumexp(ancestor_logits)
+        ancestor_log_prob = ancestor_logits - first_stage_log_normalizer
+        resampled_context, ancestor_sample = _resample_context(
+            self.resampler,
+            resample_key,
+            ancestor_log_prob,
+            context,
+            num_particles,
+        )
+        proposed_particles, emission_log_prob = _transition_and_emission_log_prob(
+            self.target,
+            proposal_key,
+            resampled_context,
+            observation,
+            parameters,
+            condition,
+            num_particles,
+        )
+        second_stage_log_weight = (
+            emission_log_prob - lookahead_log_weight[ancestor_sample.indices]
+        )
+        return _proposal_result(
+            resampled_context,
+            proposed_particles,
+            observation,
+            condition,
+            ancestor_sample,
+            second_stage_log_weight,
+            first_stage_log_normalizer,
         )
 
 
@@ -188,10 +309,9 @@ class SMCSampler[
         ObservationT,
         ConditionT,
         ParameterT,
-        ProposalLatentContextLength,
-        ProposalObservationContextLength,
+        FilterLatentHistoryLength,
+        FilterObservationHistoryLength,
     ]
-    resampler: Resampler[ParticleT, FilterLatentHistoryLength]
     num_particles: int = eqx.field(static=True)
     latent_context_length: FilterLatentHistoryLength = eqx.field(static=True)
     observation_context_length: FilterObservationHistoryLength = eqx.field(static=True)
@@ -212,17 +332,15 @@ class SMCSampler[
             ObservationT,
             ConditionT,
             ParameterT,
-            ProposalLatentContextLength,
-            ProposalObservationContextLength,
+            FilterLatentHistoryLength,
+            FilterObservationHistoryLength,
         ],
-        resampler: Resampler[ParticleT, FilterLatentHistoryLength],
         num_particles: int,
         latent_context_length: FilterLatentHistoryLength | None = None,
         observation_context_length: FilterObservationHistoryLength | None = None,
     ):
         self.target = target
         self.proposal = proposal
-        self.resampler = resampler
         self.num_particles = num_particles
         self.latent_context_length = typing.cast(
             FilterLatentHistoryLength,
@@ -263,33 +381,6 @@ class SMCSampler[
                     f"Filter {name} context length must be at least {required}; "
                     f"received {actual}"
                 )
-
-    @cached_property
-    def proposal_sample(self) -> typing.Callable[..., ParticleT]:
-        return jax.vmap(
-            self.proposal.sample,
-            in_axes=(0, 0, None, None, None, None),
-        )
-
-    @cached_property
-    def proposal_log_prob(self) -> typing.Callable[..., Array]:
-        return jax.vmap(
-            self.proposal.log_prob,
-            in_axes=(0, None, 0, None, None, None),
-        )
-
-    @cached_property
-    def transition_log_prob(self) -> typing.Callable[..., Array]:
-        return jax.vmap(
-            self.target.transition_log_prob, in_axes=(0, 0, None, None, None)
-        )
-
-    @cached_property
-    def emission_log_prob(self) -> typing.Callable[..., Array]:
-        return jax.vmap(
-            self.target.emission_log_prob,
-            in_axes=(None, 0, None, None, 0, None),
-        )
 
     def filter_context(
         self,
@@ -339,92 +430,27 @@ class SMCSampler[
         FilterLatentHistoryLength,
         FilterObservationHistoryLength,
     ]:
-        resample_key, proposal_key = jrandom.split(step_key)
-
-        resampled_history, ancestor_ix, resampled_log_w, _ = self.resampler(
-            resample_key,
+        proposal_result = self.proposal(
+            step_key,
             start_log_w,
-            context.particles,
+            context,
+            observation,
+            params,
+            condition,
             self.num_particles,
         )
-        resampled_context = context.with_particles(resampled_history)
-
-        model_latent_history = resampled_context.latent_context(
-            typing.cast(
-                ModelLatentContextLength,
-                self.target.latent_context_length,
-            )
-        )
-        model_observation_history = resampled_context.observed_context(
-            typing.cast(
-                ModelObservationContextLength,
-                self.target.observation_context_length,
-            )
-        )
-        proposal_latent_history = resampled_context.latent_context(
-            self.proposal.latent_context_length
-        )
-        proposal_observation_history = resampled_context.observed_context(
-            self.proposal.observation_context_length
-        )
-
-        proposed_particles = self.proposal_sample(
-            jrandom.split(proposal_key, self.num_particles),
-            proposal_latent_history,
-            observation,
-            condition,
-            proposal_observation_history,
-            params,
-        )
-
-        log_weight_inc = (
-            self.transition_log_prob(
-                proposed_particles,
-                model_latent_history,
-                params,
-                condition,
-                model_observation_history,
-            )
-            + self.emission_log_prob(
-                observation,
-                proposed_particles,
-                params,
-                condition,
-                model_latent_history,
-                model_observation_history,
-            )
-            - self.proposal_log_prob(
-                proposal_latent_history,
-                observation,
-                proposed_particles,
-                condition,
-                proposal_observation_history,
-                params,
-            )
-        )
-        next_context = resampled_context.append(
-            proposed_particles,
-            observation,
-            condition,
-        )
-
-        log_w_unnorm = resampled_log_w + log_weight_inc
-        log_z_inc = jsp.logsumexp(log_w_unnorm)
-        log_w = log_w_unnorm - log_z_inc
 
         return pf_interface.FilterData(
             step_ix=step_ix,
             start_log_w=start_log_w,
-            resampled_log_w=resampled_log_w,
-            log_w=log_w,
-            particles=next_context,
-            ancestor_ix=ancestor_ix,
-            log_w_inc=log_weight_inc,
-            resampled_particles=resampled_context,
+            log_w=proposal_result.log_weight,
+            particles=proposal_result.particles,
+            ancestor_ix=proposal_result.ancestor_indices,
+            resampled_particles=proposal_result.resampled_history,
             observation=observation,
             condition=condition,
             inference_parameters=params,
-            log_z_inc=log_z_inc,
+            log_z_inc=proposal_result.log_normalizer_increment,
         )
 
 

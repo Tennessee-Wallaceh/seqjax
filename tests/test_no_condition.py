@@ -5,7 +5,7 @@ import pytest
 
 from seqjax.inference import ObservationDataset
 from seqjax.model import ar
-from seqjax.model.condition import normalize_condition_path
+from seqjax.model.util import normalize_condition_path
 from seqjax.model.simulate import simulate
 from seqjax.model.stochastic_vol import time_variable_var
 from seqjax.model.typing import NoCondition
@@ -28,7 +28,7 @@ def test_no_condition_preserves_axes_through_jax_transformations() -> None:
 
 
 def test_public_boundaries_materialize_no_condition_axes() -> None:
-    latent_path, observation_path = simulate(
+    _, latent_path, observation_path = simulate(
         jrandom.key(0),
         ar.ar_model,
         ar.ARParameters(),

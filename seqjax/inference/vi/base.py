@@ -19,8 +19,8 @@ from seqjax.inference.vi.sampling import VISamplingKwargs
 from seqjax.inference.vi.embedder.interface import LatentContext, Embedder
 from seqjax.inference.vi.interface import AmortizedVariationalApproximation, UnconditionalVariationalApproximation
 from seqjax.inference.sequence_sampling import (
-    sample_sequence_minibatch,
-    sample_buffered_subsequence,
+    sample_sequence_minibatch as _sample_sequence_minibatch,
+    sample_buffered_subsequence as sample_batch_and_mask,
 )
 
 class MeanField[TargetStructT: seqjtyping.Packable](

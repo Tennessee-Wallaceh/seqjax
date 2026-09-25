@@ -30,6 +30,7 @@ def log_prob_x[
     observation_history: model_interface.ObservedHistoryContext[
         ObservationT,
         ConditionT,
+        int,
     ] | None = None,
     # Supports past-observation -> latent dependence.
     observation_path: ObservationT | None = None,
@@ -206,6 +207,7 @@ def log_prob_y_given_x[
     observation_history: model_interface.ObservedHistoryContext[
         ObservationT,
         ConditionT,
+        int,
     ] | None = None,
 ) -> Scalar:
     """Return ``log p(observation_path | x_prior, x_path)``."""
@@ -339,6 +341,7 @@ def log_prob_joint[
     observation_history: model_interface.ObservedHistoryContext[
         ObservationT,
         ConditionT,
+        int,
     ] | None = None,
 ) -> Scalar:
     """Return ``log p(x_prior, x_path, observation_path)``."""
