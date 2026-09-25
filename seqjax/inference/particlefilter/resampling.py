@@ -8,10 +8,12 @@ from jaxtyping import Array, PRNGKeyArray
 
 from seqjax.util import dynamic_index_pytree_in_dim as index_tree
 import seqjax.model.typing as seqjtyping
-from . import interface as pf_interface
+from seqjax.model import interface as model_interface
+
 
 class Resampler[
     ParticleT: seqjtyping.Latent,
+    FilterLatentHistoryLength: int,
 ](typing.Protocol):
     """
     Outputs:
@@ -29,9 +31,17 @@ class Resampler[
         self,
         key: PRNGKeyArray,
         raw_log_weights: Array,
-        particles: pf_interface.FilterContext[ParticleT],
+        particles: model_interface.LatentContext[
+            ParticleT,
+            FilterLatentHistoryLength,
+        ],
         num_resample: int,
-    ) -> tuple[pf_interface.FilterContext[ParticleT], Array, Array, typing.Any]: ...
+    ) -> tuple[
+        model_interface.LatentContext[ParticleT, FilterLatentHistoryLength],
+        Array,
+        Array,
+        object,
+    ]: ...
 
 
 def multinomial_resample_from_log_weights(
@@ -43,15 +53,19 @@ def multinomial_resample_from_log_weights(
     # jax.random.categorical takes unnormalised logits.
     ancestor_ix = jrandom.categorical(key, raw_log_weights, shape=(num_resample,))
 
-    resampled_particles = jax.vmap(
-        index_tree,
-        in_axes=[None, 0, None],
-    )(
-        particles,
-        ancestor_ix,  # type: ignore[arg-type]
-        0,
+    resampled_particles = (
+        particles
+        if len(particles) == 0
+        else jax.vmap(
+            index_tree,
+            in_axes=[None, 0, None],
+        )(
+            particles,
+            ancestor_ix,  # type: ignore[arg-type]
+            0,
+        )
     )
-    resampled_log_w = -jnp.log(particles[0].batch_shape[0]) * jnp.ones_like(raw_log_weights)
+    resampled_log_w = -jnp.log(num_resample) * jnp.ones_like(raw_log_weights)
     return resampled_particles, ancestor_ix, resampled_log_w, 0.0
 
 

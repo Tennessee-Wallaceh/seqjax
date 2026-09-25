@@ -2,12 +2,15 @@ import typing
 from dataclasses import dataclass, field
 
 from seqjax.inference.particlefilter import SMCSampler
-from seqjax.inference.particlefilter.resampling import Resampler, multinomial_resample_from_log_weights
+from seqjax.inference.particlefilter.resampling import (
+    Resampler,
+    multinomial_resample_from_log_weights,
+)
 from seqjax.inference.particlefilter.base import TransitionProposal
 from seqjax.model.interface import (
     BayesianSequentialModelProtocol,
 )
-from seqjax.model import typing as seqjtyping 
+from seqjax.model import typing as seqjtyping
 
 """
 Filter configurations
@@ -28,16 +31,22 @@ Filter
 """
 FilterKind = typing.Literal["bootstrap"]
 
+
 @dataclass
-class BootstrapFilterConfig:
+class BootstrapFilterConfig[
+    FilterLatentHistoryLength: int,
+    FilterObservationHistoryLength: int,
+]:
     label: FilterKind = field(init=False, default="bootstrap")
     proposal: ProposalKind = field(init=False, default="model-transition")
     resample: ResampleKind
     num_particles: int
+    latent_context_length: FilterLatentHistoryLength | None = None
+    observation_context_length: FilterObservationHistoryLength | None = None
 
-registry = {
-    "bootstrap": BootstrapFilterConfig
-}
+
+registry = {"bootstrap": BootstrapFilterConfig}
+
 
 def build_filter[
     ParticleT: seqjtyping.Latent,
@@ -45,21 +54,33 @@ def build_filter[
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
     InferenceParametersT: seqjtyping.Parameters,
+    HyperParametersT: seqjtyping.HyperParameters,
+    ModelLatentContextLength: int,
+    ModelObservationContextLength: int,
+    FilterLatentHistoryLength: int,
+    FilterObservationHistoryLength: int,
 ](
     target_posterior: BayesianSequentialModelProtocol[
         ParticleT,
         ObservationT,
         ConditionT,
         ParametersT,
+        ModelLatentContextLength,
+        ModelObservationContextLength,
         InferenceParametersT,
-        typing.Any,
-    ], 
-    config: BootstrapFilterConfig
+        HyperParametersT,
+    ],
+    config: BootstrapFilterConfig[
+        FilterLatentHistoryLength,
+        FilterObservationHistoryLength,
+    ],
 ):
     return SMCSampler(
         target=target_posterior.target,
         proposal=TransitionProposal(target_posterior),
         resampler=resample_registry[config.resample],
         num_particles=config.num_particles,
-        parameterization=target_posterior.parameterization
+        parameterization=target_posterior.parameterization,
+        latent_context_length=config.latent_context_length,
+        observation_context_length=config.observation_context_length,
     )
