@@ -7,31 +7,43 @@ import jax.random as jrandom
 from jaxtyping import PRNGKeyArray
 
 from seqjax.model import interface as model_interface
+from seqjax.model import util as model_util
 import seqjax.model.typing as seqjtyping
-from seqjax.model.condition import  normalize_condition_path
 
 def step[
     LatentT: seqjtyping.Latent,
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition | seqjtyping.NoCondition,
     ParametersT: seqjtyping.Parameters,
+    LatentContextLength: int,
+    ObservationContextLength: int,
 ](
     target: model_interface.SequentialModelProtocol[
         LatentT,
         ObservationT,
         ConditionT,
         ParametersT,
+        LatentContextLength,
+        ObservationContextLength,
     ],
     parameters: ParametersT,
     state: tuple[
-        model_interface.LatentContext[LatentT],
-        model_interface.ObservedHistoryContext[ObservationT, ConditionT],
+        model_interface.LatentContext[LatentT, LatentContextLength],
+        model_interface.ObservedHistoryContext[
+            ObservationT, 
+            ConditionT,
+            ObservationContextLength,
+        ],
     ],
     inputs: tuple[PRNGKeyArray, ConditionT],
 ) -> tuple[
     tuple[
-        model_interface.LatentContext[LatentT],
-        model_interface.ObservedHistoryContext[ObservationT, ConditionT],
+        model_interface.LatentContext[LatentT, LatentContextLength],
+        model_interface.ObservedHistoryContext[
+            ObservationT, 
+            ConditionT,
+            ObservationContextLength,
+        ],
     ],
     tuple[LatentT, ObservationT],
 ]:
@@ -51,18 +63,19 @@ def step[
         observation_history,
     )
 
-    latents = latents.append(next_latent)
     observation = target.emission_sample(
         emission_key,
-        latents,
+        next_latent,
         parameters,
         condition,
+        latents,
         observation_history,
     )
     observation_history = observation_history.append_observation(
         observation,
         condition,
     )
+    latents = latents.append(next_latent)
 
     return (latents, observation_history), (next_latent, observation)
 
@@ -71,6 +84,8 @@ def simulate[
     ObservationT: seqjtyping.Observation,
     ConditionT: seqjtyping.Condition,
     ParametersT: seqjtyping.Parameters,
+    LatentContextLength: int,
+    ObservationContextLength: int,
 ](
     key: PRNGKeyArray,
     target: model_interface.SequentialModelProtocol[
@@ -78,19 +93,25 @@ def simulate[
         ObservationT,
         ConditionT,
         ParametersT,
+        LatentContextLength,
+        ObservationContextLength,
     ],
     parameters: ParametersT,
     *,
     sequence_length: int | None = None,
     condition: ConditionT | None = None,
     observation_history: model_interface.ObservedHistoryContext[
-        ObservationT, ConditionT
+        ObservationT, ConditionT, ObservationContextLength
     ] =  None
-):
+) -> tuple[
+    model_interface.LatentContext[LatentT, LatentContextLength],
+    LatentT,
+    ObservationT,
+]:
     if (sequence_length is None) == (condition is None):
         raise ValueError("Exactly one of sequence_length and condition must be provided") 
     elif condition is None:
-        condition = normalize_condition_path(target, condition, (sequence_length,))
+        condition = model_util.normalize_condition_path(target, condition, (sequence_length,))
     elif sequence_length is None:
         if len(condition.batch_shape) != 1:
             raise ValueError(
@@ -148,4 +169,4 @@ def simulate[
         unroll=1
     )
 
-    return latent_scan, obs_scan
+    return prior_context, latent_scan, obs_scan

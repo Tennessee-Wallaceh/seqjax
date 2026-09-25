@@ -19,6 +19,23 @@ from .types import (
     TimeIncrement,
 )
 
+def generate_trading_grid(
+    target_days,
+    gap_perc: float = 0.35,
+    # ie one of these is the gap
+    session_minutes: int = 8 * 60 - 1, 
+):
+    gap_tstep = gap_perc / 256
+    day_tstep = (1 - gap_perc) / 256
+    minute_tstep = day_tstep / session_minutes
+    day_seq = jnp.hstack([
+        jnp.array(gap_tstep), 
+        jnp.ones(session_minutes) * minute_tstep
+    ])
+    return TimeIncrement(
+        timestep=jnp.tile(day_seq, target_days)
+    )
+
 
 class RandomWalkParameters(typing.Protocol):
     std_log_vol: Scalar
