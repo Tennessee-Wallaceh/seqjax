@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import jax.random as jrandom
 import pytest
 
-from seqjax.inference.particlefilter import run_filter
+from seqjax.inference.particlefilter import conditional_resample, run_filter
 from seqjax.inference.particlefilter import registry as pf_registry
 from seqjax.model import linear_gaussian as lg
 
@@ -62,6 +62,67 @@ def test_population_proposal_contract(filter_kind, resample_kind) -> None:
     assert jnp.all(jnp.isfinite(result.log_weight))
     assert jnp.isfinite(result.log_normalizer_increment)
     assert jnp.allclose(jax.scipy.special.logsumexp(result.log_weight), 0.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("filter_kind", ["bootstrap", "auxiliary"])
+@pytest.mark.parametrize("resample_kind", ["multinomial", "systematic"])
+def test_filter_supports_conditional_resampling(filter_kind, resample_kind) -> None:
+    model = lg.lgssm(1)
+    config_cls = (
+        pf_registry.BootstrapFilterConfig
+        if filter_kind == "bootstrap"
+        else pf_registry.AuxiliaryFilterConfig
+    )
+    particle_filter = pf_registry.build_filter(
+        model,
+        config_cls(
+            resample=pf_registry.ConditionalResample(
+                ess_threshold=0.5,
+                resample=resample_kind,
+            ),
+            num_particles=8,
+        ),
+    )
+
+    assert particle_filter.ancestor_selection.resampler is not None
+
+
+def test_conditional_resampler_uses_ess_threshold() -> None:
+    uniform_log_weights = jnp.full((4,), -jnp.log(4.0))
+    concentrated_log_weights = jnp.array([0.0, -100.0, -100.0, -100.0])
+
+    unchanged = conditional_resample(
+        jrandom.key(10),
+        uniform_log_weights,
+        4,
+        resampler=pf_registry.resample_registry["systematic"],
+        ess_threshold=0.75,
+    )
+    resampled = conditional_resample(
+        jrandom.key(11),
+        concentrated_log_weights,
+        4,
+        resampler=pf_registry.resample_registry["systematic"],
+        ess_threshold=0.75,
+    )
+
+    assert jnp.array_equal(unchanged.ancestor_ix, jnp.arange(4))
+    assert jnp.allclose(unchanged.normalized_log_weights, uniform_log_weights)
+    assert jnp.allclose(resampled.normalized_log_weights, -jnp.log(4.0))
+
+
+@pytest.mark.parametrize("ess_threshold", [0.0, -0.1, 1.1])
+def test_conditional_resample_rejects_invalid_threshold(ess_threshold) -> None:
+    with pytest.raises(ValueError, match="ess_threshold"):
+        pf_registry.ConditionalResample(
+            ess_threshold=ess_threshold,
+            resample="multinomial",
+        )
+
+
+def test_conditional_resample_rejects_no_resampling() -> None:
+    with pytest.raises(ValueError, match="active resampler"):
+        pf_registry.ConditionalResample(ess_threshold=0.5, resample="none")
 
 
 def test_auxiliary_filter_preserves_history_and_finite_weights() -> None:
