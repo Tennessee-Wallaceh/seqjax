@@ -1,5 +1,6 @@
 import typing
 from dataclasses import dataclass, field
+from functools import partial
 
 from seqjax.inference.particlefilter import SMCSampler
 from seqjax.inference.particlefilter import interface as pf_interface
@@ -7,6 +8,7 @@ from seqjax.inference.particlefilter.resampling import (
     multinomial_resample_from_log_weights,
     systematic_resample_from_log_weights,
     no_resample,
+    conditional_resample,
 )
 from seqjax.inference.particlefilter.ancestor_selection import (
     LookaheadAncestorSelection,
@@ -29,13 +31,34 @@ resample_registry: dict[ResampleKind, pf_interface.Resampler] = {
 }
 
 
+@dataclass(frozen=True)
+class ConditionalResample:
+    ess_threshold: float
+    resample: ResampleKind
+
+    def __post_init__(self) -> None:
+        if not 0 < self.ess_threshold <= 1:
+            raise ValueError(
+                "ess_threshold must be greater than 0 and at most 1; "
+                f"received {self.ess_threshold!r}"
+            )
+        if self.resample == "none":
+            raise ValueError(
+                "ConditionalResample requires an active resampler; "
+                "received 'none'"
+            )
+
+
+ResampleConfig = ResampleKind | ConditionalResample
+
+
 @dataclass
 class BootstrapFilterConfig[
     FilterLatentHistoryLength: int,
     FilterObservationHistoryLength: int,
 ]:
     label: FilterKind = field(init=False, default="bootstrap")
-    resample: ResampleKind
+    resample: ResampleConfig
     num_particles: int
     latent_context_length: FilterLatentHistoryLength | None = None
     observation_context_length: FilterObservationHistoryLength | None = None
@@ -47,7 +70,7 @@ class AuxiliaryFilterConfig[
     FilterObservationHistoryLength: int,
 ]:
     label: FilterKind = field(init=False, default="auxiliary")
-    resample: ResampleKind
+    resample: ResampleConfig
     num_particles: int
     latent_context_length: FilterLatentHistoryLength | None = None
     observation_context_length: FilterObservationHistoryLength | None = None
@@ -57,6 +80,24 @@ registry = {
     "bootstrap": BootstrapFilterConfig,
     "auxiliary": AuxiliaryFilterConfig,
 }
+
+
+def _resolve_resampler(config: ResampleConfig) -> pf_interface.Resampler:
+    resample_kind = config if isinstance(config, str) else config.resample
+
+    try:
+        resampler = resample_registry[resample_kind]
+    except KeyError as error:
+        raise ValueError(f"Unsupported resampler: {resample_kind!r}") from error
+
+    if isinstance(config, str):
+        return resampler
+
+    return partial(
+        conditional_resample,
+        resampler=resampler,
+        ess_threshold=config.ess_threshold,
+    )
 
 
 def build_filter[
@@ -101,10 +142,7 @@ def build_filter[
             f"{type(config).__name__}"
         )
 
-    try:
-        resampler = resample_registry[config.resample]
-    except KeyError as error:
-        raise ValueError(f"Unsupported resampler: {config.resample!r}") from error
+    resampler = _resolve_resampler(config.resample)
 
     proposal = TransitionProposal(
         target=target_ssm,

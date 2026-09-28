@@ -1,6 +1,3 @@
-import typing
-from dataclasses import dataclass
-
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
@@ -74,17 +71,26 @@ def _ess_efficiency_from_log_weights(log_weights: Array) -> Array:
     return jnp.exp(-log_sum_W2) / jnp.asarray(N, dtype=log_weights.dtype)
 
 
-def conditional_resample(key, log_weights, num_resample, threshold=0.5):
+def conditional_resample(
+    key: PRNGKeyArray,
+    log_weights: Array,
+    num_resample: int,
+    *,
+    resampler: pf_interface.Resampler,
+    ess_threshold: float,
+) -> pf_interface.AncestorSample:
+    """Resample when the effective sample-size efficiency is below a threshold."""
+
     ess_efficiency = _ess_efficiency_from_log_weights(log_weights)
 
     def resample_fn():
-        return multinomial_resample_from_log_weights(key, log_weights, num_resample)
+        return resampler(key, log_weights, num_resample)
 
     def no_resample_fn():
         return no_resample(key, log_weights, num_resample)
 
     return jax.lax.cond(
-        ess_efficiency < threshold,
+        ess_efficiency < ess_threshold,
         resample_fn,
         no_resample_fn,
     )
